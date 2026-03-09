@@ -1,79 +1,63 @@
 # Face Anti-Spoofing and Recognition System
 
-This project implements a biometric face authentication system that combines **fake face detection (anti-spoofing)** and **face recognition** using computer vision techniques.
+This project implements a simple **face authentication system** that combines:
 
-The system first determines whether a detected face is **genuine or spoofed** (for example AI-generated or presentation attacks).
-Only if the face is considered genuine, the system proceeds with **identity recognition**.
+* **face detection**
+* **anti-spoofing (fake face detection)**
+* **face recognition**
 
-The goal is to demonstrate how modern biometric systems integrate **security mechanisms against spoofing attacks** before performing identity verification.
+The system detects a face from a webcam or image, determines whether the face is **real or spoofed**, and only if the face is genuine proceeds with **identity recognition**.
 
 ---
 
-## System Overview
+## Installation
 
-Typical system workflow:
+### 1. Clone the repository
 
-```text
-image / webcam input
-        ↓
-face detection
-        ↓
-preprocessing
-        ↓
-fake face detection (anti-spoofing)
-        ↓
-(real face?)
-   ↓            ↓
- reject     face recognition
-                  ↓
-            identity decision
+```bash
+git clone https://github.com/valerio-cucchiaro/Face-Anti-Spoofing-and-Recognition-System.git
+cd Face-Anti-Spoofing-and-Recognition-System
 ```
 
-The system therefore performs two main tasks:
+### 2. Create Python virtual environment
 
-* **Fake Face Detection** (anti-spoofing)
-* **Face Recognition**
+```bash
+python -m venv venv
+```
 
----
+### 3. Activate the environment
 
-## Objectives
+**Windows (Command Prompt)**:
 
-The project aims to:
+```bash
+venv\Scripts\activate
+```
 
-* detect human faces in images or video streams
-* distinguish **real faces from spoofed or synthetic faces**
-* prevent presentation attacks in biometric systems
-* extract facial features
-* perform identity recognition when the face is genuine
-* evaluate system performance using biometric metrics
+**Linux / macOS**:
 
----
+```bash
+source venv/bin/activate
+```
 
-## Technologies
+### 4. Install dependencies
 
-Planned technologies:
-
-Programming language:
-
-* Python
-
-Libraries:
-
-* OpenCV
-* NumPy
-* Scikit-learn
-* Matplotlib
-
-Optional (depending on experiments):
-
-* TensorFlow
-* PyTorch
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
-## Project Structure
+## Running the project
 
-Planned modular structure:
+Example:
+
+```bash
+python main.py
+```
+
+---
+
+## Planned Structure
 
 ```text
 project/
@@ -88,45 +72,15 @@ project/
 └── demo/
 ```
 
-Each module will correspond to a specific stage of the biometric processing pipeline.
+Each module corresponds to a stage of the biometric processing pipeline.
 
 ---
 
-## Relation to Biometric Systems
+## Requirements
 
-This project implements a simplified **biometric authentication system** including:
+Main libraries used:
 
-* acquisition
-* preprocessing
-* feature extraction
-* template matching
-* identity decision
-
-Additionally, the system includes a **presentation attack detection (PAD)** module that determines whether the face presented to the system is genuine or spoofed.
-
-Performance will be evaluated using biometric metrics such as:
-
-* FAR (False Acceptance Rate)
-* FRR (False Rejection Rate)
-* EER
-* ROC curves
-
----
-
-## Relation to Computer Vision
-
-From the computer vision perspective, the project involves:
-
-* face detection
-* image preprocessing
-* feature extraction
-* image classification (real vs fake face)
-* pattern recognition for identity matching
-
-These steps follow a standard computer vision pipeline applied to facial image analysis.
-
----
-
-## Project Status
-
-Initial setup and system design phase.
+* OpenCV
+* NumPy
+* Scikit-learn
+* Matplotlib

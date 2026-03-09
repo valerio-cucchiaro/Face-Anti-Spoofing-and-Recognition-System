@@ -357,14 +357,27 @@ The project will be organized as a modular system.
 ```text
 project/
 │
-├── dataset/
-├── detection/
-├── preprocessing/
-├── antispoofing/
-├── feature_extraction/
-├── recognition/
-├── evaluation/
-└── demo/
+├── main.py                # entry point per eseguire la pipeline
+│
+├── dataset/               # raccolta immagini e gestione dataset
+│
+├── detection/             # face detection
+│
+├── preprocessing/         # crop, resize, normalization
+│
+├── antispoofing/          # presentation attack detection
+│
+├── feature_extraction/    # embeddings / feature vectors
+│
+├── recognition/           # matching / identity decision
+│
+├── evaluation/            # FAR, FRR, ROC, metrics
+│
+├── demo/                  # demo scripts o UI
+│
+├── models/                # modelli ML (haar, reti, ecc.)
+│
+└── utils/                 # funzioni comuni (camera, IO, ecc.)
 ```
 
 The same implementation will support both courses, while the final reports will emphasize different theoretical aspects.
