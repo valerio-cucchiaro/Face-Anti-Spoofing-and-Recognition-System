@@ -88,3 +88,50 @@ This normalization step improves robustness for future face recognition and anti
 
 **Stage 1 completed**:
 Implemented and stabilized the real-time webcam face detection and preprocessing pipeline, including largest-face selection, distance feedback, crop, resize, and histogram equalization. The codebase was modularized into main orchestration, detection, and preprocessing modules. The project is now ready to move to Stage 2: dataset collection.
+
+**Stage 2: Dataset Collection Implementation**:
+
+- created dataset module `src/dataset/dataset_collector.py`
+- created dataset directory structure `data/dataset/<person>`
+- implemented automatic dataset directory creation if missing
+- implemented dataset indexing to continue numbering existing images
+- integrated face detection and preprocessing pipeline inside dataset collector
+- implemented face validation using minimum face area threshold
+- implemented keyboard-controlled dataset capture (`s` key)
+- implemented sequential image saving (`001.png`, `002.png`, ...)
+- implemented maximum sample limit per person
+- collected first dataset samples for initial testing (30 images)
+
+The dataset collector reuses the same detection and preprocessing pipeline used in the main application to ensure consistency between training data and runtime recognition.
+
+**Dataset Loading Implementation**:
+
+Implemented the dataset loading module required for training the face recognition model.
+
+- created dataset loader module `src/dataset/dataset_loader.py`
+- implemented automatic scanning of all person directories inside `data/dataset/`
+- implemented dynamic assignment of numeric labels to each person
+- implemented label mapping (`label → person_name`)
+- implemented loading of dataset images in grayscale using OpenCV
+- implemented construction of `faces` and `labels` arrays required for training
+- added basic validation to skip unreadable images
+
+The dataset loader converts the dataset folder structure into the format required by OpenCV face recognizers (list of face images and corresponding numeric labels).
+
+## IN FASE DI IMPLEMENTAZIONE
+
+1. Train face recognition model (LBPH)
+
+2. Save trained model to disk
+
+3. Implement face recognition in main pipeline
+
+4. Integrate recognition with webcam detection
+
+5. Display predicted identity in real time
+
+6. Prepare anti-spoofing module structure
+
+7. Implement liveness detection approach
+
+8. Evaluate recognition and anti-spoofing performance

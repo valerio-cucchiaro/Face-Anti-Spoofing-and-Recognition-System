@@ -27,8 +27,7 @@ Thumbs.db
 *.temp
 
 # Dataset (optional if very large)
-dataset/raw/
-dataset/downloads/
+data/dataset
 
 # Python build
 build/
