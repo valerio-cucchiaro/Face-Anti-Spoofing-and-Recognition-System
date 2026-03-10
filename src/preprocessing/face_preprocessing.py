@@ -12,3 +12,7 @@ def crop_face(gray_frame, x, y, w, h):
 def resize_face(face, size=(128, 128)):
     # resize the face region to a fixed size
     return cv2.resize(face, size)
+
+def face_histogram_equalization(face):
+    # apply histogram equalization to the face region
+    return cv2.equalizeHist(face)

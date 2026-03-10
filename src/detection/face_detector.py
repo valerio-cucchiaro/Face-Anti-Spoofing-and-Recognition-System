@@ -10,11 +10,11 @@ def load_face_detector(model_path: str):
     
     return detector
 
-def detect_faces(detector, gray_frame):
+def detect_faces(detector, gray_frame, scaleFactor, minNeighbors, minSize):
     # detect faces in the grayscale frame using the Haar Cascade classifier
     return detector.detectMultiScale(
         gray_frame, 
-        scaleFactor=1.1, 
-        minNeighbors=5,
-        minSize=(30, 30)
+        scaleFactor=scaleFactor, 
+        minNeighbors=minNeighbors,
+        minSize=minSize
     )

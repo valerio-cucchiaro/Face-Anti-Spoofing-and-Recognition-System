@@ -57,3 +57,34 @@ project/
     ├── __init__.py
     └── face_preprocessing.py
 ```
+
+## 2026-03-10
+
+**Face Detection Improvements**:
+
+Refined the face detection stage and improved runtime behavior of the webcam pipeline.
+
+- implemented detection handling when no faces are found
+- added on-screen feedback message ("No face detected")
+- modified detection logic to select only the largest detected face when multiple faces are present
+- added distance feedback to the user based on detected face size ("Move closer to the camera")
+- introduced configurable detection parameters (`scaleFactor`, `minNeighbors`, `minSize`)
+- exposed detection parameters as constants in `main.py` to simplify tuning
+
+These changes improve detection stability and provide clearer feedback during webcam interaction.
+
+**Face Preprocessing Improvements**:
+
+Extended the preprocessing pipeline with illumination normalization.
+
+- implemented histogram equalization (`cv2.equalizeHist`) on the detected face region
+- added new preprocessing function `face_histogram_equalization()` to `preprocessing.py`
+
+Updated preprocessing pipeline:
+
+webcam frame → grayscale → face detection → face crop → resize → histogram equalization
+
+This normalization step improves robustness for future face recognition and anti-spoofing stages by reducing sensitivity to lighting variations.
+
+**Stage 1 completed**:
+Implemented and stabilized the real-time webcam face detection and preprocessing pipeline, including largest-face selection, distance feedback, crop, resize, and histogram equalization. The codebase was modularized into main orchestration, detection, and preprocessing modules. The project is now ready to move to Stage 2: dataset collection.
