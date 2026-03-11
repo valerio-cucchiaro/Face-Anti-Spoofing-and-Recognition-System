@@ -1,11 +1,17 @@
 import cv2
 from pathlib import Path
+import numpy as np
 
 
 # ----- CONSTANTS ----- #
 DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "dataset"
 
 def load_dataset():
+
+    # check if the dataset directory exists: NO --> FileNotFoundError
+    if not DATASET.exists():
+        raise FileNotFoundError(f"Dataset directory not found: {DATASET}")
+
     faces = []      # list to store the detected faces
     labels = []     # list to store the corresponding labels of the detected faces
     label_map = {}  # dictionary to map person names to integer labels
@@ -36,4 +42,4 @@ def load_dataset():
                 faces.append(image)
                 labels.append(current_label)
     
-    return faces, labels, label_map
+    return faces, np.array(labels), label_map

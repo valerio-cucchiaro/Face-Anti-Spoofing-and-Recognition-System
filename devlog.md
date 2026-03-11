@@ -118,6 +118,137 @@ Implemented the dataset loading module required for training the face recognitio
 
 The dataset loader converts the dataset folder structure into the format required by OpenCV face recognizers (list of face images and corresponding numeric labels).
 
+## 2026-03-11 — Project Refactor: Modular Pipeline Architecture
+
+### Summary
+
+Major refactor of the project architecture to properly separate modules and support three different pipelines:
+
+- Full system (GitHub project)
+- Computer Vision project
+- Biometric Systems project
+
+The goal of this refactor was to cleanly separate **detection**, **preprocessing**, and **pipeline logic**, making the system modular and easier to maintain and extend.
+
+---
+
+### Implemented Changes
+
+#### 1. Modular Pipeline Architecture
+
+Created a new `pipeline` module to centralize orchestration logic.
+
+```text
+src/pipeline/
+```
+
+Two core files were introduced:
+
+```text
+frame_processing.py
+run_pipeline_full.py
+```
+
+- `frame_processing.py` contains logic for validating detected faces.
+- `run_pipeline_full.py` contains the full runtime pipeline of the system.
+
+---
+
+#### 2. Face Validation Module
+
+Implemented the function:
+
+```text
+get_valid_face()
+```
+
+This function performs the following steps:
+
+1. Convert frame to grayscale
+2. Detect faces
+3. Select the largest detected face
+4. Verify minimum face area threshold
+
+This module acts as the bridge between:
+
+```text
+detection → preprocessing
+```
+
+and keeps validation logic out of the main pipeline.
+
+---
+
+#### 3. Preprocessing Pipeline Function
+
+Added a new function in:
+
+```text
+src/preprocessing/face_preprocessing.py
+```
+
+```text
+preprocess_face()
+```
+
+This function performs the complete preprocessing pipeline:
+
+```text
+crop → resize → histogram equalization
+```
+
+This centralizes preprocessing operations and avoids duplicated logic.
+
+---
+
+#### 4. Full Pipeline Implementation
+
+Created:
+
+```text
+src/pipeline/run_pipeline_full.py
+```
+
+Implemented the function:
+
+```text
+run_pipeline_full()
+```
+
+This pipeline currently performs:
+
+```text
+webcam acquisition
+↓
+face detection
+↓
+face validation
+↓
+face preprocessing
+↓
+display
+```
+
+This represents the **current operational system**.
+
+---
+
+#### 5. Entry Point Refactor
+
+Refactored the main scripts to act only as entry points.
+
+```text
+src/main.py
+src/main_cv.py
+src/main_bs.py
+```
+
+Each file now simply launches its corresponding pipeline:
+
+```text
+main
+```
+
 ## IN FASE DI IMPLEMENTAZIONE
 
 1. Train face recognition model (LBPH)

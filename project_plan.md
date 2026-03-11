@@ -187,7 +187,35 @@ fake face
 
 ---
 
-### 3.3 Evaluation Methodology
+### 3.3 Software Architecture
+
+The implementation is organized as a modular system in order to keep the different processing stages independent.
+
+The main modules of the system are:
+
+* detection
+* preprocessing
+* antispoofing
+* recognition
+* evaluation
+
+A dedicated pipeline layer coordinates the execution of these modules.
+
+During development three pipeline versions are maintained:
+
+* run_pipeline_full: complete system used for development and integration
+* run_pipeline_cv: simplified pipeline used for the Computer Vision project
+* run_pipeline_bs: biometric pipeline used for the Biometric Systems project
+
+Each pipeline is executed through a minimal entry-point script:
+
+* main.py → run_pipeline_full
+* main_cv.py → run_pipeline_cv
+* main_bs.py → run_pipeline_bs
+
+This structure allows reuse of the same modules while enabling different experimental configurations for the two courses.
+
+### 3.4 Evaluation Methodology
 
 The system will be evaluated using common biometric performance metrics:
 
