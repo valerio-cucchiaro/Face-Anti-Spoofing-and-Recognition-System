@@ -1,8 +1,21 @@
-# import OpenCV library for image processing
+"""
+Module: face_detector
+
+Description:
+This module provides utilities for loading and using the Haar Cascade
+face detector from OpenCV.
+
+It encapsulates the initialization of the classifier and exposes a
+function for detecting faces in grayscale frames. The detected face
+regions are returned as bounding boxes used by later stages of the
+pipeline.
+"""
+
 import cv2  
 
 def load_face_detector(model_path: str):
-    # upload classifier
+    """Load and initialize the Haar Cascade face detector."""
+
     detector = cv2.CascadeClassifier(model_path)
 
     if detector.empty():
@@ -11,7 +24,8 @@ def load_face_detector(model_path: str):
     return detector
 
 def detect_faces(detector, gray_frame, scaleFactor, minNeighbors, minSize):
-    # detect faces in the grayscale frame using the Haar Cascade classifier
+    """Detect faces in a grayscale frame using the Haar Cascade classifier."""
+
     return detector.detectMultiScale(
         gray_frame, 
         scaleFactor=scaleFactor, 

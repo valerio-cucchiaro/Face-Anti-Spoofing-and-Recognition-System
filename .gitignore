@@ -28,8 +28,13 @@ Thumbs.db
 
 # Dataset (optional if very large)
 data/dataset
+data/test
 
 # Python build
 build/
 dist/
 *.egg-info/
+
+# Training Models
+models/label_map.pkl
+models/lbph_model.xml

@@ -1,3 +1,16 @@
+"""
+Module: dataset_loader
+
+Description:
+This module loads the face dataset used for training the recognition
+model. It scans the dataset directory, reads all stored face images,
+and converts the folder-based dataset structure into the format
+required by the OpenCV face recognizers.
+
+Each person directory is assigned a numeric label and a mapping
+between labels and person names is created.
+"""
+
 import cv2
 from pathlib import Path
 import numpy as np
@@ -7,6 +20,14 @@ import numpy as np
 DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "dataset"
 
 def load_dataset():
+    """
+    Load face images and corresponding labels from the dataset directory.
+
+    The function scans each person folder inside the dataset, reads the
+    stored face images, assigns numeric labels to each identity, and
+    returns the data in a format suitable for training the recognition
+    model.
+    """
 
     # check if the dataset directory exists: NO --> FileNotFoundError
     if not DATASET.exists():

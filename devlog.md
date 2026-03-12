@@ -9,6 +9,8 @@
 - connected local project to GitHub repository
 - created general `.gitignore`
 
+---
+
 ## 2026-03-09
 
 **Environment Setup**:
@@ -57,6 +59,8 @@ project/
     ├── __init__.py
     └── face_preprocessing.py
 ```
+
+---
 
 ## 2026-03-10
 
@@ -118,106 +122,29 @@ Implemented the dataset loading module required for training the face recognitio
 
 The dataset loader converts the dataset folder structure into the format required by OpenCV face recognizers (list of face images and corresponding numeric labels).
 
+---
+
 ## 2026-03-11 — Project Refactor: Modular Pipeline Architecture
 
-### Summary
+**Pipeline Architecture Refactor**:
 
-Major refactor of the project architecture to properly separate modules and support three different pipelines:
+- created new module `src/pipeline/` to centralize system orchestration
+- created `frame_processing.py` for frame-level validation logic
+- created `run_pipeline_full.py` implementing the full runtime pipeline
+- implemented function `get_valid_face()` to validate detected faces
+- added face validation steps: grayscale conversion, face detection, largest face selection, minimum face area check
+- implemented `preprocess_face()` function in `src/preprocessing/face_preprocessing.py`
+- centralized preprocessing pipeline: crop → resize → histogram equalization
+- refactored the runtime pipeline to use modular detection, validation, and preprocessing stages
+- created clean entry points:
 
-- Full system (GitHub project)
-- Computer Vision project
-- Biometric Systems project
+  - `src/main.py`
+  - `src/main_cv.py`
+  - `src/main_bs.py`
+- separated orchestration logic from processing modules
 
-The goal of this refactor was to cleanly separate **detection**, **preprocessing**, and **pipeline logic**, making the system modular and easier to maintain and extend.
+Runtime pipeline after refactor:
 
----
-
-### Implemented Changes
-
-#### 1. Modular Pipeline Architecture
-
-Created a new `pipeline` module to centralize orchestration logic.
-
-```text
-src/pipeline/
-```
-
-Two core files were introduced:
-
-```text
-frame_processing.py
-run_pipeline_full.py
-```
-
-- `frame_processing.py` contains logic for validating detected faces.
-- `run_pipeline_full.py` contains the full runtime pipeline of the system.
-
----
-
-#### 2. Face Validation Module
-
-Implemented the function:
-
-```text
-get_valid_face()
-```
-
-This function performs the following steps:
-
-1. Convert frame to grayscale
-2. Detect faces
-3. Select the largest detected face
-4. Verify minimum face area threshold
-
-This module acts as the bridge between:
-
-```text
-detection → preprocessing
-```
-
-and keeps validation logic out of the main pipeline.
-
----
-
-#### 3. Preprocessing Pipeline Function
-
-Added a new function in:
-
-```text
-src/preprocessing/face_preprocessing.py
-```
-
-```text
-preprocess_face()
-```
-
-This function performs the complete preprocessing pipeline:
-
-```text
-crop → resize → histogram equalization
-```
-
-This centralizes preprocessing operations and avoids duplicated logic.
-
----
-
-#### 4. Full Pipeline Implementation
-
-Created:
-
-```text
-src/pipeline/run_pipeline_full.py
-```
-
-Implemented the function:
-
-```text
-run_pipeline_full()
-```
-
-This pipeline currently performs:
-
-```text
 webcam acquisition
 ↓
 face detection
@@ -227,42 +154,85 @@ face validation
 face preprocessing
 ↓
 display
-```
 
-This represents the **current operational system**.
+This refactor establishes a clean modular architecture that will support the future integration of face recognition and anti‑spoofing modules.
 
 ---
 
-#### 5. Entry Point Refactor
+## 2026-03-12
 
-Refactored the main scripts to act only as entry points.
+**Face Recognition Training Implementation**:
 
-```text
-src/main.py
-src/main_cv.py
-src/main_bs.py
-```
+- created recognition module `src/recognition/`
+- implemented training script `src/recognition/train_model.py`
+- integrated dataset loader with recognition training pipeline
+- initialized OpenCV LBPH face recognizer
+- trained recognition model using dataset images
+- implemented automatic creation of `models/` directory if missing
+- saved trained model to `models/lbph_model.xml`
+- saved label mapping to `models/label_map.pkl`
+- updated project dependencies to use `opencv-contrib-python` (required for LBPH recognizer)
 
-Each file now simply launches its corresponding pipeline:
+**Offline Recognition Testing**:
 
-```text
-main
-```
+- implemented offline evaluation script `src/recognition/test_model.py`
+- added functionality to load trained LBPH model from disk
+- implemented loading of label mapping file
+- implemented prediction of identity using test dataset images
+- implemented confidence score reporting for each prediction
+- implemented automatic accuracy calculation on test dataset
+- validated recognition performance using reserved test images
+
+**Recognition Evaluation Preparation**:
+
+- collected confidence values for genuine matches
+- prepared infrastructure for computing genuine and impostor score distributions
+- prepared threshold-based recognition logic for handling unknown identities
+
+Recognition decision rule prepared for runtime pipeline:
+
+if confidence < threshold
+→ recognized identity
+else
+→ Unknown
+
+This stage completes the offline face recognition workflow and prepares the system for integration of real‑time recognition into the webcam pipeline.
+
+**Real-Time Face Recognition Integration**:
+
+- created recognition runtime module `src/recognition/face_recognizer.py`
+- implemented function `load_recognizer()` to load the trained LBPH model and label map
+- implemented function `predict_identity()` to perform identity prediction
+- implemented threshold-based classification to handle unknown identities
+- integrated recognition stage into the full webcam pipeline (`run_pipeline_full.py`)
+- implemented real-time identity prediction on detected faces
+- added visualization of predicted identity on the webcam stream
+- added visualization of LBPH confidence score
+- implemented runtime classification rule:
+
+confidence < threshold → recognized identity  
+confidence ≥ threshold → Unknown
+
+- validated recognition behavior using partial occlusions and distance variations
+- confirmed that high confidence values correctly trigger "Unknown" classification
+- added module and function docstring
+
+---
 
 ## IN FASE DI IMPLEMENTAZIONE
 
-1. Train face recognition model (LBPH)
+1. Improve recognition robustness with multiple identities in the dataset
 
-2. Save trained model to disk
+2. Collect dataset samples for additional users
 
-3. Implement face recognition in main pipeline
+3. Evaluate recognition performance and tune UNKNOWN_THRESHOLD
 
-4. Integrate recognition with webcam detection
+4. Design anti-spoofing module architecture
 
-5. Display predicted identity in real time
+5. Implement liveness detection approach
 
-6. Prepare anti-spoofing module structure
+6. Integrate anti-spoofing into the runtime pipeline
 
-7. Implement liveness detection approach
+7. Combine recognition and anti-spoofing decisions
 
 8. Evaluate recognition and anti-spoofing performance

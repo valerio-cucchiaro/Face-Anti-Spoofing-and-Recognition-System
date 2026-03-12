@@ -1,3 +1,18 @@
+"""
+Module: dataset_collector
+
+Description:
+This module is responsible for collecting face images used to build
+the training dataset for the recognition model.
+
+The script captures frames from the webcam, detects and validates a
+face, applies the same preprocessing pipeline used in the runtime
+system, and stores the processed face images in the dataset directory.
+
+Images are saved sequentially and can be captured interactively
+through keyboard input.
+"""
+
 import cv2
 from pathlib import Path
 
@@ -14,10 +29,17 @@ THRESHOLD_AREA = 3000   # minimum area of the detected face to be considered val
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "haarcascade_frontalface_default.xml"
 PERSON = "valerio"
 DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "dataset" / PERSON
-MAX_IMAGES = 30 
+MAX_IMAGES = 50 
 
 
 def collect_dataset():
+    """
+    Collect face samples from the webcam to build the training dataset.
+
+    The function detects and validates faces in real time, applies the
+    standard preprocessing pipeline, and saves the resulting face images
+    to the dataset directory when the user presses the capture key.
+    """
 
     # create the dataset directory if it doesn't exist
     DATASET.mkdir(parents=True, exist_ok=True)  
