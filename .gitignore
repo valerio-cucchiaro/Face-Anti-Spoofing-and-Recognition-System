@@ -29,6 +29,8 @@ Thumbs.db
 # Dataset (optional if very large)
 data/dataset
 data/test
+data/casia_pad
+data/pad_runtime_test
 
 # Python build
 build/
@@ -38,3 +40,7 @@ dist/
 # Training Models
 models/label_map.pkl
 models/lbph_model.xml
+models/pad_scaler.joblib
+models/pad_svm.joblib
+
+antispoofing.txt

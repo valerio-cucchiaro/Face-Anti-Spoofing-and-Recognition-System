@@ -3,7 +3,7 @@ from pathlib import Path
 
 from src.detection.face_detector import detect_faces, load_face_detector
 from src.preprocessing.face_preprocessing import to_grayscale, preprocess_face
-from src.pipeline.frame_preprocessing import get_valid_face
+from preprocessing.frame_preprocessing import get_valid_face
 
 
 # ----- CONSTANTS ----- #

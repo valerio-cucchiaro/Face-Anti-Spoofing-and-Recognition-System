@@ -58,8 +58,8 @@ If the system determines that the face is genuine, it will then attempt to recog
 
 The project therefore integrates two main functionalities:
 
-* **face anti-spoofing** (fake face detection)
-* **face recognition**
+* face anti-spoofing (fake face detection)
+* face recognition
 
 This structure reflects real biometric authentication systems, where security mechanisms are used to prevent spoofing attacks before identity verification.
 
@@ -83,7 +83,7 @@ The main objectives of the system are:
 
 The system will follow an extended biometric recognition pipeline.
 
-#### System Pipeline
+Processing pipeline:
 
 1. Image acquisition
 2. Face detection
@@ -118,8 +118,6 @@ reject   face recognition
 
 ### 2.4 Technologies Used
 
-Main technologies expected to be used:
-
 Programming language:
 
 * Python
@@ -128,13 +126,14 @@ Libraries:
 
 * OpenCV
 * NumPy
-* Scikit-learn
-* Matplotlib
+* scikit-image
+* scikit-learn
+* MediaPipe
+* matplotlib
 
-Optional (depending on experiments):
+Additional utilities:
 
-* TensorFlow
-* PyTorch
+* joblib
 
 ---
 
@@ -145,17 +144,30 @@ Optional (depending on experiments):
 The dataset will consist of:
 
 * facial images of real people
-* images or samples representing spoofed faces (e.g. images or synthetic faces)
+* images or videos representing spoofed faces
 
 Possible sources include:
 
-* public datasets
-* controlled images captured with webcam
+* CASIA Face Anti-Spoofing Dataset
+* Replay-Attack Dataset
+
+These datasets include common presentation attacks such as:
+
+* printed photo attacks
+* replay attacks using screens
+
+In addition to public datasets, a **small custom dataset** may be collected using a webcam including:
+
+* genuine faces
+* printed photographs
+* replay attacks on smartphone screens
+* AI-generated faces displayed on screens
 
 The dataset will be divided into:
 
 * training set
-* test set
+* validation set
+* testing set
 
 ---
 
@@ -163,12 +175,12 @@ The dataset will be divided into:
 
 Example processing pipeline:
 
-1. Load image
+1. Load image or capture webcam frame
 2. Convert to grayscale
 3. Detect face using OpenCV
-4. Normalize the detected face
+4. Normalize the detected face (crop, resize, illumination normalization)
 5. Perform anti-spoofing analysis
-6. If the face is genuine, extract features
+6. If the face is genuine, extract recognition features
 7. Train recognition classifier
 8. Perform identity recognition
 
@@ -187,11 +199,146 @@ fake face
 
 ---
 
-### 3.3 Software Architecture
+### 3.3 Anti-Spoofing Methodology
 
-The implementation is organized as a modular system in order to keep the different processing stages independent.
+The anti-spoofing module is inspired by the selected research paper on **face presentation attack detection based on multi-scale image quality assessment**.
 
-The main modules of the system are:
+The central idea is that spoofed faces often contain **perceptual quality artifacts** introduced during the printing or screen recapturing process.
+
+Typical artifacts include:
+
+* luminance distortions
+* blur and defocus
+* contrast alterations
+* texture inconsistencies
+* recapturing noise
+
+These artifacts can be detected using **hand-crafted image features combined with a classifier**.
+
+The anti-spoofing pipeline will therefore follow this structure:
+
+```text
+Face image
+      ↓
+Feature extraction
+      ↓
+Feature vector
+      ↓
+Machine learning classifier
+      ↓
+real / spoof decision
+```
+
+---
+
+### 3.4 Anti-Spoofing Feature Extraction
+
+Three groups of features will be extracted from each detected face.
+
+#### Texture Features
+
+Texture descriptors capture local spatial variations in facial images.
+
+The main descriptor used will be:
+
+* Local Binary Pattern (LBP)
+
+LBP histograms provide robust texture representations and have been widely used in face anti-spoofing research.
+
+These features help detect:
+
+* printing artifacts
+* screen pixel patterns
+* texture inconsistencies
+
+---
+
+#### Image Quality Features
+
+Image quality metrics capture distortions introduced during spoof attacks.
+
+Examples include:
+
+* variance of Laplacian (blur detection)
+* contrast statistics
+* luminance distribution
+* edge density
+* high-frequency energy
+
+These features model degradation effects caused by the **recapturing process**.
+
+---
+
+#### Temporal Features
+
+Temporal cues help detect replay attacks using video sequences.
+
+Examples include:
+
+* blink detection
+* head motion consistency
+* short temporal motion analysis
+
+Temporal analysis helps distinguish real human faces from static images or replayed videos.
+
+---
+
+### 3.5 Feature Vector
+
+All extracted features will be combined into a single feature vector.
+
+Example structure:
+
+```text
+[
+LBP histogram bins,
+blur score,
+contrast score,
+luminance statistics,
+edge density,
+noise level,
+blink indicator,
+temporal motion score
+]
+```
+
+This feature vector represents the input for the classification stage.
+
+---
+
+### 3.6 Classification Model
+
+The anti-spoofing classification will be performed using:
+
+```text
+Support Vector Machine (SVM)
+```
+
+Reasons for this choice:
+
+* effective for medium-size feature vectors
+* widely used in traditional PAD systems
+* simpler than training deep neural networks from scratch
+
+Suggested configuration:
+
+* RBF kernel
+* grid search for hyperparameter tuning
+
+The classifier will output:
+
+```text
+real
+spoof
+```
+
+---
+
+### 3.7 Software Architecture
+
+The implementation will follow a modular architecture.
+
+Main modules:
 
 * detection
 * preprocessing
@@ -199,143 +346,74 @@ The main modules of the system are:
 * recognition
 * evaluation
 
-A dedicated pipeline layer coordinates the execution of these modules.
+A pipeline module coordinates the execution of the system.
 
-During development three pipeline versions are maintained:
+Three pipeline configurations will be maintained:
 
-* run_pipeline_full: complete system used for development and integration
-* run_pipeline_cv: simplified pipeline used for the Computer Vision project
-* run_pipeline_bs: biometric pipeline used for the Biometric Systems project
+* run_pipeline_full → complete system
+* run_pipeline_cv → Computer Vision version
+* run_pipeline_bs → Biometric Systems version
 
-Each pipeline is executed through a minimal entry-point script:
+Entry points:
 
-* main.py → run_pipeline_full
-* main_cv.py → run_pipeline_cv
-* main_bs.py → run_pipeline_bs
+* main.py
+* main_cv.py
+* main_bs.py
 
-This structure allows reuse of the same modules while enabling different experimental configurations for the two courses.
+---
 
-### 3.4 Evaluation Methodology
+### 3.8 Evaluation Methodology
 
-The system will be evaluated using common biometric performance metrics:
+The system will be evaluated using biometric performance metrics:
 
 * FAR (False Acceptance Rate)
 * FRR (False Rejection Rate)
 * GAR
 * EER
-* ROC curve
+* ROC curves
 
-In the context of anti-spoofing:
+For anti-spoofing evaluation:
 
-* FAR represents a **fake face incorrectly accepted as genuine**
-* FRR represents a **real user incorrectly rejected**
+* FAR represents a fake face incorrectly accepted as genuine
+* FRR represents a real user incorrectly rejected
 
-Dataset organization will follow a standard experimental protocol:
+Dataset organization will follow a standard protocol:
 
 * training set
 * testing set
-* probe vs gallery split for recognition
+* gallery vs probe split for recognition
 
 ---
 
 ## 4. Connection with Biometric Systems Course
 
-The project strongly relates to several topics studied in the Biometric Systems course.
-
-### Biometric System Architecture
-
-The system follows the typical biometric processing pipeline including:
-
-* acquisition
-* preprocessing
-* feature extraction
-* template creation
-* matching
-* decision
-
-An additional **presentation attack detection stage** is introduced for security.
-
----
-
-### Presentation Attacks and Spoofing
-
-Modern biometric systems must defend against attacks such as:
-
-* printed photos
-* screen replay attacks
-* synthetic or AI-generated faces
-
-The anti-spoofing module directly addresses this problem.
-
----
-
-### Performance Evaluation
-
-The following biometric evaluation metrics will be used:
-
-* FAR
-* FRR
-* GAR
-* EER
-* ROC curves
-
-These metrics allow a quantitative analysis of the biometric system performance.
-
----
-
-### Face Biometrics
-
 Relevant topics include:
 
-* face localization
-* facial feature extraction
-* template matching
-* identity verification
+* biometric system architecture
+* face recognition
+* presentation attack detection
+* biometric performance evaluation
+
+The project demonstrates the full biometric pipeline with the addition of a **presentation attack detection stage**.
 
 ---
 
 ## 5. Connection with Computer Vision Course
 
-The project also involves several key Computer Vision concepts.
-
-### Image Processing Pipeline
-
-The project applies a typical computer vision workflow including:
+Relevant Computer Vision concepts include:
 
 * image acquisition
 * object detection
 * image preprocessing
 * feature extraction
-* classification
+* image classification
 
----
-
-### Face Detection
-
-The project will implement face localization techniques using OpenCV detectors.
-
-This step corresponds to the object detection stage in computer vision.
-
----
-
-### Image Classification
-
-The anti-spoofing module represents an image classification problem:
+The anti-spoofing module represents a **binary image classification problem**.
 
 ```text
 real face
 fake face
 ```
-
-Machine learning techniques will be used to perform this classification.
-
----
-
-### Pattern Recognition
-
-The recognition module will apply pattern recognition techniques to match facial features with stored templates.
-
-Possible approaches include PCA-based recognition or texture-based methods.
 
 ---
 
@@ -350,14 +428,8 @@ Focus on:
 * biometric authentication architecture
 * anti-spoofing protection
 * template matching
-* security against presentation attacks
-* biometric evaluation metrics
-
-Additional tasks include:
-
-* detailed FAR/FRR analysis
-* performance comparison between configurations
-* experimental biometric evaluation.
+* presentation attack detection
+* biometric performance metrics
 
 ---
 
@@ -366,15 +438,10 @@ Additional tasks include:
 Focus on:
 
 * image processing pipeline
-* face detection algorithms
-* feature extraction techniques
-* classification of real vs fake faces
-* discussion of the related scientific paper
-
-Additional tasks include:
-
-* analysis of visual challenges such as illumination or pose
-* discussion of computer vision methods used in the project.
+* face detection
+* feature extraction
+* real vs spoof classification
+* discussion of the selected research paper
 
 ---
 
@@ -385,27 +452,14 @@ The project will be organized as a modular system.
 ```text
 project/
 │
-├── main.py                # entry point per eseguire la pipeline
-│
-├── dataset/               # raccolta immagini e gestione dataset
-│
-├── detection/             # face detection
-│
-├── preprocessing/         # crop, resize, normalization
-│
-├── antispoofing/          # presentation attack detection
-│
-├── feature_extraction/    # embeddings / feature vectors
-│
-├── recognition/           # matching / identity decision
-│
-├── evaluation/            # FAR, FRR, ROC, metrics
-│
-├── demo/                  # demo scripts o UI
-│
-├── models/                # modelli ML (haar, reti, ecc.)
-│
-└── utils/                 # funzioni comuni (camera, IO, ecc.)
+├── dataset/
+├── detection/
+├── preprocessing/
+├── antispoofing/
+├── feature_extraction/
+├── recognition/
+├── evaluation/
+└── demo/
 ```
 
-The same implementation will support both courses, while the final reports will emphasize different theoretical aspects.
+The same implementation supports both courses while reports highlight different theoretical aspects.

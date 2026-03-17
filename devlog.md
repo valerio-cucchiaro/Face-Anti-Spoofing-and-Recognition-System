@@ -219,6 +219,241 @@ confidence ≥ threshold → Unknown
 
 ---
 
+## 2026-03-16
+
+**Environment Fix and Dependency Update**:
+
+- detected incompatibility between Python 3.14 environment and OpenCV bindings (`cv2.imread` missing)
+- installed Python **3.12** for stable compatibility with OpenCV
+- recreated project virtual environment using Python 3.12
+- installed project dependencies compatible with computer vision stack
+- verified correct OpenCV installation and availability of `cv2.imread` and `cv2.face`
+- updated project environment for future anti-spoofing development
+
+**Anti-Spoofing Dataset Preparation**:
+
+- selected **CASIA-FASD** dataset for presentation attack detection training
+- downloaded dataset (train/test split with `live` and `spoof` samples)
+- extracted dataset locally and integrated it into project structure
+- created dataset directory `data/casia_pad/`
+- verified image loading using OpenCV (`cv2.imread`)
+- verified dataset image format and resolution (`112x112`)
+
+The dataset will be used to train and evaluate the texture-based anti-spoofing module before integration into the runtime pipeline.
+
+**Anti-Spoofing Feature Extraction**:
+
+- created module `src/antispoofing/texture_features.py`
+- implemented LBP-based texture feature extraction
+- generated normalized LBP histogram (10-dimensional feature vector)
+- created module `src/antispoofing/quality_features.py`
+- implemented basic image quality descriptors (mean, std, blur, edge density, entropy)
+- generated quality feature vector (5 features)
+- created module `src/antispoofing/feature_extractor.py`
+- implemented `extract_pad_features()` to combine LBP and quality descriptors
+- produced final PAD feature vector of **15 features**
+
+**Feature Extraction Testing**:
+
+- created testing script `src/antispoofing/test_features.py`
+- implemented functions to test texture, quality and combined features
+- loaded random images from CASIA-FASD dataset for validation
+- verified feature vector shapes and histogram normalization
+
+Output verification:
+
+- LBP feature vector: `(10,)`
+- Quality feature vector: `(5,)`
+- Combined PAD feature vector: `(15,)`
+
+**Anti-Spoofing Training Pipeline Implementation**:
+
+Extended the anti-spoofing module by implementing the PAD training pipeline using the CASIA-FASD dataset.
+
+- created PAD dataset loader `src/antispoofing/pad_dataset_loader.py`
+- implemented loading of live and spoof samples from `data/casia_pad/train/`
+- implemented feature extraction for each dataset image using the PAD feature extractor
+- constructed training feature matrix `X_train` and label vector `y_train`
+- created classifier module `src/antispoofing/svm_classifier.py`
+- implemented feature normalization using `StandardScaler`
+- implemented SVM classifier (`kernel=rbf`, `class_weight=balanced`, `probability=True`)
+- created training pipeline `src/antispoofing/train_pad.py`
+- integrated dataset loading and classifier training
+- implemented dataset statistics reporting during training
+- implemented automatic creation of `models/` directory
+- saved trained PAD artifacts:
+
+  - `models/pad_svm.joblib`
+  - `models/pad_scaler.joblib`
+
+The system can now train and store a complete PAD classifier for later runtime inference.
+
+**Anti-Spoofing Feature Improvements and Evaluation**:
+
+Refined the PAD feature extraction pipeline to improve spoof detection capability and feature robustness.
+
+- expanded LBP texture descriptor to multi-region histogram (54 features)
+- simplified quality feature set to stable statistical descriptors
+- implemented Local Feature Transformation (LFT) descriptor
+- created module `src/antispoofing/lft_features.py`
+- implemented computation of LFT map using local mean and variance normalization
+- implemented statistical descriptors from LFT map (mean, std, skewness, kurtosis)
+- integrated LFT features into PAD feature extractor
+- updated PAD feature vector size from **15 → 64 features**
+- updated testing script `src/antispoofing/test_antispoofing_features.py`
+- verified feature extraction pipeline correctness and vector dimensions
+
+Final PAD feature vector composition:
+
+LBP texture features → 54  
+Quality features → 6  
+LFT features → 4  
+
+Total PAD feature vector size → **64 features**
+
+**PAD Model Retraining and Evaluation**:
+
+- retrained SVM PAD classifier using updated feature set
+- trained on **51,793 samples** from CASIA-FASD dataset
+- evaluated model on **54,507 test samples**
+
+Evaluation results:
+
+Accuracy → **0.8849**  
+Precision → **0.6434**  
+Recall → **0.7533**  
+F1 Score → **0.6940**
+
+These results show improved recall and overall F1 score compared to the previous PAD configuration, confirming that the introduction of LFT features improves spoof detection performance.
+
+---
+
+## 2026-03-17
+
+**Anti-Spoofing Module Refactor (Training vs Runtime)**:
+
+- reorganized the anti-spoofing package to separate offline training/evaluation code from runtime inference code
+- created `src/antispoofing/training/` to contain PAD training, evaluation, dataset loading, runtime sample collection, and offline runtime testing
+- kept runtime PAD components at the root of `src/antispoofing/`
+- introduced `src/antispoofing/pad_inference_utils.py` to isolate runtime feature extraction from an already cropped face
+- updated PAD imports and filesystem paths after the refactor
+- renamed training helper `extract_face_features_for_img()` to `extract_pad_features_from_img()` for consistency with the PAD naming
+
+Updated anti-spoofing structure:
+
+```text
+src/antispoofing/
+├── spoof_detector.py
+├── pad_inference_utils.py
+├── feature_extractor.py
+├── texture_features.py
+├── quality_features.py
+├── lft_features.py
+└── training/
+    ├── train_pad.py
+    ├── evaluate_pad.py
+    ├── pad_dataset_loader.py
+    ├── svm_classifier.py
+    ├── collect_pad_runtime.py
+    ├── test_runtime.py
+    └── test_antispoofing_features.py
+```
+
+This refactor cleanly separates the offline PAD workflow from the runtime biometric pipeline while preserving shared feature extraction code.
+
+**PAD Runtime Inference Implementation**:
+
+- completed runtime anti-spoofing detector in `src/antispoofing/spoof_detector.py`
+- implemented runtime loading of:
+
+  - `models/pad_svm.joblib`
+  - `models/pad_scaler.joblib`
+
+- implemented `AntiSpoofingDetector.predict()` returning:
+
+  - PAD status (`ok` / `invalid_input`)
+  - binary prediction
+  - human-readable label (`live` / `spoof` / `unknown`)
+  - confidence score
+
+- implemented runtime feature extraction from face crops in `pad_inference_utils.py`
+- aligned runtime PAD preprocessing with training by using grayscale face crops and `preprocess_face_for_pad()`
+
+Runtime PAD flow:
+
+webcam frame
+→ face detection
+→ grayscale face crop
+→ PAD preprocessing
+→ PAD feature extraction
+→ scaler
+→ SVM prediction
+
+**Full Pipeline Integration of PAD**:
+
+- integrated anti-spoofing inference into `src/pipeline/run_pipeline_full.py`
+- added loading of the PAD detector together with the recognition model
+- inserted PAD decision stage before face recognition
+- blocked recognition whenever the final PAD decision is not `live`
+- added real-time visualization of PAD result on the webcam stream
+- used grayscale crop for PAD in runtime to better match the training pipeline
+
+**Temporal Smoothing and Runtime Decision Logic**:
+
+- introduced temporal smoothing for PAD decisions using a fixed-length `deque`
+- added configurable smoothing parameters:
+
+  - `PAD_WINDOW_SIZE`
+  - `PAD_MIN_LIVE`
+  - `PAD_MIN_SPOOF`
+
+- implemented dual PAD output in the runtime pipeline:
+
+  - current-frame PAD result
+  - final smoothed PAD decision
+
+- introduced explicit `unknown` state when the temporal evidence is insufficient or the current PAD input is invalid
+- cleared PAD history when no valid face is detected
+
+Decision rule in the runtime pipeline:
+
+- enough recent `live` predictions → final PAD = `live`
+- enough recent `spoof` predictions → final PAD = `spoof`
+- otherwise → final PAD = `unknown`
+
+**Runtime PAD Dataset Collection and Offline Runtime Evaluation**:
+
+- created `src/antispoofing/training/collect_pad_runtime.py`
+- implemented webcam-based collection of real runtime PAD samples
+- saved grayscale face crops into:
+
+  - `data/pad_runtime_test/live`
+  - `data/pad_runtime_test/spoof`
+
+- added keyboard-controlled collection:
+
+  - `l` for live samples
+  - `s` for spoof samples
+  - `q` to quit
+
+- created `src/antispoofing/training/test_runtime.py`
+- implemented offline evaluation of the trained PAD model on collected webcam samples
+- reused the same preprocessing and feature extraction pipeline used during PAD training
+- added per-image diagnostic output including prediction, class probabilities, feature mean, and feature standard deviation
+
+Runtime test summary on collected webcam samples:
+
+- total images: `60`
+- valid processed images: `54`
+- correct predictions: `43`
+- accuracy: `0.7963`
+- live samples: `17 / 28` correctly classified
+- spoof samples: `26 / 26` correctly classified
+
+These results showed that the trained PAD model generalizes well to spoof webcam attacks, but remains significantly more conservative on real live webcam samples, often preferring the `spoof` class under uncertainty.
+
+---
+
 ## IN FASE DI IMPLEMENTAZIONE
 
 1. Improve recognition robustness with multiple identities in the dataset
@@ -227,12 +462,10 @@ confidence ≥ threshold → Unknown
 
 3. Evaluate recognition performance and tune UNKNOWN_THRESHOLD
 
-4. Design anti-spoofing module architecture
+4. Implement runtime PAD detector module
 
-5. Implement liveness detection approach
+5. Integrate anti-spoofing into the webcam pipeline
 
-6. Integrate anti-spoofing into the runtime pipeline
+6. Combine recognition and anti-spoofing decisions
 
-7. Combine recognition and anti-spoofing decisions
-
-8. Evaluate recognition and anti-spoofing performance
+7. Evaluate full system performance (recognition + PAD)

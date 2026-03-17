@@ -2,85 +2,88 @@
 Module: spoof_detector
 
 Description:
-This module implements the main anti-spoofing controller used in the
-face recognition pipeline.
+This module implements the runtime inference logic for face
+anti-spoofing detection (Presentation Attack Detection, PAD).
 
-It combines texture analysis and robust blink information to determine
-whether a detected face is real or spoofed.
+The module loads the trained PAD scaler and SVM classifier from disk
+and applies anti-spoofing feature extraction on a face crop provided
+by the main runtime pipeline.
 
-The detector does not validate blinks internally. Blink detection is
-handled by the dedicated blink detector module. This class only keeps
-track of liveness confirmation over time and aggregates the final
-anti-spoofing decision.
+Unlike the offline training pipeline, no face detection is performed
+here. The detector expects an already localized and cropped face
+region and returns a PAD prediction indicating whether the input
+appears to be a live face or a spoof attack.
 """
 
-from src.antispoofing.texture_analyzer import analyze_texture
+import joblib
+from pathlib import Path
+
+from src.antispoofing.pad_inference_utils import extract_pad_features_from_crop
+
+
+# ----- CONSTANTS ----- #
+MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "pad_svm.joblib"
+SCALER_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "pad_scaler.joblib"
 
 
 class AntiSpoofingDetector:
     """
-    Anti-spoofing controller that combines texture analysis and robust
-    blink detection to determine whether a face is real or spoofed.
+    Runtime anti-spoofing detector based on a trained PAD classifier.
+
+    The detector receives a cropped face image from the runtime pipeline,
+    extracts PAD features, applies the trained scaler, and performs
+    classification using the SVM model.
     """
 
     def __init__(self):
         """
-        Initialize the anti-spoofing detector state.
+        Load the trained scaler and classifier used for PAD inference.
         """
 
-        # Flag indicating whether liveness has been confirmed
-        self.liveness_confirmed = False
+        self.scaler = joblib.load(SCALER_PATH)
+        self.classifier = joblib.load(MODEL_PATH)
 
-    def reset_state(self):
+    def predict(self, face_image):
         """
-        Reset the internal anti-spoofing state.
+        Predict whether the input face crop corresponds to a live face
+        or a spoof attack.
 
-        This should be called when the face disappears or tracking is lost,
-        so that liveness information is not reused across different subjects
-        or disconnected face tracks.
         """
 
-        self.liveness_confirmed = False
+        features = extract_pad_features_from_crop(face_image)
+        #print("PAD features shape:", None if features is None else features.shape)
 
-    def check_spoof(self, face, blink_detected, blink_count, eye_closed, ear):
-        """
-        Perform the final anti-spoofing evaluation.
+        if features is None or len(features) == 0:
+            return {
+                "status": "invalid_input",
+                "prediction": None,
+                "label": "unknown",
+                "score": 0.0
+            }
 
-        The function combines:
-        - texture analysis on the current face crop
-        - robust blink information received from the blink detector
+        # Reshape to match classifier input format (n_samples, n_features)
+        features = features.reshape(1, -1)
 
-        Liveness is confirmed only when a valid blink is detected on a face
-        whose texture is considered acceptable.
-        """
+        # Apply feature normalization
+        features_scaled = self.scaler.transform(features)
 
-        # Analyze the texture of the face region
-        texture_ok, sharpness, edge_density = analyze_texture(face)
+        # Run PAD classifier
+        prediction = self.classifier.predict(features_scaled)[0]
+        probabilities = self.classifier.predict_proba(features_scaled)[0]
+        # print("PAD probabilities:", probabilities)
+        # print("PAD prediction raw:", prediction)
 
-        # Confirm liveness only when both cues agree
-        if texture_ok and blink_detected:
-            self.liveness_confirmed = True
-
-        # Final anti-spoofing decision
-        is_real = texture_ok and self.liveness_confirmed
-
-        # High-level anti-spoofing status for UI/debug purposes
-        if is_real:
-            status = "real"
-        elif not texture_ok:
-            status = "spoof"
+        if prediction == 1:
+            label = "live"
+            score = probabilities[1]
         else:
-            status = "checking"
+            label = "spoof"
+            score = probabilities[0]
 
+        # Dictionary containing the PAD inference result
         return {
-            "status": status,
-            "is_real": is_real,
-            "texture_ok": texture_ok,
-            "sharpness": sharpness,
-            "edge_density": edge_density,
-            "blink_detected": blink_detected,
-            "eye_closed": eye_closed,
-            "ear": ear,
-            "blink_count": blink_count,
-            "liveness_confirmed": self.liveness_confirmed
+            "status": "ok",
+            "prediction": int(prediction),
+            "label": label,
+            "score": float(score)
         }
