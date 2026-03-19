@@ -96,7 +96,7 @@ Implemented and stabilized the real-time webcam face detection and preprocessing
 **Stage 2: Dataset Collection Implementation**:
 
 - created dataset module `src/dataset/dataset_collector.py`
-- created dataset directory structure `data/dataset/<person>`
+- created dataset directory structure `data/recognition_train/<person>`
 - implemented automatic dataset directory creation if missing
 - implemented dataset indexing to continue numbering existing images
 - integrated face detection and preprocessing pipeline inside dataset collector
@@ -113,7 +113,7 @@ The dataset collector reuses the same detection and preprocessing pipeline used 
 Implemented the dataset loading module required for training the face recognition model.
 
 - created dataset loader module `src/dataset/dataset_loader.py`
-- implemented automatic scanning of all person directories inside `data/dataset/`
+- implemented automatic scanning of all person directories inside `data/recognition_train/`
 - implemented dynamic assignment of numeric labels to each person
 - implemented label mapping (`label → person_name`)
 - implemented loading of dataset images in grayscale using OpenCV
@@ -423,7 +423,7 @@ Decision rule in the runtime pipeline:
 
 **Runtime PAD Dataset Collection and Offline Runtime Evaluation**:
 
-- created `src/antispoofing/training/collect_pad_runtime.py`
+- created `src/dataset/collect_pad_runtime.py`
 - implemented webcam-based collection of real runtime PAD samples
 - saved grayscale face crops into:
 
@@ -451,6 +451,122 @@ Runtime test summary on collected webcam samples:
 - spoof samples: `26 / 26` correctly classified
 
 These results showed that the trained PAD model generalizes well to spoof webcam attacks, but remains significantly more conservative on real live webcam samples, often preferring the `spoof` class under uncertainty.
+
+---
+
+## 2026-03-19
+
+**Replay-Attack Dataset Integration for PAD**:
+
+- integrated Replay-Attack as a second PAD dataset alongside CASIA-FASD
+- created raw dataset folder `data/replay_attack_raw/`
+- created extracted PAD image dataset `data/replay_attack_pad/`
+- organized Replay-Attack PAD data into:
+
+  - `train/live`
+  - `train/spoof`
+  - `test/live`
+  - `test/spoof`
+
+- created frame extraction utility `src/dataset/extract_replayattack_frames.py`
+- implemented automatic split mapping:
+
+  - `devel` + `train` -> PAD `train`
+  - `test` -> PAD `test`
+
+- implemented automatic label mapping:
+
+  - `real` -> `live`
+  - `attack` -> `spoof`
+
+- implemented unique frame naming to avoid filename collisions across videos
+- sampled frames from Replay-Attack videos every fixed interval for PAD training
+
+This extends the anti-spoofing training data with more realistic replay/display attacks and a broader domain than CASIA alone.
+
+**PAD Loader and Experiment Pipeline Update**:
+
+- extended `src/antispoofing/training/pad_dataset_loader.py` to support:
+
+  - CASIA-only loading
+  - Replay-only loading
+  - combined CASIA + Replay evaluation
+
+- added `load_pad_dataset_replay()` for Replay-only PAD training
+- added Replay-specific evaluation split loading without balancing on the test set
+- updated `src/antispoofing/training/train_pad.py` to allow Replay-only training by selecting `load_pad_dataset_replay()`
+- updated `src/antispoofing/training/evaluate_pad.py` to support selectable evaluation modes:
+
+  - `casia`
+  - `replay`
+  - `combined`
+
+- created `src/antispoofing/training/run_experiment.py` to automate train + evaluate PAD experiments
+
+This made it possible to compare:
+
+- Replay-only training
+- CASIA + Replay combined training
+- cross-dataset generalization between Replay and CASIA
+
+**Multi-Scale PAD Feature Extraction**:
+
+- upgraded `src/antispoofing/feature_extractor.py` from single-scale to multi-scale PAD extraction
+- separated the original descriptor into `extract_pad_features_single_scale()`
+- kept the original scale features on the preprocessed face image
+- added a second scale by applying:
+
+  - Gaussian blur
+  - downsampling to `64x64`
+
+- concatenated original-scale and downsampled-scale descriptors into a single multi-scale PAD vector
+
+This multi-scale extension was introduced to better capture spoof artefacts appearing at different spatial frequencies, such as blur, display noise, and texture inconsistencies.
+
+**PAD Experiments with Replay-Attack and Multi-Scale Features**:
+
+Replay-only training before multi-scale:
+
+- evaluated on Replay-Attack test set
+- Accuracy: `0.9547`
+- Precision: `0.9323`
+- Recall: `0.8764`
+- F1 Score: `0.9035`
+
+- evaluated on CASIA test set for cross-dataset generalization
+- Accuracy: `0.6036`
+- Precision: `0.0319`
+- Recall: `0.0439`
+- F1 Score: `0.0370`
+
+Combined CASIA + Replay training before multi-scale:
+
+- evaluated on combined test set
+- Accuracy: `0.8930`
+- Precision: `0.6851`
+- Recall: `0.7862`
+- F1 Score: `0.7321`
+
+Combined CASIA + Replay training after multi-scale:
+
+- evaluated on combined test set
+- Accuracy: `0.9204`
+- Precision: `0.7723`
+- Recall: `0.8112`
+- F1 Score: `0.7913`
+
+Replay-only training after multi-scale:
+
+- evaluated on CASIA test set
+- Accuracy: `0.5699`
+- Precision: `0.0660`
+- Recall: `0.1128`
+- F1 Score: `0.0833`
+
+These experiments confirmed two main points:
+
+- Replay-Attack training alone performs very well on Replay-style attacks but generalizes poorly to CASIA
+- combining CASIA and Replay and then introducing multi-scale PAD features significantly improves the overall PAD results on the joint evaluation setup
 
 ---
 

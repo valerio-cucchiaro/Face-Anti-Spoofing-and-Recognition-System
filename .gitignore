@@ -27,10 +27,12 @@ Thumbs.db
 *.temp
 
 # Dataset (optional if very large)
-data/dataset
-data/test
+data/recognition_train
+data/recognition_test
 data/casia_pad
 data/pad_runtime_test
+data/replay_attack_pad
+data/replay_attack_raw
 
 # Python build
 build/

@@ -123,7 +123,7 @@ python -m src.main_bs
 
 ### Dataset Collection
 
-Collects face images from the webcam and stores them in the dataset directory.
+Collects face images from the webcam and stores them in `data/recognition_train/`.
 
 ```bash
 python -m src.dataset.dataset_collector

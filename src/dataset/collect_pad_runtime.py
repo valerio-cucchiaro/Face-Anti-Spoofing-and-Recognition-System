@@ -28,9 +28,10 @@ MIN_NEIGHBORS = 6
 MIN_SIZE = (30, 30)
 THRESHOLD_AREA = 3000
 
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "haarcascade_frontalface_default.xml"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+MODEL_PATH = PROJECT_ROOT / "models" / "haarcascade_frontalface_default.xml"
 
-RUNTIME_TEST_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_runtime_test"
+RUNTIME_TEST_ROOT = PROJECT_ROOT / "data" / "pad_runtime_test"
 LIVE_DATASET = RUNTIME_TEST_ROOT / "live"
 SPOOF_DATASET = RUNTIME_TEST_ROOT / "spoof"
 
@@ -40,12 +41,6 @@ MAX_IMAGES_PER_CLASS = 30
 def get_next_image_index(folder_path):
     """
     Return the next sequential image index for a dataset folder.
-
-    Args:
-        folder_path: Path of the dataset folder.
-
-    Returns:
-        int: next image index starting from 1.
     """
     existing_images = sorted(folder_path.glob("*.png"))
     return len(existing_images) + 1

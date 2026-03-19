@@ -3,8 +3,7 @@ Module: evaluate_pad
 
 Description:
 This module evaluates the performance of the trained presentation
-attack detection (PAD) classifier using the CASIA face anti-spoofing
-test dataset.
+attack detection (PAD) classifier on a selected PAD evaluation split.
 
 The script loads the test dataset, extracts the PAD feature vectors
 for each image, applies the same feature normalization used during
@@ -19,24 +18,55 @@ import joblib
 from pathlib import Path
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
-from src.antispoofing.training.pad_dataset_loader import load_pad_test_dataset
+from src.antispoofing.training.pad_dataset_loader import (
+    load_pad_test_dataset_casia,
+    load_pad_test_dataset_replay,
+    load_pad_test_dataset_combined,
+)
 
 
 # ----- CONSTANTS ----- #
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_svm.joblib"
 SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_scaler.joblib"
+EVAL_MODE = "casia"
 
 
-def evaluate_pad_model():
+def load_selected_test_dataset(eval_mode=None):
     """
-    Evaluate the trained PAD model on the CASIA PAD test dataset.
+    Load the PAD evaluation split selected by EVAL_MODE.
 
-    This function loads the test dataset, applies the same normalization
-    used during training, and evaluates the trained SVM classifier.
+    Supported modes:
+    - casia
+    - replay
+    - combined
     """
 
-    # Load the test dataset
-    X_test, y_test = load_pad_test_dataset()
+    selected_mode = eval_mode or EVAL_MODE
+
+    if selected_mode == "casia":
+        print("=== PAD EVALUATION MODE: CASIA TEST ===")
+        return "CASIA test", load_pad_test_dataset_casia()
+
+    if selected_mode == "replay":
+        print("=== PAD EVALUATION MODE: REPLAY-ATTACK TEST ===")
+        return "Replay-Attack test", load_pad_test_dataset_replay()
+
+    if selected_mode == "combined":
+        print("=== PAD EVALUATION MODE: COMBINED TEST ===")
+        return "Combined test", load_pad_test_dataset_combined()
+
+    raise ValueError(
+        f"Unsupported EVAL_MODE: {selected_mode}. Use 'casia', 'replay', or 'combined'."
+    )
+
+
+def evaluate_pad_model(eval_mode=None):
+    """
+    Evaluate the trained PAD model on the selected PAD test dataset.
+    """
+
+    # Load the selected test dataset
+    dataset_name, (X_test, y_test) = load_selected_test_dataset(eval_mode)
 
     # Load the trained model and scaler from disk
     scaler = joblib.load(SCALER_PATH)
@@ -55,6 +85,7 @@ def evaluate_pad_model():
     conf_matrix = confusion_matrix(y_test, y_pred)
 
     # Print evaluation results
+    print("Dataset:", dataset_name)
     print("Predicted live:", (y_pred == 1).sum())
     print("Predicted spoof:", (y_pred == 0).sum())
     print("Total test samples:", len(y_test))

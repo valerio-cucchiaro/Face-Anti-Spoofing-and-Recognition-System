@@ -17,7 +17,7 @@ import numpy as np
 
 
 # ----- CONSTANTS ----- #
-DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "dataset"
+DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "recognition_train"
 
 def load_dataset():
     """

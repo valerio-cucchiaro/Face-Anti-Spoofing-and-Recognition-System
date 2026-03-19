@@ -7,7 +7,7 @@ from src.antispoofing.feature_extractor import extract_pad_features
 
 
 def test_texture_features():
-    DATASET_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "casia_pad" / "train" / "live"
+    DATASET_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "casia_pad" / "train" / "live"
 
     #select a random image from the dataset path
     image_files = list(DATASET_PATH.glob("*.png"))
@@ -29,7 +29,7 @@ def test_texture_features():
 
 def test_quality_features():
 
-    DATASET_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "casia_pad" / "train" / "live"
+    DATASET_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "casia_pad" / "train" / "live"
 
     #select a random image from the dataset path
     image_files = list(DATASET_PATH.glob("*.png"))
@@ -48,7 +48,7 @@ def test_quality_features():
 
 
 def test_combined_features():
-    DATASET_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "casia_pad" / "train" / "live"
+    DATASET_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "casia_pad" / "train" / "live"
 
     #select a random image from the dataset path
     image_files = list(DATASET_PATH.glob("*.png"))

@@ -28,7 +28,7 @@ MIN_SIZE = (30, 30)
 THRESHOLD_AREA = 3000   # minimum area of the detected face to be considered valid 
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "haarcascade_frontalface_default.xml"
 PERSON = "valerio"
-DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "dataset" / PERSON
+DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "recognition_train" / PERSON
 MAX_IMAGES = 50 
 
 

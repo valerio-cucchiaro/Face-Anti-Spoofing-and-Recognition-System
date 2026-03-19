@@ -12,7 +12,7 @@ webcam acquisition
 → face detection
 → face validation
 → face preprocessing
-→ face antispoofing
+→ antispoofing (PAD)
 → face recognition
 → visualization of results
 

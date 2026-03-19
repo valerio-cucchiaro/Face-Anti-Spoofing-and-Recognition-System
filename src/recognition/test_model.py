@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 # ----- CONSTANTS ----- #
-TEST_DIR = Path("data/test")
+TEST_DIR = Path("data/recognition_test")
 MODEL_PATH = Path("models/lbph_model.xml")
 LABEL_MAP_PATH = Path("models/label_map.pkl")
 
