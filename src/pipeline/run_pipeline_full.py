@@ -22,7 +22,7 @@ from pathlib import Path
 
 from src.antispoofing.pad_frame_quality import evaluate_pad_crop_quality
 from src.antispoofing.pad_runtime_state import PadRuntimeState
-from src.detection.face_detector import load_face_detector
+from src.detection.face_detector import load_mediapipe_detector
 from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
 from src.preprocessing.frame_preprocessing import get_valid_face
 from src.recognition.face_recognizer import load_recognizer, predict_identity
@@ -66,7 +66,8 @@ def run_pipeline_full():
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam")
 
-    detector = load_face_detector(MODEL_PATH)
+    detector = load_mediapipe_detector()
+    #detector = load_face_detector(MODEL_PATH)
     pad_detector = AntiSpoofingDetector()
 
     pad_runtime_state = PadRuntimeState(
@@ -86,9 +87,20 @@ def run_pipeline_full():
         if not ret:
             print("Failed to grab frame")
             break
-
+        
+        '''
         face_rect, gray_frame, message = get_valid_face(
             frame, detector, SCALE_FACTOR, MIN_NEIGHBORS, MIN_SIZE, THRESHOLD_AREA
+        )'''
+
+        face_rect, gray_frame, message = get_valid_face(
+            frame,
+            detector,
+            SCALE_FACTOR,
+            MIN_NEIGHBORS,
+            MIN_SIZE,
+            THRESHOLD_AREA,
+            method="mediapipe",
         )
 
         if message == "No face detected" or message == "No valid face detected":
@@ -105,7 +117,15 @@ def run_pipeline_full():
             x, y, w, h = face_rect
 
             # PAD crop aligned with training flow: crop from grayscale frame
-            pad_face_crop = gray_frame[y:y + h, x:x + w]
+            pad_margin_x = int(w * 0.12)
+            pad_margin_y = int(h * 0.18)
+
+            x1 = max(0, x - pad_margin_x)
+            y1 = max(0, y - pad_margin_y)
+            x2 = min(gray_frame.shape[1], x + w + pad_margin_x)
+            y2 = min(gray_frame.shape[0], y + h + pad_margin_y)
+
+            pad_face_crop = gray_frame[y1:y2, x1:x2]
 
             # Evaluate the PAD crop quality before updating the temporal state.
             quality_result = evaluate_pad_crop_quality(pad_face_crop, PAD_MIN_VARIANCE_LAPLACIAN)

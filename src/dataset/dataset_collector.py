@@ -16,9 +16,9 @@ through keyboard input.
 import cv2
 from pathlib import Path
 
-from src.detection.face_detector import load_face_detector
-from src.preprocessing.face_preprocessing import preprocess_face
-from preprocessing.frame_preprocessing import get_valid_face
+from src.detection.face_detector import load_mediapipe_detector
+from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
+from src.preprocessing.frame_preprocessing import get_valid_face
 
 
 # ----- CONSTANTS ----- #
@@ -29,7 +29,7 @@ THRESHOLD_AREA = 3000   # minimum area of the detected face to be considered val
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "haarcascade_frontalface_default.xml"
 PERSON = "valerio"
 DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "recognition_train" / PERSON
-MAX_IMAGES = 50 
+MAX_IMAGES = 30 
 
 
 def collect_dataset():
@@ -50,7 +50,8 @@ def collect_dataset():
 
     # create a VideoCapture object to access the webcam
     cap = cv2.VideoCapture(0)  
-    detector = load_face_detector(MODEL_PATH)
+    #detector = load_face_detector(MODEL_PATH)
+    detector = load_mediapipe_detector()
 
     # check if the webcam is opened successfully: NO --> RunTimeError
     if not cap.isOpened():
@@ -69,7 +70,16 @@ def collect_dataset():
         valid_face = False
 
         # get valid face from frame
-        face_rect, gray_frame, message = get_valid_face(frame, detector, SCALE_FACTOR, MIN_NEIGHBORS, MIN_SIZE, THRESHOLD_AREA)
+        # face_rect, gray_frame, message = get_valid_face(frame, detector, SCALE_FACTOR, MIN_NEIGHBORS, MIN_SIZE, THRESHOLD_AREA)
+        face_rect, gray_frame, message = get_valid_face(
+            frame,
+            detector,
+            SCALE_FACTOR,
+            MIN_NEIGHBORS,
+            MIN_SIZE,
+            THRESHOLD_AREA,
+            method="mediapipe"
+        )
 
         if message == "No face detected":
             cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
@@ -82,7 +92,7 @@ def collect_dataset():
             valid_face = True
             
             # preprocess the detected face
-            face = preprocess_face(gray_frame, x, y, w, h)
+            face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
 
             # draw boundig box
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)

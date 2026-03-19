@@ -18,7 +18,7 @@ extraction pipeline exactly as done during training.
 import cv2
 from pathlib import Path
 
-from src.detection.face_detector import load_face_detector
+from src.detection.face_detector import load_mediapipe_detector
 from src.preprocessing.frame_preprocessing import get_valid_face
 
 
@@ -35,7 +35,7 @@ RUNTIME_TEST_ROOT = PROJECT_ROOT / "data" / "pad_runtime_test"
 LIVE_DATASET = RUNTIME_TEST_ROOT / "live"
 SPOOF_DATASET = RUNTIME_TEST_ROOT / "spoof"
 
-MAX_IMAGES_PER_CLASS = 30
+MAX_IMAGES_PER_CLASS = 10
 
 
 def get_next_image_index(folder_path):
@@ -75,7 +75,8 @@ def collect_pad_runtime_dataset():
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam")
 
-    detector = load_face_detector(MODEL_PATH)
+    #detector = load_face_detector(MODEL_PATH)
+    detector = load_mediapipe_detector()
 
     while True:
         ret, frame = cap.read()
@@ -84,16 +85,16 @@ def collect_pad_runtime_dataset():
             break
 
         valid_face = False
-        face_crop = None
+        pad_face_crop = None
 
-        # Detect and validate face
         face_rect, gray_frame, message = get_valid_face(
             frame,
             detector,
             SCALE_FACTOR,
             MIN_NEIGHBORS,
             MIN_SIZE,
-            THRESHOLD_AREA
+            THRESHOLD_AREA,
+            method="mediapipe"
         )
 
         # Default overlay info
@@ -158,14 +159,22 @@ def collect_pad_runtime_dataset():
             x, y, w, h = face_rect
             valid_face = True
 
-            # Raw grayscale face crop to be saved for PAD offline testing
-            face_crop = gray_frame[y:y + h, x:x + w]
+            # PAD crop aligned with training flow: crop from grayscale frame
+            pad_margin_x = int(w * 0.12)
+            pad_margin_y = int(h * 0.18)
+
+            x1 = max(0, x - pad_margin_x)
+            y1 = max(0, y - pad_margin_y)
+            x2 = min(gray_frame.shape[1], x + w + pad_margin_x)
+            y2 = min(gray_frame.shape[0], y + h + pad_margin_y)
+
+            pad_face_crop = gray_frame[y1:y2, x1:x2]
 
             # Draw face bounding box
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
             # Show crop preview
-            cv2.imshow("PAD Face Crop", face_crop)
+            cv2.imshow("PAD Face Crop", pad_face_crop)
 
             # Show crop size for quick sanity check
             cv2.putText(
@@ -183,20 +192,20 @@ def collect_pad_runtime_dataset():
 
         key = cv2.waitKey(1) & 0xFF
 
-        if key == ord("l") and valid_face and face_crop is not None:
+        if key == ord("l") and valid_face and pad_face_crop is not None:
             if live_count < MAX_IMAGES_PER_CLASS:
                 save_path = LIVE_DATASET / f"{live_next_idx:03d}.png"
-                cv2.imwrite(str(save_path), face_crop)
+                cv2.imwrite(str(save_path), pad_face_crop)
                 print(f"[LIVE] Saved: {save_path.name}")
                 live_count += 1
                 live_next_idx += 1
             else:
                 print("Maximum number of LIVE images reached")
 
-        elif key == ord("s") and valid_face and face_crop is not None:
+        elif key == ord("s") and valid_face and pad_face_crop is not None:
             if spoof_count < MAX_IMAGES_PER_CLASS:
                 save_path = SPOOF_DATASET / f"{spoof_next_idx:03d}.png"
-                cv2.imwrite(str(save_path), face_crop)
+                cv2.imwrite(str(save_path), pad_face_crop)
                 print(f"[SPOOF] Saved: {save_path.name}")
                 spoof_count += 1
                 spoof_next_idx += 1

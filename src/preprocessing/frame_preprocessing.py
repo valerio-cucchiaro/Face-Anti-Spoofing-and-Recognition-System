@@ -14,33 +14,48 @@ of the pipeline (preprocessing, recognition, or anti-spoofing).
 from src.preprocessing.face_preprocessing import to_grayscale
 from src.detection.face_detector import detect_faces
 
-def get_valid_face(frame, detector, scale_factor, min_neighbors, min_size, threshold_area):
+def get_valid_face(
+    frame,
+    detector,
+    scale_factor,
+    min_neighbors,
+    min_size,
+    threshold_area,
+    method="haar"
+):
     """
     Detect and validate a face from a webcam frame.
 
-    The function converts the frame to grayscale, detects faces using the
-    configured detector, selects the largest detected face, and verifies
-    that the face size satisfies a minimum area threshold.
+    The function detects faces using the configured detector, selects
+    the largest detected face, and verifies that the face size satisfies
+    a minimum area threshold.
 
-    Returns the face bounding box, the grayscale frame, and a status
+    It returns the face bounding box, the grayscale frame, and a status
     message describing the detection result.
     """
 
-    # convert the frame to grayscale 
+    # grayscale is still useful for later preprocessing stages
     gray_frame = to_grayscale(frame)
 
-    # detect faces
-    faces = detect_faces(detector, gray_frame, scale_factor, min_neighbors, min_size)
+    # detect faces from the original frame
+    faces = detect_faces(
+        detector,
+        frame,
+        method=method,
+        scaleFactor=scale_factor,
+        minNeighbors=min_neighbors,
+        minSize=min_size
+    )
 
     # no faces detected
     if len(faces) == 0:
         return None, None, "No face detected"
 
-    # select the largest face
-    largest_face = max(faces, key=lambda rect: rect[2] * rect[3])  
+    # select the largest detected face
+    largest_face = max(faces, key=lambda rect: rect[2] * rect[3])
     x, y, w, h = largest_face
 
-    # if the detected face is too small display a message
+    # reject faces that are too small
     if w * h < threshold_area:
         return None, None, "Move closer to the camera"
 

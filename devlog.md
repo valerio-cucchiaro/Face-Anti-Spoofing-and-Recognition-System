@@ -639,6 +639,26 @@ Refactored the runtime PAD logic inside the full webcam pipeline to better separ
 - preserved the runtime behavior while making the PAD pipeline easier to read and maintain
 - verified imports, function calls, and syntax correctness after the refactor
 
+**Runtime Face Detection Update (MediaPipe Integration)**:
+
+Updated the runtime and dataset collection face detection flow to support MediaPipe face detection in addition to the existing Haar Cascade backend.
+
+- added `mediapipe==0.10.21` to `requirements.txt`
+- extended `src/detection/face_detector.py` with:
+
+  - `load_mediapipe_detector()`
+  - `detect_faces_mediapipe()`
+  - backend selection inside `detect_faces(...)`
+
+- updated `src/preprocessing/frame_preprocessing.py` so `get_valid_face()` can work with different detection backends through a `method` parameter
+- switched `src/pipeline/run_pipeline_full.py` to use MediaPipe face detection for the runtime webcam pipeline
+- switched `src/dataset/dataset_collector.py` to use MediaPipe during recognition dataset collection
+- switched `src/dataset/pad_runtime_dataset_collector.py` to use MediaPipe during PAD runtime dataset collection
+- aligned PAD runtime crop extraction with the current runtime pipeline by adding a margin around the detected face before saving PAD test crops
+- refined comments and docstrings in the updated face detection module
+
+This update makes the runtime face localization more flexible and prepares the codebase to compare Haar Cascade and MediaPipe detection more easily.
+
 ---
 
 ## IN FASE DI IMPLEMENTAZIONE
