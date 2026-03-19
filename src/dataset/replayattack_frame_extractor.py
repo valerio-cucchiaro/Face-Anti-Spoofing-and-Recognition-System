@@ -1,5 +1,5 @@
 """
-Module: extract_replayattack_frames
+Module: replayattack_frame_extractor
 
 Description:
 This module extracts image frames from the Replay-Attack video dataset

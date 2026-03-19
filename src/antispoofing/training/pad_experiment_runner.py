@@ -1,13 +1,13 @@
 """
-Module: run_experiment
+Module: pad_experiment_runner
 
 Description:
 This module runs a complete PAD experiment by executing training
 followed by evaluation with the currently selected dataset settings.
 """
 
-from src.antispoofing.training.train_pad import train_pad_model
-from src.antispoofing.training.evaluate_pad import evaluate_pad_model
+from src.antispoofing.training.pad_model_trainer import train_pad_model
+from src.antispoofing.training.pad_model_evaluator import evaluate_pad_model
 
 
 # ----- CONSTANTS ----- #

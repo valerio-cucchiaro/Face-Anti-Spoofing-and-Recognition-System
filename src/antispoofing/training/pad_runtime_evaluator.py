@@ -1,5 +1,5 @@
 """
-Module: test_pad_runtime_dataset
+Module: pad_runtime_evaluator
 
 Description:
 This script evaluates the trained PAD model on a custom runtime test
@@ -32,7 +32,7 @@ import joblib
 from pathlib import Path
 
 from src.detection.face_detector import load_face_detector
-from src.antispoofing.training.pad_dataset_loader import extract_pad_features_from_img
+from src.antispoofing.training.pad_training_dataset_loader import extract_pad_features_from_image
 
 
 # ----- CONSTANTS ----- #
@@ -50,19 +50,6 @@ VALID_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 def evaluate_folder(folder_path, true_label, detector, scaler, classifier):
     """
     Evaluate all images inside a folder and print detailed PAD results.
-
-    Args:
-        folder_path: directory containing test images
-        true_label: ground-truth class (1 for live, 0 for spoof)
-        detector: loaded face detector
-        scaler: fitted PAD scaler
-        classifier: trained PAD SVM classifier
-
-    Returns:
-        tuple:
-            - total_images (int)
-            - valid_images (int)
-            - correct_predictions (int)
     """
 
     total_images = 0
@@ -81,7 +68,7 @@ def evaluate_folder(folder_path, true_label, detector, scaler, classifier):
             continue
 
         # Reuse the same feature extraction pipeline used during training
-        features = extract_pad_features_from_img(img, detector)
+        features = extract_pad_features_from_image(img, detector)
         # features = extract_pad_features(img)
 
         if features is None:

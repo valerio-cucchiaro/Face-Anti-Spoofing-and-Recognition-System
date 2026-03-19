@@ -1,5 +1,5 @@
 """
-Module: svm_classifier
+Module: pad_svm_trainer
 
 Description:
 This module implements the training of the Support Vector Machine (SVM)
@@ -21,14 +21,6 @@ from sklearn.svm import SVC
 def train_pad_classifier(X_train, y_train):
     """
     Train a PAD classifier on the provided training data.
-
-    Parameters:
-    - X_train: A 2D numpy array (n_samples, n_features) containing the feature vectors.
-    - y_train: A 1D numpy array (n_samples,) containing the class labels.
-
-    Returns:
-    - scaler: The StandardScaler used to normalize the features.
-    - classifier: The trained SVM classifier.
     """
 
     # Normalize the features using StandardScaler

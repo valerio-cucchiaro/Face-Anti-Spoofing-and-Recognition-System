@@ -1,5 +1,5 @@
 """
-Module: spoof_detector
+Module: pad_runtime_detector
 
 Description:
 This module implements the runtime inference logic for face
@@ -18,7 +18,7 @@ appears to be a live face or a spoof attack.
 import joblib
 from pathlib import Path
 
-from src.antispoofing.pad_inference_utils import extract_pad_features_from_crop
+from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
 
 
 # ----- CONSTANTS ----- #

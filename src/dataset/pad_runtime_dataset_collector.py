@@ -1,5 +1,5 @@
 """
-Module: collect_pad_runtime_dataset
+Module: pad_runtime_dataset_collector
 
 Description:
 This module collects real runtime face samples for offline PAD testing.

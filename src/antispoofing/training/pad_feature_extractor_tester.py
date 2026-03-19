@@ -1,9 +1,9 @@
 import cv2
 import random
 from pathlib import Path
-from src.antispoofing.texture_features import extract_lbp_features
-from src.antispoofing.quality_features import extract_quality_features
-from src.antispoofing.feature_extractor import extract_pad_features
+from src.antispoofing.pad_texture_features import extract_lbp_features
+from src.antispoofing.pad_quality_features import extract_quality_features
+from src.antispoofing.pad_feature_extractor import extract_pad_features
 
 
 def test_texture_features():

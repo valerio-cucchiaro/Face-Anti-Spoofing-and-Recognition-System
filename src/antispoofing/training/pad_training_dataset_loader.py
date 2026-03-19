@@ -1,5 +1,5 @@
 """
-Module: pad_dataset_loader
+Module: pad_training_dataset_loader
 
 Description:
 This module provides dataset loading utilities for the presentation
@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 
-from src.antispoofing.feature_extractor import extract_pad_features
+from src.antispoofing.pad_feature_extractor import extract_pad_features
 from src.detection.face_detector import load_face_detector
 from src.preprocessing.frame_preprocessing import get_valid_face
 from src.preprocessing.face_preprocessing import preprocess_face_for_pad
@@ -49,7 +49,7 @@ MIN_SIZE = (30, 30)
 THRESHOLD_AREA = 2000
 
 
-def extract_pad_features_from_img(img, detector):
+def extract_pad_features_from_image(img, detector):
     """
     Extract PAD feature vector from a detected face in the image.
 
@@ -86,17 +86,17 @@ def extract_pad_features_from_img(img, detector):
     return extract_pad_features(face)
 
 
-def load_pad_dataset():
+def load_combined_pad_training_dataset():
     """
     Load the combined PAD training dataset (CASIA + Replay-Attack).
     """
     # CASIA dataset
     print("Loading CASIA PAD dataset...")
-    X1, y1 = load_pad_dataset_split(TRAIN_LIVE_PATH, TRAIN_SPOOF_PATH)
+    X1, y1 = load_pad_split_dataset(TRAIN_LIVE_PATH, TRAIN_SPOOF_PATH)
 
     # ReplayAttack dataset
     print("Loading ReplayAttack PAD dataset...")
-    X2, y2 = load_pad_dataset_split(
+    X2, y2 = load_pad_split_dataset(
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=True,
@@ -108,11 +108,11 @@ def load_pad_dataset():
     return X, y
 
 
-def load_pad_dataset_replay():
+def load_replay_pad_training_dataset():
     """
     Load the Replay-Attack PAD training dataset only.
     """
-    return load_pad_dataset_split(
+    return load_pad_split_dataset(
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=True,
@@ -123,21 +123,21 @@ def load_pad_test_dataset():
     """
     Load the default PAD test dataset (CASIA) and extract feature vectors.
     """
-    return load_pad_dataset_split(TEST_LIVE_PATH, TEST_SPOOF_PATH)
+    return load_pad_split_dataset(TEST_LIVE_PATH, TEST_SPOOF_PATH)
 
 
 def load_pad_test_dataset_casia():
     """
     Load the CASIA PAD test dataset and extract feature vectors.
     """
-    return load_pad_dataset_split(TEST_LIVE_PATH, TEST_SPOOF_PATH)
+    return load_pad_split_dataset(TEST_LIVE_PATH, TEST_SPOOF_PATH)
 
 
 def load_pad_test_dataset_replay():
     """
     Load the Replay-Attack PAD test dataset and extract feature vectors.
     """
-    return load_pad_dataset_split(
+    return load_pad_split_dataset(
         REPLAY_TEST_LIVE_PATH,
         REPLAY_TEST_SPOOF_PATH,
         balance=False,
@@ -161,7 +161,7 @@ def load_pad_test_dataset_combined():
     return X, y
 
 
-def load_pad_dataset_split(live_path, spoof_path, balance=False):
+def load_pad_split_dataset(live_path, spoof_path, balance=False):
     """
     Load a custom PAD dataset split from specified directories.
 
@@ -204,7 +204,7 @@ def load_pad_dataset_split(live_path, spoof_path, balance=False):
         if img is None:
             continue
 
-        img_features = extract_pad_features_from_img(img, detector)
+        img_features = extract_pad_features_from_image(img, detector)
         if img_features is None:
             continue
 
@@ -217,7 +217,7 @@ def load_pad_dataset_split(live_path, spoof_path, balance=False):
         if img is None:
             continue
 
-        img_features = extract_pad_features_from_img(img, detector)
+        img_features = extract_pad_features_from_image(img, detector)
         if img_features is None:
             continue
 
@@ -228,6 +228,6 @@ def load_pad_dataset_split(live_path, spoof_path, balance=False):
 
 
 if __name__ == "__main__":
-    features, labels = load_pad_dataset()
+    features, labels = load_combined_pad_training_dataset()
     print("Features shape:", features.shape)
     print("Labels shape:", labels.shape)

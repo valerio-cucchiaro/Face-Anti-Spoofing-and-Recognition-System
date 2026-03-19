@@ -1,5 +1,5 @@
 """
-Module: quality_features
+Module: pad_quality_features
 
 Description:
 This module implements the extraction of image quality features used

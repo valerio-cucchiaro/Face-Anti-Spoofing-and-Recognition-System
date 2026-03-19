@@ -1,5 +1,5 @@
 """
-Module: texture_features
+Module: pad_texture_features
 
 Description:
 This module implements texture-based feature extraction for the

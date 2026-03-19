@@ -568,6 +568,49 @@ These experiments confirmed two main points:
 - Replay-Attack training alone performs very well on Replay-style attacks but generalizes poorly to CASIA
 - combining CASIA and Replay and then introducing multi-scale PAD features significantly improves the overall PAD results on the joint evaluation setup
 
+**PAD Naming Refactor and File Reorganization**:
+
+Refactored the anti-spoofing PAD file naming to improve clarity and consistency as the project structure grew.
+
+Renamed PAD training and experiment files:
+
+- `src/antispoofing/training/train_pad.py` -> `src/antispoofing/training/pad_model_trainer.py`
+- `src/antispoofing/training/evaluate_pad.py` -> `src/antispoofing/training/pad_model_evaluator.py`
+- `src/antispoofing/training/run_experiment.py` -> `src/antispoofing/training/pad_experiment_runner.py`
+- `src/antispoofing/training/svm_classifier.py` -> `src/antispoofing/training/pad_svm_trainer.py`
+- `src/antispoofing/training/pad_dataset_loader.py` -> `src/antispoofing/training/pad_training_dataset_loader.py`
+- `src/antispoofing/training/test_runtime.py` -> `src/antispoofing/training/pad_runtime_evaluator.py`
+- `src/antispoofing/training/test_antispoofing_features.py` -> `src/antispoofing/training/pad_feature_extractor_tester.py`
+
+Renamed PAD feature extraction and runtime files:
+
+- `src/antispoofing/feature_extractor.py` -> `src/antispoofing/pad_feature_extractor.py`
+- `src/antispoofing/texture_features.py` -> `src/antispoofing/pad_texture_features.py`
+- `src/antispoofing/quality_features.py` -> `src/antispoofing/pad_quality_features.py`
+- `src/antispoofing/lft_features.py` -> `src/antispoofing/pad_lft_features.py`
+- `src/antispoofing/pad_inference_utils.py` -> `src/antispoofing/pad_inference_preprocessing.py`
+- `src/antispoofing/spoof_detector.py` -> `src/antispoofing/pad_runtime_detector.py`
+
+Renamed PAD dataset utility files:
+
+- `src/dataset/collect_pad_runtime.py` -> `src/dataset/pad_runtime_dataset_collector.py`
+- `src/dataset/extract_replayattack_frames.py` -> `src/dataset/replayattack_frame_extractor.py`
+
+This refactor established a more explicit naming convention across the PAD module:
+
+- `pad_*` prefix for anti-spoofing specific components
+- `*_trainer`, `*_evaluator`, `*_loader`, `*_collector`, `*_extractor`, `*_runner` suffixes to make each file role immediately recognizable
+
+Final cleanup after the rename:
+
+- updated all affected imports and internal references across the PAD training, runtime, dataset, and pipeline modules
+- updated runtime pipeline references after renaming the PAD detector module
+- aligned module docstrings with the new filenames
+- cleaned function docstrings to remain consistent with the project style
+- added or refined comments in the renamed files where the behavior was less immediate
+- verified that filesystem paths still resolved correctly after file moves
+- verified syntax correctness of the refactored modules
+
 ---
 
 ## IN FASE DI IMPLEMENTAZIONE

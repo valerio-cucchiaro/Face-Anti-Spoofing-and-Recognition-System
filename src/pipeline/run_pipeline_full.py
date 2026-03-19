@@ -29,7 +29,7 @@ from src.detection.face_detector import load_face_detector
 from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
 from src.preprocessing.frame_preprocessing import get_valid_face
 from src.recognition.face_recognizer import load_recognizer, predict_identity
-from src.antispoofing.spoof_detector import AntiSpoofingDetector
+from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
 
 
 # ----- CONSTANTS ----- #

@@ -1,5 +1,5 @@
 """
-Module: lft_features
+Module: pad_lft_features
 
 Description:
 This module implements Local Feature Transformation (LFT) features

@@ -1,5 +1,5 @@
 """
-Module: train_pad
+Module: pad_model_trainer
 
 Description:
 This module implements the training pipeline for the face anti-spoofing
@@ -16,14 +16,14 @@ classify detected faces as live or spoof before face recognition.
 import joblib
 from pathlib import Path
 
-from src.antispoofing.training.pad_dataset_loader import (
+from src.antispoofing.training.pad_training_dataset_loader import (
     TRAIN_LIVE_PATH,
     TRAIN_SPOOF_PATH,
-    load_pad_dataset,
-    load_pad_dataset_replay,
-    load_pad_dataset_split,
+    load_combined_pad_training_dataset,
+    load_replay_pad_training_dataset,
+    load_pad_split_dataset,
 )
-from src.antispoofing.training.svm_classifier import train_pad_classifier
+from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
 
 
 # ----- CONSTANTS ----- #
@@ -32,7 +32,7 @@ SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / 
 TRAIN_MODE = "replay"
 
 
-def load_selected_training_dataset(train_mode=None):
+def load_configured_training_dataset(train_mode=None):
     """
     Load the PAD training split selected by TRAIN_MODE.
 
@@ -46,15 +46,15 @@ def load_selected_training_dataset(train_mode=None):
 
     if selected_mode == "casia":
         print("=== PAD TRAINING MODE: CASIA TRAIN ===")
-        return "CASIA train", load_pad_dataset_split(TRAIN_LIVE_PATH, TRAIN_SPOOF_PATH)
+        return "CASIA train", load_pad_split_dataset(TRAIN_LIVE_PATH, TRAIN_SPOOF_PATH)
 
     if selected_mode == "replay":
         print("=== PAD TRAINING MODE: REPLAY-ATTACK TRAIN ===")
-        return "Replay-Attack train", load_pad_dataset_replay()
+        return "Replay-Attack train", load_replay_pad_training_dataset()
 
     if selected_mode == "combined":
         print("=== PAD TRAINING MODE: COMBINED TRAIN ===")
-        return "Combined train", load_pad_dataset()
+        return "Combined train", load_combined_pad_training_dataset()
 
     raise ValueError(
         f"Unsupported TRAIN_MODE: {selected_mode}. Use 'casia', 'replay', or 'combined'."
@@ -67,7 +67,7 @@ def train_pad_model(train_mode=None):
     """
 
     # Load the training dataset
-    dataset_name, (X_train, y_train) = load_selected_training_dataset(train_mode)
+    dataset_name, (X_train, y_train) = load_configured_training_dataset(train_mode)
 
     # print control information about the loaded dataset
     live_count = (y_train == 1).sum()

@@ -1,5 +1,5 @@
 """
-Module: evaluate_pad
+Module: pad_model_evaluator
 
 Description:
 This module evaluates the performance of the trained presentation
@@ -18,7 +18,7 @@ import joblib
 from pathlib import Path
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
-from src.antispoofing.training.pad_dataset_loader import (
+from src.antispoofing.training.pad_training_dataset_loader import (
     load_pad_test_dataset_casia,
     load_pad_test_dataset_replay,
     load_pad_test_dataset_combined,
@@ -31,7 +31,7 @@ SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / 
 EVAL_MODE = "casia"
 
 
-def load_selected_test_dataset(eval_mode=None):
+def load_configured_test_dataset(eval_mode=None):
     """
     Load the PAD evaluation split selected by EVAL_MODE.
 
@@ -66,7 +66,7 @@ def evaluate_pad_model(eval_mode=None):
     """
 
     # Load the selected test dataset
-    dataset_name, (X_test, y_test) = load_selected_test_dataset(eval_mode)
+    dataset_name, (X_test, y_test) = load_configured_test_dataset(eval_mode)
 
     # Load the trained model and scaler from disk
     scaler = joblib.load(SCALER_PATH)

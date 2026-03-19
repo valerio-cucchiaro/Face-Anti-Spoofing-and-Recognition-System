@@ -1,5 +1,5 @@
 """
-Module: feature_extractor
+Module: pad_feature_extractor
 
 Description:
 This module combines the descriptors used for face anti-spoofing
@@ -15,9 +15,9 @@ presentation attack detection (PAD) classifier.
 
 import cv2
 import numpy as np
-from src.antispoofing.texture_features import extract_lbp_features
-from src.antispoofing.quality_features import extract_quality_features
-from src.antispoofing.lft_features import extract_lft_features
+from src.antispoofing.pad_texture_features import extract_lbp_features
+from src.antispoofing.pad_quality_features import extract_quality_features
+from src.antispoofing.pad_lft_features import extract_lft_features
 
 
 def extract_pad_features_single_scale(face_image):
