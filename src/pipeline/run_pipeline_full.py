@@ -8,23 +8,20 @@ the application using the system webcam.
 
 The pipeline performs the following stages:
 
-webcam acquisition
-→ face detection
-→ face validation
-→ face preprocessing
-→ antispoofing (PAD)
-→ face recognition
-→ visualization of results
+webcam acquisition -> face detection -> face validation -> face
+preprocessing -> antispoofing (PAD) -> face recognition ->
+visualization of results
 
-The module integrates the detection, preprocessing, and recognition
-components and displays the predicted identity and confidence score
-in real time.
+The module integrates the detection, preprocessing, anti-spoofing, and
+recognition components. It applies temporal smoothing to PAD decisions
+and displays the final biometric output in real time.
 """
 
 import cv2
 from pathlib import Path
-from collections import deque
 
+from src.antispoofing.pad_frame_quality import evaluate_pad_crop_quality
+from src.antispoofing.pad_runtime_state import PadRuntimeState
 from src.detection.face_detector import load_face_detector
 from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
 from src.preprocessing.frame_preprocessing import get_valid_face
@@ -32,15 +29,27 @@ from src.recognition.face_recognizer import load_recognizer, predict_identity
 from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
 
 
-# ----- CONSTANTS ----- #
+# ----- FACE DETECTION AND VALIDATION ----- #
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "haarcascade_frontalface_default.xml"
 SCALE_FACTOR = 1.1
-MIN_NEIGHBORS = 6
+MIN_NEIGHBORS = 8
 MIN_SIZE = (30, 30)
-THRESHOLD_AREA = 3000   # minimum area of the detected face to be considered valid
+THRESHOLD_AREA = 4500   # minimum area of the detected face to be considered valid
+
+# ----- PAD TEMPORAL SMOOTHING ----- #
 PAD_WINDOW_SIZE = 5
-PAD_MIN_LIVE = 4
-PAD_MIN_SPOOF = 4
+
+# ----- PAD HYSTERESIS THRESHOLDS ----- #
+PAD_ENTER_LIVE_THRESHOLD = 0.70
+PAD_EXIT_LIVE_THRESHOLD = 0.55
+PAD_ENTER_SPOOF_THRESHOLD = 0.30
+PAD_EXIT_SPOOF_THRESHOLD = 0.45
+
+# ----- PAD FRAME QUALITY FILTERING ----- #
+PAD_MIN_VARIANCE_LAPLACIAN = 80.0
+
+# ----- PAD STATE RESET ----- #
+PAD_RESET_AFTER_MISSES = 15
 
 
 def run_pipeline_full():
@@ -48,75 +57,49 @@ def run_pipeline_full():
     Execute the full real-time processing pipeline.
 
     The function captures frames from the webcam, detects and validates
-    faces, applies preprocessing, performs identity recognition using
-    the trained LBPH model, and displays the results on screen.
+    faces, applies runtime PAD decision smoothing, performs identity
+    recognition only when the final PAD decision is live, and displays
+    the results on screen.
     """
-
-    # Create a VideoCapture object to access the webcam
     cap = cv2.VideoCapture(0)
 
-    # Check if the webcam is opened successfully
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam")
 
-    # Load face detector
     detector = load_face_detector(MODEL_PATH)
-
-    # Load anti-spoofing detector
     pad_detector = AntiSpoofingDetector()
 
-    # Store last PAD predictions for temporal smoothing
-    pad_history = deque(maxlen=PAD_WINDOW_SIZE)
+    pad_runtime_state = PadRuntimeState(
+        window_size=PAD_WINDOW_SIZE,
+        enter_live_threshold=PAD_ENTER_LIVE_THRESHOLD,
+        exit_live_threshold=PAD_EXIT_LIVE_THRESHOLD,
+        enter_spoof_threshold=PAD_ENTER_SPOOF_THRESHOLD,
+        exit_spoof_threshold=PAD_EXIT_SPOOF_THRESHOLD,
+        reset_after_misses=PAD_RESET_AFTER_MISSES,
+    )
 
-    # Load the face recognizer and label map
     recognizer, label_map = load_recognizer()
 
     while True:
-        # Read a frame from the webcam
         ret, frame = cap.read()
 
-        # Check if the frame was read successfully
         if not ret:
             print("Failed to grab frame")
             break
 
-        # Get valid face from frame
         face_rect, gray_frame, message = get_valid_face(
-            frame,
-            detector,
-            SCALE_FACTOR,
-            MIN_NEIGHBORS,
-            MIN_SIZE,
-            THRESHOLD_AREA
+            frame, detector, SCALE_FACTOR, MIN_NEIGHBORS, MIN_SIZE, THRESHOLD_AREA
         )
 
-        if message == "No face detected":
-            pad_history.clear()
-
-            cv2.putText(
-                frame,
-                message,
-                (30, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 255),
-                2,
-                cv2.LINE_AA
-            )
+        if message == "No face detected" or message == "No valid face detected":
+            state_result = pad_runtime_state.update(face_missing=True)
+            status_text = f"{message} | miss={state_result['missing_face_counter']}/{PAD_RESET_AFTER_MISSES}"
+            cv2.putText(frame, status_text, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Move closer to the camera":
-            pad_history.clear()
-
-            cv2.putText(
-                frame,
-                message,
-                (30, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 255),
-                2,
-                cv2.LINE_AA
-            )
+            state_result = pad_runtime_state.update(face_missing=True)
+            status_text = f"{message} | miss={state_result['missing_face_counter']}/{PAD_RESET_AFTER_MISSES}"
+            cv2.putText(frame, status_text, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Face detected":
             x, y, w, h = face_rect
@@ -124,33 +107,27 @@ def run_pipeline_full():
             # PAD crop aligned with training flow: crop from grayscale frame
             pad_face_crop = gray_frame[y:y + h, x:x + w]
 
-            cv2.imshow("PAD crop", pad_face_crop)
-            # print("PAD crop shape:", pad_face_crop.shape)
+            # Evaluate the PAD crop quality before updating the temporal state.
+            quality_result = evaluate_pad_crop_quality(pad_face_crop, PAD_MIN_VARIANCE_LAPLACIAN)
+            laplacian_variance = quality_result["laplacian_variance"]
+            update_pad_history = quality_result["is_frame_usable_for_history"]
 
-            # Run PAD prediction on current frame
-            pad_result = pad_detector.predict(pad_face_crop)
-
-            current_pad_status = pad_result["status"]
-            current_pad_label = pad_result["label"]
-            current_pad_score = pad_result["score"]
-
-            # Default final PAD decision
-            final_pad_label = "unknown"
-
-            # Update temporal history only with valid live/spoof predictions
-            if current_pad_status == "ok" and current_pad_label in {"live", "spoof"}:
-                pad_history.append(current_pad_label)
-
-            # Temporal decision on last valid frames
-            live_count = pad_history.count("live")
-            spoof_count = pad_history.count("spoof")
-
-            if live_count >= PAD_MIN_LIVE:
-                final_pad_label = "live"
-            elif spoof_count >= PAD_MIN_SPOOF:
-                final_pad_label = "spoof"
+            # Run PAD inference only on valid crops, otherwise mark the frame as invalid.
+            if quality_result["is_valid_crop"]:
+                pad_result = pad_detector.predict(pad_face_crop)
             else:
-                final_pad_label = "unknown"
+                pad_result = {"status": "invalid_crop", "label": None, "score": None}
+
+            state_result = pad_runtime_state.update(
+                pad_result=pad_result,
+                frame_usable=update_pad_history,
+                face_missing=False,
+            )
+            current_pad_status = state_result["current_status"]
+            current_pad_label = state_result["current_label"]
+            current_pad_score = state_result["current_score"]
+            mean_live_probability = state_result["mean_live_probability"]
+            final_pad_label = state_result["final_label"]
 
             # Choose box color from final smoothed decision
             if final_pad_label == "live":
@@ -162,28 +139,31 @@ def run_pipeline_full():
 
             cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
 
-            # Display PAD result: show both current-frame result and final smoothed result
-            cv2.putText(
-                frame,
-                f"PAD now: {current_pad_label.upper()} ({current_pad_score:.2f})",
-                (x, y - 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 255),
-                2,
-                cv2.LINE_AA
-            )
+            # Build the current PAD text safely even when inference fails.
+            if current_pad_status == "ok" and current_pad_label is not None and current_pad_score is not None:
+                current_pad_text = f"PAD now: {current_pad_label.upper()} ({current_pad_score:.2f})"
+            else:
+                current_pad_text = "PAD now: UNKNOWN"
 
-            cv2.putText(
-                frame,
-                f"PAD final: {final_pad_label.upper()}",
-                (x, y - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                box_color,
-                2,
-                cv2.LINE_AA
-            )
+            # Show the current-frame PAD prediction and its score.
+            cv2.putText(frame, current_pad_text, (x, y - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+
+            if mean_live_probability is not None:
+                final_pad_text = f"PAD final: {final_pad_label.upper()} | avg_live={mean_live_probability:.2f}"
+            else:
+                final_pad_text = f"PAD final: {final_pad_label.upper()}"
+
+            # Show the final smoothed PAD decision derived from recent frames.
+            cv2.putText(frame, final_pad_text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, box_color, 2, cv2.LINE_AA)
+
+            #---DEBUG---#
+            if update_pad_history:
+                quality_text = f"PAD frame: ACCEPTED | blur={laplacian_variance:.1f}"
+                quality_color = (0, 255, 0)
+            else:
+                quality_text = f"PAD frame: SKIPPED | blur={laplacian_variance:.1f}"
+                quality_color = (0, 165, 255)
+            cv2.putText(frame, quality_text, (x, y + h + 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, quality_color, 2, cv2.LINE_AA)
 
             # Only perform recognition if final PAD decision is live
             if final_pad_label == "live":
@@ -193,48 +173,20 @@ def run_pipeline_full():
 
                 cv2.imshow("Face", face)
 
-                cv2.putText(
-                    frame,
-                    f"Identity: {predicted_name}",
-                    (x, y + h + 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 255, 0),
-                    2,
-                    cv2.LINE_AA
-                )
+                # Show the recognized identity when PAD allows recognition.
+                cv2.putText(frame, f"Identity: {predicted_name}", (x, y + h + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
 
-                cv2.putText(
-                    frame,
-                    f"Confidence: {confidence:.2f}",
-                    (x, y + h + 25),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (255, 255, 0),
-                    2,
-                    cv2.LINE_AA
-                )
-
+                # Show the LBPH confidence associated with the recognition result.
+                cv2.putText(frame, f"Confidence: {confidence:.2f}", (x, y + h + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2, cv2.LINE_AA)
             else:
-                cv2.putText(
-                    frame,
-                    "Recognition blocked",
-                    (x, y + h + 25),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 0, 255),
-                    2,
-                    cv2.LINE_AA
-                )
+                # Inform the user that recognition is blocked by the PAD decision.
+                cv2.putText(frame, "Recognition blocked", (x, y + h + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
 
-        # Show webcam
         cv2.imshow("Webcam", frame)
 
-        # Exit when 'q' is pressed
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
 
-    # Release resources
     cap.release()
     cv2.destroyAllWindows()

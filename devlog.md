@@ -611,6 +611,34 @@ Final cleanup after the rename:
 - verified that filesystem paths still resolved correctly after file moves
 - verified syntax correctness of the refactored modules
 
+**PAD Runtime Pipeline Refactor**:
+
+Refactored the runtime PAD logic inside the full webcam pipeline to better separate orchestration, frame quality checks, and temporal state management.
+
+- created `src/antispoofing/pad_frame_quality.py`
+- implemented `evaluate_pad_crop_quality()` to isolate runtime PAD crop validation and blur estimation
+- moved the Laplacian-based quality check out of `src/pipeline/run_pipeline_full.py`
+- created `src/antispoofing/pad_runtime_state.py`
+- implemented `PadRuntimeState.update()` to manage:
+
+  - PAD temporal history
+  - missing-face handling
+  - averaged live probability
+  - hysteresis between `unknown`, `live`, and `spoof`
+
+- updated `src/pipeline/run_pipeline_full.py` to use the new PAD runtime helpers
+- reduced the amount of PAD state logic embedded directly inside the pipeline loop
+- kept `run_pipeline_full.py` focused on:
+
+  - webcam acquisition
+  - face validation
+  - PAD inference orchestration
+  - recognition gating
+  - runtime visualization
+
+- preserved the runtime behavior while making the PAD pipeline easier to read and maintain
+- verified imports, function calls, and syntax correctness after the refactor
+
 ---
 
 ## IN FASE DI IMPLEMENTAZIONE
