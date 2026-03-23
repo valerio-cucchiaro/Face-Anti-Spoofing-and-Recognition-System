@@ -30,7 +30,7 @@ Thumbs.db
 data/recognition_train
 data/recognition_test
 data/casia_pad
-data/pad_runtime_test
+data/pad_runtime_dataset
 data/replay_attack_pad
 data/replay_attack_raw
 

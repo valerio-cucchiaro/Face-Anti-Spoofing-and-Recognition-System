@@ -2,33 +2,27 @@
 Module: frame_preprocessing
 
 Description:
-This module implements face validation logic used inside the runtime
-pipeline. It processes webcam frames to detect faces, select the most
-relevant one, and verify whether the detected face is suitable for
-further processing.
+This module implements shared face validation logic for webcam frames.
+It is used by the runtime pipeline and by dataset collection/loading
+utilities that need a consistent face-selection step before later
+processing.
 
-The module ensures that only valid faces are passed to the next stages
-of the pipeline (preprocessing, recognition, or anti-spoofing).
+The module ensures that only sufficiently large detected faces are
+passed to the next stages such as recognition preprocessing or PAD
+crop extraction.
 """
 
 from src.preprocessing.face_preprocessing import to_grayscale
 from src.detection.face_detector import detect_faces
 
-def get_valid_face(
-    frame,
-    detector,
-    scale_factor,
-    min_neighbors,
-    min_size,
-    threshold_area,
-    method="haar"
-):
-    """
-    Detect and validate a face from a webcam frame.
 
-    The function detects faces using the configured detector, selects
-    the largest detected face, and verifies that the face size satisfies
-    a minimum area threshold.
+def get_valid_face(frame, detector, threshold_area):
+    """
+    Detect and validate a face from a webcam frame using the shared
+    MediaPipe detector.
+
+    The function selects the largest detected face and verifies that its
+    area satisfies the configured minimum threshold before returning it.
 
     It returns the face bounding box, the grayscale frame, and a status
     message describing the detection result.
@@ -41,10 +35,6 @@ def get_valid_face(
     faces = detect_faces(
         detector,
         frame,
-        method=method,
-        scaleFactor=scale_factor,
-        minNeighbors=min_neighbors,
-        minSize=min_size
     )
 
     # no faces detected

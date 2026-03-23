@@ -2,52 +2,49 @@
 Module: pad_runtime_evaluator
 
 Description:
-This script evaluates the trained PAD model on a custom runtime test
+This script evaluates the trained PAD model on the custom runtime test
 dataset collected from the real webcam scenario.
 
 The test dataset must be organized as:
 
-data/pad_runtime_test/
-    live/
-    spoof/
+data/pad_runtime_dataset/
+    test/
+        live/
+        spoof/
 
-For each image, the script reuses the same preprocessing pipeline used
-during PAD training:
+Each image in this dataset is already a PAD face crop collected from
+the runtime pipeline. For this reason, the evaluator reuses the same
+inference path used online:
 
 image
-→ face detection
-→ face cropping
-→ face normalization
-→ PAD feature extraction
-→ scaler
-→ SVM prediction
+-> PAD face normalization
+-> PAD feature extraction
+-> scaler
+-> SVM prediction
 
-The script prints detailed per-image results and final summary metrics
-to help diagnose whether the PAD model generalizes to real webcam and
-phone-spoof samples.
+No second face detection or face recropping is performed here.
 """
 
 import cv2
 import joblib
 from pathlib import Path
 
-from src.detection.face_detector import load_face_detector
-from src.antispoofing.training.pad_training_dataset_loader import extract_pad_features_from_image
+from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
 
 
 # ----- CONSTANTS ----- #
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_svm.joblib"
 SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_scaler.joblib"
-DETECTOR_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "haarcascade_frontalface_default.xml"
 
-TEST_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_runtime_test"
-LIVE_PATH = TEST_ROOT / "live"
-SPOOF_PATH = TEST_ROOT / "spoof"
+RUNTIME_DATASET_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_runtime_dataset"
+TEST_SPLIT_ROOT = RUNTIME_DATASET_ROOT / "test"
+LIVE_PATH = TEST_SPLIT_ROOT / "live"
+SPOOF_PATH = TEST_SPLIT_ROOT / "spoof"
 
 VALID_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
-def evaluate_folder(folder_path, true_label, detector, scaler, classifier):
+def evaluate_folder(folder_path, true_label, scaler, classifier):
     """
     Evaluate all images inside a folder and print detailed PAD results.
     """
@@ -67,17 +64,17 @@ def evaluate_folder(folder_path, true_label, detector, scaler, classifier):
             print(f"[SKIP] {img_path.name} -> unreadable image")
             continue
 
-        # Reuse the same feature extraction pipeline used during training
-        features = extract_pad_features_from_image(img, detector)
-        # features = extract_pad_features(img)
+        # Runtime dataset samples are already PAD crops, so we must
+        # reuse the same preprocessing path used by runtime inference.
+        features = extract_pad_features_from_crop(img)
 
         if features is None:
-            print(f"[SKIP] {img_path.name} -> no valid face detected")
+            print(f"[SKIP] {img_path.name} -> invalid PAD crop")
             continue
 
         valid_images += 1
 
-        # Reshape because scaler and classifier expect 2D input
+        # Reshape because scaler and classifier expect 2D input.
         features = features.reshape(1, -1)
         features_scaled = scaler.transform(features)
 
@@ -102,17 +99,18 @@ def evaluate_folder(folder_path, true_label, detector, scaler, classifier):
         else:
             status = "WRONG"
 
-        print(f"[{status}] {img_path.name}")
-        print(f"  true label      : {true_label_name}")
-        print(f"  predicted label : {predicted_label}")
-        print(f"  prediction      : {prediction}")
-        print(f"  prob spoof      : {prob_spoof:.4f}")
-        print(f"  prob live       : {prob_live:.4f}")
-        print(f"  predicted score : {predicted_score:.4f}")
-        print(f"  feature shape   : {features.shape}")
-        print(f"  feature mean    : {features.mean():.4f}")
-        print(f"  feature std     : {features.std():.4f}")
-        print()
+        if status == "WRONG":
+            print(f"[{status}] {img_path.name}")
+            print(f"  true label      : {true_label_name}")
+            print(f"  predicted label : {predicted_label}")
+            print(f"  prediction      : {prediction}")
+            print(f"  prob spoof      : {prob_spoof:.4f}")
+            print(f"  prob live       : {prob_live:.4f}")
+            print(f"  predicted score : {predicted_score:.4f}")
+            print(f"  feature shape   : {features.shape}")
+            print(f"  feature mean    : {features.mean():.4f}")
+            print(f"  feature std     : {features.std():.4f}")
+            print()
 
     return total_images, valid_images, correct_predictions
 
@@ -126,13 +124,9 @@ def main():
     if not SPOOF_PATH.exists():
         raise FileNotFoundError(f"Missing folder: {SPOOF_PATH}")
 
-    # Load detector, scaler and classifier
-    detector = load_face_detector(str(DETECTOR_PATH))
+    # Load the same scaler and classifier used by the runtime detector.
     scaler = joblib.load(SCALER_PATH)
     classifier = joblib.load(MODEL_PATH)
-
-    print("Classifier classes:", classifier.classes_)
-    print()
 
     print("=== PAD RUNTIME TEST DATASET EVALUATION ===")
     print(f"Live folder : {LIVE_PATH}")
@@ -142,7 +136,6 @@ def main():
     live_total, live_valid, live_correct = evaluate_folder(
         LIVE_PATH,
         true_label=1,
-        detector=detector,
         scaler=scaler,
         classifier=classifier
     )
@@ -151,7 +144,6 @@ def main():
     spoof_total, spoof_valid, spoof_correct = evaluate_folder(
         SPOOF_PATH,
         true_label=0,
-        detector=detector,
         scaler=scaler,
         classifier=classifier
     )

@@ -1,13 +1,14 @@
 """
-Module: dataset_collector
+Module: recognition_dataset_collector
 
 Description:
 This module is responsible for collecting face images used to build
 the training dataset for the recognition model.
 
 The script captures frames from the webcam, detects and validates a
-face, applies the same preprocessing pipeline used in the runtime
-system, and stores the processed face images in the dataset directory.
+face with MediaPipe, applies the same preprocessing pipeline used in
+the runtime system, and stores the processed face images in the
+dataset directory.
 
 Images are saved sequentially and can be captured interactively
 through keyboard input.
@@ -22,11 +23,7 @@ from src.preprocessing.frame_preprocessing import get_valid_face
 
 
 # ----- CONSTANTS ----- #
-SCALE_FACTOR = 1.1
-MIN_NEIGHBORS = 6   
-MIN_SIZE = (30, 30)
-THRESHOLD_AREA = 3000   # minimum area of the detected face to be considered valid 
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "haarcascade_frontalface_default.xml"
+THRESHOLD_AREA = 8000   
 PERSON = "valerio"
 DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "recognition_train" / PERSON
 MAX_IMAGES = 30 
@@ -34,11 +31,14 @@ MAX_IMAGES = 30
 
 def collect_dataset():
     """
-    Collect face samples from the webcam to build the training dataset.
+    Collect face samples from the webcam to build the recognition
+    training dataset.
 
-    The function detects and validates faces in real time, applies the
-    standard preprocessing pipeline, and saves the resulting face images
-    to the dataset directory when the user presses the capture key.
+    The function detects the largest valid face in each frame through
+    the shared MediaPipe-based validation helper, applies the standard
+    recognition preprocessing pipeline, and saves the resulting face
+    images to the dataset directory when the user presses the capture
+    key.
     """
 
     # create the dataset directory if it doesn't exist
@@ -49,8 +49,7 @@ def collect_dataset():
     image_count = len(existing_images)
 
     # create a VideoCapture object to access the webcam
-    cap = cv2.VideoCapture(0)  
-    #detector = load_face_detector(MODEL_PATH)
+    cap = cv2.VideoCapture(0)
     detector = load_mediapipe_detector()
 
     # check if the webcam is opened successfully: NO --> RunTimeError
@@ -69,16 +68,11 @@ def collect_dataset():
         # flag to indicate if a valid face is detected
         valid_face = False
 
-        # get valid face from frame
-        # face_rect, gray_frame, message = get_valid_face(frame, detector, SCALE_FACTOR, MIN_NEIGHBORS, MIN_SIZE, THRESHOLD_AREA)
+        # Select the largest valid face from the current webcam frame.
         face_rect, gray_frame, message = get_valid_face(
             frame,
             detector,
-            SCALE_FACTOR,
-            MIN_NEIGHBORS,
-            MIN_SIZE,
             THRESHOLD_AREA,
-            method="mediapipe"
         )
 
         if message == "No face detected":

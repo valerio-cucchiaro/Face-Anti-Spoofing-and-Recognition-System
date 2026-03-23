@@ -16,11 +16,13 @@ classify detected faces as live or spoof before face recognition.
 import joblib
 from pathlib import Path
 
-from src.antispoofing.training.pad_training_dataset_loader import (
+from src.antispoofing.training.pad_dataset_loader import (
     TRAIN_LIVE_PATH,
     TRAIN_SPOOF_PATH,
     load_combined_pad_training_dataset,
+    load_combined_with_runtime_pad_training_dataset,
     load_replay_pad_training_dataset,
+    load_runtime_pad_training_dataset,
     load_pad_split_dataset,
 )
 from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
@@ -30,6 +32,7 @@ from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_svm.joblib"
 SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_scaler.joblib"
 TRAIN_MODE = "replay"
+RUNTIME_REPEAT = 5
 
 
 def load_configured_training_dataset(train_mode=None):
@@ -40,6 +43,8 @@ def load_configured_training_dataset(train_mode=None):
     - casia
     - replay
     - combined
+    - runtime
+    - combined_runtime
     """
 
     selected_mode = train_mode or TRAIN_MODE
@@ -56,8 +61,20 @@ def load_configured_training_dataset(train_mode=None):
         print("=== PAD TRAINING MODE: COMBINED TRAIN ===")
         return "Combined train", load_combined_pad_training_dataset()
 
+    if selected_mode == "runtime":
+        print("=== PAD TRAINING MODE: RUNTIME TRAIN ===")
+        return "Runtime train", load_runtime_pad_training_dataset()
+
+    if selected_mode == "combined_runtime":
+        print("=== PAD TRAINING MODE: COMBINED + RUNTIME TRAIN ===")
+        dataset_name = f"Combined + runtime train (runtime_repeat={RUNTIME_REPEAT})"
+        return dataset_name, load_combined_with_runtime_pad_training_dataset(
+            runtime_repeat=RUNTIME_REPEAT
+        )
+
     raise ValueError(
-        f"Unsupported TRAIN_MODE: {selected_mode}. Use 'casia', 'replay', or 'combined'."
+        "Unsupported TRAIN_MODE: "
+        f"{selected_mode}. Use 'casia', 'replay', 'combined', 'runtime', or 'combined_runtime'."
     )
 
 

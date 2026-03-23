@@ -661,6 +661,55 @@ This update makes the runtime face localization more flexible and prepares the c
 
 ---
 
+## 2026/03/23
+
+**MediaPipe-Only Face Detection Cleanup and Recognition Dataset Naming Update**:
+
+Completed the cleanup after the MediaPipe migration and aligned the latest PAD training/runtime dataset changes.
+
+- simplified `src/detection/face_detector.py` to keep only the MediaPipe detector loader and detection flow
+- removed the remaining Haar Cascade compatibility logic from detection and preprocessing
+- simplified `src/preprocessing/frame_preprocessing.py` so `get_valid_face()` now uses the shared MediaPipe flow directly
+- updated all `get_valid_face()` call sites to use the simplified signature
+- refined module and function docstrings in the updated detection, preprocessing, dataset, and pipeline files to match the MediaPipe-only behavior
+
+- created `src/antispoofing/pad_crop_utils.py` to centralize the shared padded face crop logic used across runtime PAD inference, PAD runtime dataset collection, and offline PAD dataset loading
+
+- replaced `src/antispoofing/training/pad_training_dataset_loader.py` with the clearer `src/antispoofing/training/pad_dataset_loader.py`
+- updated PAD training and evaluation imports to use the new loader module
+- integrated `data/pad_runtime_dataset` into the PAD training pipeline
+- added runtime-specific PAD training support through:
+
+  - `runtime`
+  - `combined_runtime`
+
+- introduced runtime oversampling in combined PAD training through `RUNTIME_REPEAT = 5` so the custom runtime dataset has more influence during training
+- updated `src/antispoofing/training/pad_experiment_runner.py` to use the new combined runtime training setup
+- updated `src/antispoofing/training/pad_runtime_evaluator.py` to evaluate already-cropped PAD runtime samples from `data/pad_runtime_dataset/test`
+- updated `src/dataset/pad_runtime_dataset_collector.py` to save runtime PAD samples into `data/pad_runtime_dataset/train`
+- aligned `.gitignore` with the new `data/pad_runtime_dataset` structure
+- extended `src/antispoofing/pad_frame_quality.py` so PAD quality checks now include crop size, aspect ratio, and blur
+- updated `src/pipeline/run_pipeline_full.py` to use the shared PAD crop helper and to skip PAD history updates when the face bounding box is unstable
+
+Renamed the recognition dataset utility files for clarity:
+
+- `src/dataset/dataset_collector.py` -> `src/dataset/recognition_dataset_collector.py`
+- `src/dataset/dataset_loader.py` -> `src/dataset/recognition_dataset_loader.py`
+
+Final consistency updates:
+
+- updated `src/recognition/train_model.py` to import `load_dataset()` from `src/dataset/recognition_dataset_loader.py`
+- aligned the face-size threshold to `8000` in the recognition dataset collector so it matches:
+
+  - `src/pipeline/run_pipeline_full.py`
+  - `src/dataset/pad_runtime_dataset_collector.py`
+  - `src/antispoofing/training/pad_dataset_loader.py`
+
+- normalized the remaining `cv2.putText(...)` calls so they are written on a single line
+- verified imports, function calls, docstrings, and syntax correctness after the cleanup
+
+---
+
 ## IN FASE DI IMPLEMENTAZIONE
 
 1. Improve recognition robustness with multiple identities in the dataset

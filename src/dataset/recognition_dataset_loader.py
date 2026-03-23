@@ -1,5 +1,5 @@
 """
-Module: dataset_loader
+Module: recognition_dataset_loader
 
 Description:
 This module loads the face dataset used for training the recognition
@@ -19,9 +19,11 @@ import numpy as np
 # ----- CONSTANTS ----- #
 DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "recognition_train"
 
+
 def load_dataset():
     """
-    Load face images and corresponding labels from the dataset directory.
+    Load face images and corresponding labels from the recognition
+    dataset directory.
 
     The function scans each person folder inside the dataset, reads the
     stored face images, assigns numeric labels to each identity, and

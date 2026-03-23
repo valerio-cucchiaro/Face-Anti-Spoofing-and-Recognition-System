@@ -18,7 +18,7 @@ import joblib
 from pathlib import Path
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
-from src.antispoofing.training.pad_training_dataset_loader import (
+from src.antispoofing.training.pad_dataset_loader import (
     load_pad_test_dataset_casia,
     load_pad_test_dataset_replay,
     load_pad_test_dataset_combined,

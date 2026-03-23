@@ -12,14 +12,14 @@ webcam acquisition -> face detection -> face validation -> face
 preprocessing -> antispoofing (PAD) -> face recognition ->
 visualization of results
 
-The module integrates the detection, preprocessing, anti-spoofing, and
-recognition components. It applies temporal smoothing to PAD decisions
-and displays the final biometric output in real time.
+The module integrates MediaPipe face detection, preprocessing,
+anti-spoofing, and recognition. It applies temporal smoothing to PAD
+decisions and displays the final biometric output in real time.
 """
 
 import cv2
-from pathlib import Path
 
+from src.antispoofing.pad_crop_utils import extract_pad_face_crop
 from src.antispoofing.pad_frame_quality import evaluate_pad_crop_quality
 from src.antispoofing.pad_runtime_state import PadRuntimeState
 from src.detection.face_detector import load_mediapipe_detector
@@ -30,11 +30,7 @@ from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
 
 
 # ----- FACE DETECTION AND VALIDATION ----- #
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "haarcascade_frontalface_default.xml"
-SCALE_FACTOR = 1.1
-MIN_NEIGHBORS = 8
-MIN_SIZE = (30, 30)
-THRESHOLD_AREA = 4500   # minimum area of the detected face to be considered valid
+THRESHOLD_AREA = 8000   # minimum area of the detected face to be considered valid
 
 # ----- PAD TEMPORAL SMOOTHING ----- #
 PAD_WINDOW_SIZE = 5
@@ -67,7 +63,6 @@ def run_pipeline_full():
         raise RuntimeError("Could not open webcam")
 
     detector = load_mediapipe_detector()
-    #detector = load_face_detector(MODEL_PATH)
     pad_detector = AntiSpoofingDetector()
 
     pad_runtime_state = PadRuntimeState(
@@ -81,6 +76,8 @@ def run_pipeline_full():
 
     recognizer, label_map = load_recognizer()
 
+    prev_face_rect = None
+
     while True:
         ret, frame = cap.read()
 
@@ -88,49 +85,49 @@ def run_pipeline_full():
             print("Failed to grab frame")
             break
         
-        '''
-        face_rect, gray_frame, message = get_valid_face(
-            frame, detector, SCALE_FACTOR, MIN_NEIGHBORS, MIN_SIZE, THRESHOLD_AREA
-        )'''
-
         face_rect, gray_frame, message = get_valid_face(
             frame,
             detector,
-            SCALE_FACTOR,
-            MIN_NEIGHBORS,
-            MIN_SIZE,
             THRESHOLD_AREA,
-            method="mediapipe",
         )
 
         if message == "No face detected" or message == "No valid face detected":
             state_result = pad_runtime_state.update(face_missing=True)
-            status_text = f"{message} | miss={state_result['missing_face_counter']}/{PAD_RESET_AFTER_MISSES}"
-            cv2.putText(frame, status_text, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Move closer to the camera":
             state_result = pad_runtime_state.update(face_missing=True)
-            status_text = f"{message} | miss={state_result['missing_face_counter']}/{PAD_RESET_AFTER_MISSES}"
-            cv2.putText(frame, status_text, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Face detected":
             x, y, w, h = face_rect
 
-            # PAD crop aligned with training flow: crop from grayscale frame
-            pad_margin_x = int(w * 0.12)
-            pad_margin_y = int(h * 0.18)
+            # --- BBOX STABILITY CHECK --- #
+            bbox_stable = True
 
-            x1 = max(0, x - pad_margin_x)
-            y1 = max(0, y - pad_margin_y)
-            x2 = min(gray_frame.shape[1], x + w + pad_margin_x)
-            y2 = min(gray_frame.shape[0], y + h + pad_margin_y)
+            if prev_face_rect is not None:
+                prev_x, prev_y, prev_w, prev_h = prev_face_rect
 
-            pad_face_crop = gray_frame[y1:y2, x1:x2]
+                dx = abs(x - prev_x)
+                dy = abs(y - prev_y)
+                dw = abs(w - prev_w)
+                dh = abs(h - prev_h)
+
+                # Thresholds
+                if dx > 30 or dy > 30 or dw > 35 or dh > 35:
+                    bbox_stable = False
+
+            # Update the reference box used for the next stability check.
+            prev_face_rect = (x, y, w, h)
+
+            # Build the PAD crop through the shared helper used by the
+            # collector and offline PAD utilities.
+            pad_face_crop = extract_pad_face_crop(gray_frame, x, y, w, h)
 
             # Evaluate the PAD crop quality before updating the temporal state.
             quality_result = evaluate_pad_crop_quality(pad_face_crop, PAD_MIN_VARIANCE_LAPLACIAN)
             laplacian_variance = quality_result["laplacian_variance"]
-            update_pad_history = quality_result["is_frame_usable_for_history"]
+            update_pad_history = quality_result["is_frame_usable_for_history"] and bbox_stable
 
             # Run PAD inference only on valid crops, otherwise mark the frame as invalid.
             if quality_result["is_valid_crop"]:
@@ -176,32 +173,40 @@ def run_pipeline_full():
             # Show the final smoothed PAD decision derived from recent frames.
             cv2.putText(frame, final_pad_text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, box_color, 2, cv2.LINE_AA)
 
-            #---DEBUG---#
-            if update_pad_history:
-                quality_text = f"PAD frame: ACCEPTED | blur={laplacian_variance:.1f}"
-                quality_color = (0, 255, 0)
-            else:
+            # --- DEBUG --- #
+            if not quality_result["is_valid_crop"]:
+                if not quality_result["is_large_enough"]:
+                    quality_text = f"PAD frame: SKIPPED | too small ({quality_result['crop_width']}x{quality_result['crop_height']})"
+                elif not quality_result["has_plausible_aspect_ratio"]:
+                    quality_text = f"PAD frame: SKIPPED | bad ratio ({quality_result['aspect_ratio']:.2f})"
+                else:
+                    quality_text = "PAD frame: SKIPPED | invalid crop"
+                quality_color = (0, 165, 255)
+
+            elif not quality_result["is_sharp_enough"]:
                 quality_text = f"PAD frame: SKIPPED | blur={laplacian_variance:.1f}"
                 quality_color = (0, 165, 255)
+
+            elif not bbox_stable:
+                quality_text = "PAD frame: SKIPPED | unstable bbox"
+                quality_color = (0, 165, 255)
+
+            else:
+                quality_text = f"PAD frame: ACCEPTED | {quality_result['crop_width']}x{quality_result['crop_height']} | blur={laplacian_variance:.1f}"
+                quality_color = (0, 255, 0)
+
             cv2.putText(frame, quality_text, (x, y + h + 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, quality_color, 2, cv2.LINE_AA)
 
             # Only perform recognition if final PAD decision is live
             if final_pad_label == "live":
                 face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
-
                 predicted_name, confidence = predict_identity(face, recognizer, label_map)
-
                 cv2.imshow("Face", face)
-
-                # Show the recognized identity when PAD allows recognition.
                 cv2.putText(frame, f"Identity: {predicted_name}", (x, y + h + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
-
-                # Show the LBPH confidence associated with the recognition result.
                 cv2.putText(frame, f"Confidence: {confidence:.2f}", (x, y + h + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2, cv2.LINE_AA)
             else:
-                # Inform the user that recognition is blocked by the PAD decision.
                 cv2.putText(frame, "Recognition blocked", (x, y + h + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
-
+        
         cv2.imshow("Webcam", frame)
 
         key = cv2.waitKey(1) & 0xFF

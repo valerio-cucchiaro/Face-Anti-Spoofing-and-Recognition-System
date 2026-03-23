@@ -15,7 +15,7 @@ import cv2
 import pickle
 from pathlib import Path
 
-from src.dataset.dataset_loader import load_dataset
+from src.dataset.recognition_dataset_loader import load_dataset
 
 
 def train_model():

@@ -2,21 +2,23 @@
 Module: face_detector
 
 Description:
-This module provides utilities for loading and using the Haar Cascade
-face detector from OpenCV.
+This module provides the MediaPipe face detection utilities used
+throughout the project.
 
-It encapsulates the initialization of the classifier and exposes a
-function for detecting faces in grayscale frames. The detected face
-regions are returned as bounding boxes used by later stages of the
-pipeline.
+It exposes a detector factory and a detection helper that return face
+bounding boxes in pixel coordinates. Those boxes are reused by the
+runtime pipeline, dataset collectors, and PAD dataset loading tools.
 """
 
-import cv2  
+import cv2
 import mediapipe as mp
 
 
 def load_mediapipe_detector():
-    """Load and initialize the MediaPipe face detector."""
+    """
+    Load and initialize the MediaPipe face detector used by the
+    project runtime and dataset utilities.
+    """
 
     # Use the short-range model, which is more suitable for webcam usage.
     mp_face_detection = mp.solutions.face_detection
@@ -28,7 +30,10 @@ def load_mediapipe_detector():
 
 
 def detect_faces_mediapipe(detector, frame):
-    """Detect faces in a BGR frame using the MediaPipe detector."""
+    """
+    Detect faces in a BGR frame using MediaPipe and return bounding
+    boxes in ``(x, y, w, h)`` format.
+    """
 
     # MediaPipe expects RGB input, so convert the OpenCV BGR frame first.
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -53,35 +58,10 @@ def detect_faces_mediapipe(detector, frame):
     return boxes
 
 
-def load_face_detector(model_path: str):
-    """Load and initialize the Haar Cascade face detector."""
+def detect_faces(detector, frame):
+    """
+    Detect faces using the shared MediaPipe backend configured for the
+    project.
+    """
 
-    # Load the Haar Cascade classifier from disk.
-    detector = cv2.CascadeClassifier(model_path)
-
-    # Stop early if OpenCV fails to initialize the detector correctly.
-    if detector.empty():
-        raise RuntimeError("Failed to load Haar Cascade classifier")
-    
-    return detector
-
-
-def detect_faces(detector, frame, method="mediapipe", **kwargs):
-    """Detect faces using the selected backend."""
-
-    if method == "mediapipe":
-        return detect_faces_mediapipe(detector, frame)
-
-    elif method == "haar":
-        # Haar Cascade detection is applied on the grayscale frame.
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        return detector.detectMultiScale(
-            gray,
-            scaleFactor=kwargs.get("scaleFactor", 1.1),
-            minNeighbors=kwargs.get("minNeighbors", 5),
-            minSize=kwargs.get("minSize", (30, 30))
-        )
-
-    else:
-        raise ValueError("Unknown detection method")
+    return detect_faces_mediapipe(detector, frame)
