@@ -6,11 +6,14 @@ This module provides dataset loading utilities for the presentation
 attack detection (PAD) training pipeline.
 
 The loader supports both training and evaluation dataset loading,
-including single-dataset and combined-dataset variants. It scans the
-live and spoof folders, detects the main face with the shared
-MediaPipe-based validation helper, extracts the PAD feature vector
-through the anti-spoofing preprocessing pipeline, and assigns the
-corresponding label.
+including single-dataset and combined-dataset variants.
+
+Depending on the declared dataset type, each image is processed as:
+- ``raw_frame``: detect face -> build shared PAD crop -> shared post-crop path
+- ``final_pad_crop``: shared post-crop path directly
+
+This keeps runtime PAD crops and raw public datasets aligned while
+making the input contract explicit.
 
 The resulting dataset is returned as a pair of NumPy arrays:
 one for the extracted feature vectors and one for the class labels.
@@ -21,9 +24,9 @@ import numpy as np
 from pathlib import Path
 
 from src.antispoofing.pad_crop_utils import extract_pad_face_crop
-from src.antispoofing.pad_feature_extractor import extract_pad_features
+from src.antispoofing.pad_frame_quality import PAD_MIN_VARIANCE_LAPLACIAN
+from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
 from src.detection.face_detector import load_mediapipe_detector
-from src.preprocessing.face_preprocessing import preprocess_face_for_pad
 from src.preprocessing.frame_preprocessing import get_valid_face
 
 
@@ -55,24 +58,18 @@ RUNTIME_TEST_SPOOF_PATH = RUNTIME_ROOT / "test" / "spoof"
 THRESHOLD_AREA = 8000
 
 
-def extract_pad_features_from_image(img, detector):
+def extract_pad_features_from_raw_frame(
+    img,
+    detector,
+    apply_quality_gate=True,
+):
     """
-    Extract a PAD feature vector from the main valid face found in the
-    input image.
-
-    This function performs the preprocessing pipeline required before
-    anti-spoofing feature extraction:
-
-    image
-    -> face detection
-    -> shared PAD crop extraction
-    -> face normalization
-    -> PAD feature extraction
-
-    If no valid face is detected, the function returns ``None``.
+    Extract PAD features from a raw frame by running face detection and
+    shared PAD crop construction, then delegating the entire post-crop
+    path to the canonical PAD crop helper.
     """
 
-    # Detect the face inside the image and validate it
+    # Detect the face inside the image and validate it.
     face_box, gray_frame, _ = get_valid_face(
         img,
         detector,
@@ -90,15 +87,66 @@ def extract_pad_features_from_image(img, detector):
     if pad_face_crop is None or pad_face_crop.size == 0:
         return None
 
-    face = preprocess_face_for_pad(
+    return extract_pad_features_from_final_crop(
         pad_face_crop,
-        0,
-        0,
-        pad_face_crop.shape[1],
-        pad_face_crop.shape[0]
+        apply_quality_gate=apply_quality_gate,
     )
 
-    return extract_pad_features(face)
+
+def extract_pad_features_from_final_crop(
+    img,
+    apply_quality_gate=True,
+):
+    """
+    Extract PAD features from a final PAD crop already produced by the
+    shared collector/runtime crop path.
+
+    This branch must not run face detection or re-crop the image again.
+    It optionally applies the shared crop-quality gate and then
+    delegates the post-crop path to the canonical inference helper.
+    """
+
+    return extract_pad_features_from_crop(
+        img,
+        apply_quality_gate=apply_quality_gate,
+        min_variance_laplacian=PAD_MIN_VARIANCE_LAPLACIAN,
+    )
+
+
+def extract_pad_features_from_dataset_image(
+    img,
+    detector=None,
+    dataset_type="raw_frame",
+    apply_quality_gate=True,
+):
+    """
+    Dispatch PAD feature extraction according to the declared dataset
+    image type.
+
+    Supported dataset types:
+    - ``raw_frame``: original image that still needs detection/cropping
+    - ``final_pad_crop``: crop already produced by the shared PAD crop path
+    """
+
+    if dataset_type == "raw_frame":
+        if detector is None:
+            raise ValueError("A detector is required for dataset_type='raw_frame'.")
+        return extract_pad_features_from_raw_frame(
+            img,
+            detector,
+            apply_quality_gate=apply_quality_gate,
+        )
+
+    if dataset_type == "final_pad_crop":
+        return extract_pad_features_from_final_crop(
+            img,
+            apply_quality_gate=apply_quality_gate,
+        )
+
+    raise ValueError(
+        "Unsupported dataset_type: "
+        f"{dataset_type}. Use 'raw_frame' or 'final_pad_crop'."
+    )
 
 
 def load_combined_pad_training_dataset():
@@ -107,7 +155,11 @@ def load_combined_pad_training_dataset():
     """
     # CASIA dataset
     print("Loading CASIA PAD dataset...")
-    X1, y1 = load_pad_split_dataset(TRAIN_LIVE_PATH, TRAIN_SPOOF_PATH)
+    X1, y1 = load_pad_split_dataset(
+        TRAIN_LIVE_PATH,
+        TRAIN_SPOOF_PATH,
+        dataset_type="raw_frame",
+    )
 
     # ReplayAttack dataset
     print("Loading ReplayAttack PAD dataset...")
@@ -115,6 +167,7 @@ def load_combined_pad_training_dataset():
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=True,
+        dataset_type="raw_frame",
     )
 
     X = np.concatenate([X1, X2], axis=0)
@@ -131,6 +184,7 @@ def load_replay_pad_training_dataset():
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=True,
+        dataset_type="raw_frame",
     )
 
 
@@ -142,6 +196,7 @@ def load_runtime_pad_training_dataset():
         RUNTIME_TRAIN_LIVE_PATH,
         RUNTIME_TRAIN_SPOOF_PATH,
         balance=False,
+        dataset_type="final_pad_crop",
     )
 
 
@@ -149,14 +204,22 @@ def load_pad_test_dataset():
     """
     Load the default PAD test dataset (CASIA) and extract feature vectors.
     """
-    return load_pad_split_dataset(TEST_LIVE_PATH, TEST_SPOOF_PATH)
+    return load_pad_split_dataset(
+        TEST_LIVE_PATH,
+        TEST_SPOOF_PATH,
+        dataset_type="raw_frame",
+    )
 
 
 def load_pad_test_dataset_casia():
     """
     Load the CASIA PAD test dataset and extract feature vectors.
     """
-    return load_pad_split_dataset(TEST_LIVE_PATH, TEST_SPOOF_PATH)
+    return load_pad_split_dataset(
+        TEST_LIVE_PATH,
+        TEST_SPOOF_PATH,
+        dataset_type="raw_frame",
+    )
 
 
 def load_pad_test_dataset_replay():
@@ -167,6 +230,7 @@ def load_pad_test_dataset_replay():
         REPLAY_TEST_LIVE_PATH,
         REPLAY_TEST_SPOOF_PATH,
         balance=False,
+        dataset_type="raw_frame",
     )
 
 
@@ -194,13 +258,18 @@ def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
     """
 
     print("Loading CASIA PAD dataset...")
-    X1, y1 = load_pad_split_dataset(TRAIN_LIVE_PATH, TRAIN_SPOOF_PATH)
+    X1, y1 = load_pad_split_dataset(
+        TRAIN_LIVE_PATH,
+        TRAIN_SPOOF_PATH,
+        dataset_type="raw_frame",
+    )
 
     print("Loading ReplayAttack PAD dataset...")
     X2, y2 = load_pad_split_dataset(
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=True,
+        dataset_type="raw_frame",
     )
 
     print("Loading runtime PAD dataset...")
@@ -216,7 +285,13 @@ def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
     return X, y
 
 
-def load_pad_split_dataset(live_path, spoof_path, balance=False):
+def load_pad_split_dataset(
+    live_path,
+    spoof_path,
+    balance=False,
+    dataset_type="raw_frame",
+    apply_quality_gate=True,
+):
     """
     Load a custom PAD dataset split from specified directories.
 
@@ -233,8 +308,11 @@ def load_pad_split_dataset(live_path, spoof_path, balance=False):
     labels = []
     valid_extensions = {".png", ".jpg", ".jpeg"}
 
-    # Load the detector
-    detector = load_mediapipe_detector()
+    # Load the detector only when the dataset images are still raw
+    # frames that require face detection and crop construction.
+    detector = None
+    if dataset_type == "raw_frame":
+        detector = load_mediapipe_detector()
 
     # Build image path lists
     live_paths = [
@@ -259,7 +337,12 @@ def load_pad_split_dataset(live_path, spoof_path, balance=False):
         if img is None:
             continue
 
-        img_features = extract_pad_features_from_image(img, detector)
+        img_features = extract_pad_features_from_dataset_image(
+            img,
+            detector=detector,
+            dataset_type=dataset_type,
+            apply_quality_gate=apply_quality_gate,
+        )
         if img_features is None:
             continue
 
@@ -272,7 +355,12 @@ def load_pad_split_dataset(live_path, spoof_path, balance=False):
         if img is None:
             continue
 
-        img_features = extract_pad_features_from_image(img, detector)
+        img_features = extract_pad_features_from_dataset_image(
+            img,
+            detector=detector,
+            dataset_type=dataset_type,
+            apply_quality_gate=apply_quality_gate,
+        )
         if img_features is None:
             continue
 

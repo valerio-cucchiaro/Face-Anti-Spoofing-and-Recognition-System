@@ -22,7 +22,11 @@ import cv2
 from pathlib import Path
 
 from src.antispoofing.pad_crop_utils import extract_pad_face_crop
-from src.antispoofing.pad_frame_quality import evaluate_pad_crop_quality
+from src.antispoofing.pad_frame_quality import (
+    PAD_MIN_VARIANCE_LAPLACIAN,
+    evaluate_bbox_stability,
+    evaluate_pad_crop_quality,
+)
 from src.detection.face_detector import load_mediapipe_detector
 from src.preprocessing.frame_preprocessing import get_valid_face
 
@@ -38,9 +42,6 @@ LIVE_DATASET = TRAIN_ROOT / "live"
 SPOOF_DATASET = TRAIN_ROOT / "spoof"
 
 MAX_IMAGES_PER_CLASS = 60
-
-# ----- PAD FRAME QUALITY FILTERING ----- #
-PAD_MIN_VARIANCE_LAPLACIAN = 80.0
 
 
 def get_next_image_index(folder_path):
@@ -86,6 +87,7 @@ def collect_pad_runtime_dataset():
         raise RuntimeError("Could not open webcam")
 
     detector = load_mediapipe_detector()
+    prev_face_rect = None
 
     while True:
         ret, frame = cap.read()
@@ -112,13 +114,26 @@ def collect_pad_runtime_dataset():
         cv2.putText(frame, "Press L = save live | S = save spoof | Q = quit", (30, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2, cv2.LINE_AA)
 
         if message == "No face detected":
+            prev_face_rect = None
             cv2.putText(frame, message, (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Move closer to the camera":
+            prev_face_rect = None
             cv2.putText(frame, message, (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Face detected":
             x, y, w, h = face_rect
+            current_face_rect = (x, y, w, h)
+
+            # Apply the same bbox-stability policy used by the runtime
+            # pipeline so the saved dataset reflects the real online
+            # acquisition conditions.
+            stability_result = evaluate_bbox_stability(
+                current_face_rect,
+                prev_face_rect,
+            )
+            bbox_stable = stability_result["is_stable"]
+            prev_face_rect = current_face_rect
 
             # Build the PAD crop through the same helper used at runtime.
             pad_face_crop = extract_pad_face_crop(gray_frame, x, y, w, h)
@@ -129,8 +144,10 @@ def collect_pad_runtime_dataset():
             laplacian_variance = quality_result["laplacian_variance"]
 
             # Only allow saving crops that pass the same structural and blur
-            # checks used by the runtime PAD history update.
-            valid_face = quality_result["is_frame_usable_for_history"]
+            # checks used by the runtime PAD history update. Bbox
+            # stability is treated here as an acquisition policy, not as
+            # part of the PAD feature preprocessing path.
+            valid_face = quality_result["is_frame_usable_for_history"] and bbox_stable
 
             # Draw face bounding box
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -154,6 +171,9 @@ def collect_pad_runtime_dataset():
                 quality_color = (0, 165, 255)
             elif not quality_result["is_sharp_enough"]:
                 quality_text = f"PAD frame: SKIPPED | blur={laplacian_variance:.1f}"
+                quality_color = (0, 165, 255)
+            elif not bbox_stable:
+                quality_text = "PAD frame: SKIPPED | unstable bbox"
                 quality_color = (0, 165, 255)
             else:
                 quality_text = (

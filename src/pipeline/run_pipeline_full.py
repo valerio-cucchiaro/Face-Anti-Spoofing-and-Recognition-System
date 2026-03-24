@@ -20,7 +20,11 @@ decisions and displays the final biometric output in real time.
 import cv2
 
 from src.antispoofing.pad_crop_utils import extract_pad_face_crop
-from src.antispoofing.pad_frame_quality import evaluate_pad_crop_quality
+from src.antispoofing.pad_frame_quality import (
+    PAD_MIN_VARIANCE_LAPLACIAN,
+    evaluate_bbox_stability,
+    evaluate_pad_crop_quality,
+)
 from src.antispoofing.pad_runtime_state import PadRuntimeState
 from src.detection.face_detector import load_mediapipe_detector
 from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
@@ -40,9 +44,6 @@ PAD_ENTER_LIVE_THRESHOLD = 0.70
 PAD_EXIT_LIVE_THRESHOLD = 0.55
 PAD_ENTER_SPOOF_THRESHOLD = 0.30
 PAD_EXIT_SPOOF_THRESHOLD = 0.45
-
-# ----- PAD FRAME QUALITY FILTERING ----- #
-PAD_MIN_VARIANCE_LAPLACIAN = 80.0
 
 # ----- PAD STATE RESET ----- #
 PAD_RESET_AFTER_MISSES = 15
@@ -92,33 +93,25 @@ def run_pipeline_full():
         )
 
         if message == "No face detected" or message == "No valid face detected":
+            prev_face_rect = None
             state_result = pad_runtime_state.update(face_missing=True)
             cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Move closer to the camera":
+            prev_face_rect = None
             state_result = pad_runtime_state.update(face_missing=True)
             cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Face detected":
             x, y, w, h = face_rect
 
-            # --- BBOX STABILITY CHECK --- #
-            bbox_stable = True
-
-            if prev_face_rect is not None:
-                prev_x, prev_y, prev_w, prev_h = prev_face_rect
-
-                dx = abs(x - prev_x)
-                dy = abs(y - prev_y)
-                dw = abs(w - prev_w)
-                dh = abs(h - prev_h)
-
-                # Thresholds
-                if dx > 30 or dy > 30 or dw > 35 or dh > 35:
-                    bbox_stable = False
-
-            # Update the reference box used for the next stability check.
-            prev_face_rect = (x, y, w, h)
+            current_face_rect = (x, y, w, h)
+            stability_result = evaluate_bbox_stability(
+                current_face_rect,
+                prev_face_rect,
+            )
+            bbox_stable = stability_result["is_stable"]
+            prev_face_rect = current_face_rect
 
             # Build the PAD crop through the shared helper used by the
             # collector and offline PAD utilities.

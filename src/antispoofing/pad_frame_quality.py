@@ -2,11 +2,11 @@
 Module: pad_frame_quality
 
 Description:
-This module implements runtime quality checks for the grayscale PAD
-face crop used by the anti-spoofing pipeline.
+This module implements shared quality checks for the PAD crop and the
+runtime-only stability checks used during online acquisition.
 
-The quality evaluation verifies whether the crop is structurally valid
-and visually reliable enough to be used by the PAD runtime logic.
+The crop-quality evaluation verifies whether the crop is structurally
+valid and visually reliable enough to be used by the PAD pipeline.
 
 The checks include:
 - crop existence
@@ -14,23 +14,36 @@ The checks include:
 - plausible aspect ratio
 - blur estimation through Laplacian variance
 
-The returned information helps the runtime pipeline decide whether the
-current frame is reliable enough to update the temporal PAD history.
+The module also exposes a separate bounding-box stability helper for
+runtime collection and online temporal logic. That helper is not part
+of the PAD feature path.
 """
 
 import cv2
 
+# ----- SHARED PAD CROP QUALITY CONSTANTS ----- #
+PAD_MIN_VARIANCE_LAPLACIAN = 80.0
+PAD_MIN_CROP_SIZE = 80
+PAD_MIN_ASPECT_RATIO = 0.75
+PAD_MAX_ASPECT_RATIO = 1.35
+
+# ----- RUNTIME BBOX STABILITY CONSTANTS ----- #
+PAD_MAX_BBOX_DELTA_X = 30
+PAD_MAX_BBOX_DELTA_Y = 30
+PAD_MAX_BBOX_DELTA_W = 35
+PAD_MAX_BBOX_DELTA_H = 35
+
 
 def evaluate_pad_crop_quality(
     pad_face_crop,
-    min_variance_laplacian,
-    min_crop_size=80,
-    min_aspect_ratio=0.75,
-    max_aspect_ratio=1.35,
+    min_variance_laplacian=PAD_MIN_VARIANCE_LAPLACIAN,
+    min_crop_size=PAD_MIN_CROP_SIZE,
+    min_aspect_ratio=PAD_MIN_ASPECT_RATIO,
+    max_aspect_ratio=PAD_MAX_ASPECT_RATIO,
 ):
     """
     Evaluate whether the PAD crop is structurally valid and sharp enough
-    to be used for temporal PAD smoothing.
+    to be used by the PAD pipeline.
     """
 
     if pad_face_crop is None or pad_face_crop.size == 0:
@@ -90,4 +103,62 @@ def evaluate_pad_crop_quality(
         "laplacian_variance": float(laplacian_variance),
         "is_sharp_enough": is_sharp_enough,
         "is_frame_usable_for_history": is_frame_usable_for_history,
+    }
+
+
+def evaluate_bbox_stability(
+    current_face_rect,
+    previous_face_rect,
+    max_delta_x=PAD_MAX_BBOX_DELTA_X,
+    max_delta_y=PAD_MAX_BBOX_DELTA_Y,
+    max_delta_w=PAD_MAX_BBOX_DELTA_W,
+    max_delta_h=PAD_MAX_BBOX_DELTA_H,
+):
+    """
+    Evaluate whether two consecutive face boxes are stable enough for
+    runtime acquisition/history updates.
+
+    This helper belongs to the runtime control logic, not to the PAD
+    feature extraction path.
+    """
+
+    if current_face_rect is None:
+        return {
+            "is_stable": False,
+            "dx": None,
+            "dy": None,
+            "dw": None,
+            "dh": None,
+        }
+
+    if previous_face_rect is None:
+        return {
+            "is_stable": True,
+            "dx": 0,
+            "dy": 0,
+            "dw": 0,
+            "dh": 0,
+        }
+
+    x, y, w, h = current_face_rect
+    prev_x, prev_y, prev_w, prev_h = previous_face_rect
+
+    dx = abs(x - prev_x)
+    dy = abs(y - prev_y)
+    dw = abs(w - prev_w)
+    dh = abs(h - prev_h)
+
+    is_stable = (
+        dx <= max_delta_x and
+        dy <= max_delta_y and
+        dw <= max_delta_w and
+        dh <= max_delta_h
+    )
+
+    return {
+        "is_stable": is_stable,
+        "dx": dx,
+        "dy": dy,
+        "dw": dw,
+        "dh": dh,
     }

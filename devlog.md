@@ -710,18 +710,24 @@ Final consistency updates:
 
 ---
 
-## IN FASE DI IMPLEMENTAZIONE
+## 2026/03/24
 
-1. Improve recognition robustness with multiple identities in the dataset
+**PAD Pipeline Freeze and Runtime Dataset Alignment**:
 
-2. Collect dataset samples for additional users
+Completed the PAD pipeline freeze to align collector, training, and runtime around a shared `final_pad_crop` contract.
 
-3. Evaluate recognition performance and tune UNKNOWN_THRESHOLD
+- updated `src/antispoofing/training/pad_dataset_loader.py` to distinguish explicitly between `raw_frame` and `final_pad_crop`
+- fixed the runtime PAD training dataset path so `data/pad_runtime_dataset` samples are no longer reprocessed as raw frames
+- refactored the PAD loader so both dataset branches now converge into the same canonical post-crop path in `src/antispoofing/pad_inference_preprocessing.py`
+- updated `src/antispoofing/pad_frame_quality.py` to centralize shared PAD crop-quality checks and to separate `evaluate_bbox_stability()` as runtime-only logic
+- updated `src/dataset/pad_runtime_dataset_collector.py` and `src/pipeline/run_pipeline_full.py` to use the same shared bbox stability policy
 
-4. Implement runtime PAD detector module
+Freeze verification after the refactor:
 
-5. Integrate anti-spoofing into the webcam pipeline
+- `crop path closed`
+- `preprocess path closed`
+- `feature path closed`
 
-6. Combine recognition and anti-spoofing decisions
+- verified imports, function calls, docstrings, and syntax correctness after the freeze cleanup
 
-7. Evaluate full system performance (recognition + PAD)
+---
