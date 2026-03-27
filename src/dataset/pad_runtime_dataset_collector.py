@@ -3,19 +3,22 @@ Module: pad_runtime_dataset_collector
 
 Description:
 This module collects real runtime face samples for offline PAD
-training dataset creation.
+dataset creation.
 
 It captures frames from the webcam, detects and validates a face,
 builds the same padded grayscale crop used by the runtime PAD flow,
 filters it with shared quality checks, and saves it into one of two
-folders:
+folders inside the selected runtime dataset split:
 
-data/pad_runtime_dataset/train/live
-data/pad_runtime_dataset/train/spoof
+data/pad_runtime_dataset/<split>/live
+data/pad_runtime_dataset/<split>/spoof
 
 The saved images are not converted into PAD features here. They remain
 image crops so that the offline PAD training and evaluation tools can
 reapply their own normalization and feature extraction pipeline later.
+
+The same collector can target either the ``train`` or ``test`` split
+of ``data/pad_runtime_dataset`` through a configurable split name.
 """
 
 import cv2
@@ -37,11 +40,10 @@ THRESHOLD_AREA = 8000
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 RUNTIME_DATASET_ROOT = PROJECT_ROOT / "data" / "pad_runtime_dataset"
-TRAIN_ROOT = RUNTIME_DATASET_ROOT / "train"
-LIVE_DATASET = TRAIN_ROOT / "live"
-SPOOF_DATASET = TRAIN_ROOT / "spoof"
+DATASET_SPLIT = "test"     # train or test
 
-MAX_IMAGES_PER_CLASS = 60
+MAX_IMAGES_LIVE = 80
+MAX_IMAGES_SPOOF = 100
 
 
 def get_next_image_index(folder_path):
@@ -52,7 +54,22 @@ def get_next_image_index(folder_path):
     return len(existing_images) + 1
 
 
-def collect_pad_runtime_dataset():
+def get_runtime_split_paths(split_name):
+    """
+    Build the runtime PAD dataset paths for the selected split.
+    """
+
+    if split_name not in {"train", "test"}:
+        raise ValueError(
+            "Unsupported split_name: "
+            f"{split_name}. Use 'train' or 'test'."
+        )
+
+    split_root = RUNTIME_DATASET_ROOT / split_name
+    return split_root, split_root / "live", split_root / "spoof"
+
+
+def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
     """
     Collect live and spoof PAD crops from the webcam for runtime-aware
     PAD dataset creation.
@@ -60,6 +77,10 @@ def collect_pad_runtime_dataset():
     The function reuses the shared face validation, PAD crop
     extraction, and PAD quality checks so that saved samples follow the
     same geometric assumptions as the runtime PAD pipeline.
+
+    The selected split controls whether samples are saved under:
+    - ``data/pad_runtime_dataset/train/...``
+    - ``data/pad_runtime_dataset/test/...``
 
     Controls:
         l -> save current valid face crop in the live folder
@@ -71,15 +92,17 @@ def collect_pad_runtime_dataset():
         - spoof = face shown through phone/photo attack
     """
 
+    _, live_dataset, spoof_dataset = get_runtime_split_paths(split_name)
+
     # Create dataset directories if they do not exist
-    LIVE_DATASET.mkdir(parents=True, exist_ok=True)
-    SPOOF_DATASET.mkdir(parents=True, exist_ok=True)
+    live_dataset.mkdir(parents=True, exist_ok=True)
+    spoof_dataset.mkdir(parents=True, exist_ok=True)
 
-    live_count = len(list(LIVE_DATASET.glob("*.png")))
-    spoof_count = len(list(SPOOF_DATASET.glob("*.png")))
+    live_count = len(list(live_dataset.glob("*.png")))
+    spoof_count = len(list(spoof_dataset.glob("*.png")))
 
-    live_next_idx = get_next_image_index(LIVE_DATASET)
-    spoof_next_idx = get_next_image_index(SPOOF_DATASET)
+    live_next_idx = get_next_image_index(live_dataset)
+    spoof_next_idx = get_next_image_index(spoof_dataset)
 
     # Open webcam
     cap = cv2.VideoCapture(0)
@@ -107,19 +130,21 @@ def collect_pad_runtime_dataset():
         )
 
         # Default overlay info
-        cv2.putText(frame, f"LIVE samples: {live_count} / {MAX_IMAGES_PER_CLASS}", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(frame, f"Split: {split_name.upper()}", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
 
-        cv2.putText(frame, f"SPOOF samples: {spoof_count} / {MAX_IMAGES_PER_CLASS}", (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(frame, f"LIVE samples: {live_count} / {MAX_IMAGES_LIVE}", (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
 
-        cv2.putText(frame, "Press L = save live | S = save spoof | Q = quit", (30, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2, cv2.LINE_AA)
+        cv2.putText(frame, f"SPOOF samples: {spoof_count} / {MAX_IMAGES_SPOOF}", (30, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
+
+        cv2.putText(frame, "Press L = save live | S = save spoof | Q = quit", (30, 145), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2, cv2.LINE_AA)
 
         if message == "No face detected":
             prev_face_rect = None
-            cv2.putText(frame, message, (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(frame, message, (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Move closer to the camera":
             prev_face_rect = None
-            cv2.putText(frame, message, (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(frame, message, (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Face detected":
             x, y, w, h = face_rect
@@ -183,17 +208,17 @@ def collect_pad_runtime_dataset():
                 quality_color = (0, 255, 0)
 
             # Show crop and detector size for quick sanity checks.
-            cv2.putText(frame, f"Face size: {w}x{h}", (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
+            cv2.putText(frame, f"Face size: {w}x{h}", (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
 
-        cv2.putText(frame, quality_text, (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.7, quality_color, 2, cv2.LINE_AA)
+        cv2.putText(frame, quality_text, (30, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.7, quality_color, 2, cv2.LINE_AA)
 
         cv2.imshow("Webcam", frame)
 
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord("l") and valid_face and pad_face_crop is not None:
-            if live_count < MAX_IMAGES_PER_CLASS:
-                save_path = LIVE_DATASET / f"{live_next_idx:03d}.png"
+            if live_count < MAX_IMAGES_LIVE:
+                save_path = live_dataset / f"{live_next_idx:03d}.png"
                 cv2.imwrite(str(save_path), pad_face_crop)
                 print(f"[LIVE] Saved: {save_path.name}")
                 live_count += 1
@@ -202,8 +227,8 @@ def collect_pad_runtime_dataset():
                 print("Maximum number of LIVE images reached")
 
         elif key == ord("s") and valid_face and pad_face_crop is not None:
-            if spoof_count < MAX_IMAGES_PER_CLASS:
-                save_path = SPOOF_DATASET / f"{spoof_next_idx:03d}.png"
+            if spoof_count < MAX_IMAGES_SPOOF:
+                save_path = spoof_dataset / f"{spoof_next_idx:03d}.png"
                 cv2.imwrite(str(save_path), pad_face_crop)
                 print(f"[SPOOF] Saved: {save_path.name}")
                 spoof_count += 1

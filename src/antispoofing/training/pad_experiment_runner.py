@@ -13,7 +13,7 @@ from src.antispoofing.training.pad_model_trainer import train_pad_model
 from src.antispoofing.training.pad_model_evaluator import evaluate_pad_model
 # ----- CONSTANTS ----- #
 TRAIN_MODE = "combined_runtime"
-EVAL_MODE = "combined"
+EVAL_MODE = "runtime"
 
 
 def run(train_mode=None, eval_mode=None):
@@ -31,7 +31,8 @@ def run(train_mode=None, eval_mode=None):
     Supported evaluation modes:
     - casia
     - replay
-    - combined
+    - runtime
+    - all
     """
     selected_train_mode = train_mode or TRAIN_MODE
     selected_eval_mode = eval_mode or EVAL_MODE

@@ -56,6 +56,27 @@ RUNTIME_TEST_SPOOF_PATH = RUNTIME_ROOT / "test" / "spoof"
 
 # ----- CONSTANTS ----- #
 THRESHOLD_AREA = 8000
+TRAIN_SAMPLING_SEED = 42
+CASIA_SAMPLE_RATIO = 1.0
+
+
+def sample_image_paths(paths, ratio=1.0, seed=None):
+    """
+    Deterministically downsample a list of image paths.
+    """
+
+    if ratio >= 1.0 or len(paths) <= 1:
+        return list(paths)
+
+    if ratio <= 0.0:
+        return []
+
+    n_samples = max(1, int(len(paths) * ratio))
+    rng = np.random.default_rng(seed)
+    indices = rng.choice(len(paths), size=n_samples, replace=False)
+    indices = np.sort(indices)
+
+    return [paths[i] for i in indices]
 
 
 def extract_pad_features_from_raw_frame(
@@ -158,6 +179,9 @@ def load_combined_pad_training_dataset():
     X1, y1 = load_pad_split_dataset(
         TRAIN_LIVE_PATH,
         TRAIN_SPOOF_PATH,
+        live_ratio=CASIA_SAMPLE_RATIO,
+        spoof_ratio=CASIA_SAMPLE_RATIO,
+        sample_seed=TRAIN_SAMPLING_SEED,
         dataset_type="raw_frame",
     )
 
@@ -167,6 +191,7 @@ def load_combined_pad_training_dataset():
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=True,
+        sample_seed=TRAIN_SAMPLING_SEED,
         dataset_type="raw_frame",
     )
 
@@ -174,6 +199,20 @@ def load_combined_pad_training_dataset():
     y = np.concatenate([y1, y2], axis=0)
 
     return X, y
+
+
+def load_casia_pad_training_dataset():
+    """
+    Load the CASIA PAD training dataset with deterministic sampling.
+    """
+    return load_pad_split_dataset(
+        TRAIN_LIVE_PATH,
+        TRAIN_SPOOF_PATH,
+        live_ratio=CASIA_SAMPLE_RATIO,
+        spoof_ratio=CASIA_SAMPLE_RATIO,
+        sample_seed=TRAIN_SAMPLING_SEED,
+        dataset_type="raw_frame",
+    )
 
 
 def load_replay_pad_training_dataset():
@@ -184,6 +223,7 @@ def load_replay_pad_training_dataset():
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=True,
+        sample_seed=TRAIN_SAMPLING_SEED,
         dataset_type="raw_frame",
     )
 
@@ -261,6 +301,9 @@ def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
     X1, y1 = load_pad_split_dataset(
         TRAIN_LIVE_PATH,
         TRAIN_SPOOF_PATH,
+        live_ratio=CASIA_SAMPLE_RATIO,
+        spoof_ratio=CASIA_SAMPLE_RATIO,
+        sample_seed=TRAIN_SAMPLING_SEED,
         dataset_type="raw_frame",
     )
 
@@ -269,11 +312,13 @@ def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=True,
+        sample_seed=TRAIN_SAMPLING_SEED,
         dataset_type="raw_frame",
     )
 
     print("Loading runtime PAD dataset...")
     X3, y3 = load_runtime_pad_training_dataset()
+    runtime_base_count = len(y3)
 
     if len(y3) > 0 and runtime_repeat > 1:
         X3 = np.concatenate([X3] * runtime_repeat, axis=0)
@@ -282,6 +327,28 @@ def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
     X = np.concatenate([X1, X2, X3], axis=0)
     y = np.concatenate([y1, y2, y3], axis=0)
 
+    casia_count = len(y1)
+    replay_count = len(y2)
+    runtime_effective_count = len(y3)
+    total_count = len(y)
+
+    casia_weight = (casia_count / total_count * 100) if total_count else 0.0
+    replay_weight = (replay_count / total_count * 100) if total_count else 0.0
+    runtime_weight = (runtime_effective_count / total_count * 100) if total_count else 0.0
+
+    print("Number of samples effectively used for training")
+    print("Training sampling seed:", TRAIN_SAMPLING_SEED)
+    print(f"CASIA sample ratio: {CASIA_SAMPLE_RATIO:.2f}")
+    print("CASIA train:", casia_count)
+    print("Replay-Attack train:", replay_count)
+    print("Runtime train (base):", runtime_base_count)
+    print("Runtime repeat:", runtime_repeat)
+    print("Runtime train (effective):", runtime_effective_count)
+    print("Final training set:", total_count)
+    print(f"CASIA weight: {casia_weight:.2f}%")
+    print(f"Replay-Attack weight: {replay_weight:.2f}%")
+    print(f"Runtime weight: {runtime_weight:.2f}%")
+
     return X, y
 
 
@@ -289,6 +356,9 @@ def load_pad_split_dataset(
     live_path,
     spoof_path,
     balance=False,
+    live_ratio=1.0,
+    spoof_ratio=1.0,
+    sample_seed=None,
     dataset_type="raw_frame",
     apply_quality_gate=True,
 ):
@@ -301,8 +371,6 @@ def load_pad_split_dataset(
     If balance=True, the spoof class is randomly reduced to match
     the number of live images.
     """
-
-    import random
 
     features = []
     labels = []
@@ -325,11 +393,26 @@ def load_pad_split_dataset(
         if img_path.suffix.lower() in valid_extensions
     ]
 
+    live_paths = sample_image_paths(
+        live_paths,
+        ratio=live_ratio,
+        seed=sample_seed,
+    )
+    spoof_paths = sample_image_paths(
+        spoof_paths,
+        ratio=spoof_ratio,
+        seed=None if sample_seed is None else sample_seed + 1,
+    )
+
     # Replay-Attack contains many more spoof frames than live frames.
     # During training we optionally downsample spoof samples to reduce bias.
     if balance:
         n_live = len(live_paths)
-        spoof_paths = random.sample(spoof_paths, min(len(spoof_paths), n_live))
+        n_spoof = min(len(spoof_paths), n_live)
+        rng = np.random.default_rng(sample_seed)
+        indices = rng.choice(len(spoof_paths), size=n_spoof, replace=False)
+        indices = np.sort(indices)
+        spoof_paths = [spoof_paths[i] for i in indices]
 
     # Process live images
     for img_path in live_paths:

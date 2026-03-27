@@ -731,3 +731,81 @@ Freeze verification after the refactor:
 - verified imports, function calls, docstrings, and syntax correctness after the freeze cleanup
 
 ---
+
+## 2026/03/27
+
+**PAD Training Sampling and Runtime Evaluation Debugging**:
+
+- added deterministic PAD training sampling through `TRAIN_SAMPLING_SEED` and `CASIA_SAMPLE_RATIO`
+- added training composition reporting for CASIA, Replay-Attack, and runtime samples
+- aligned `src/antispoofing/training/pad_experiment_runner.py` and `src/antispoofing/training/pad_model_evaluator.py` to support runtime-focused PAD evaluation
+- updated `src/antispoofing/training/pad_model_trainer.py` to print the active PAD debug feature mode
+- set `RUNTIME_REPEAT = 10`
+
+These changes made PAD experiments more reproducible and easier to compare on the runtime split.
+
+**Runtime PAD Dataset Split Control**:
+
+- updated `src/dataset/pad_runtime_dataset_collector.py` to support both `train` and `test` runtime PAD splits
+- added configurable split selection and separate live/spoof collection limits
+- showed the active split inside the collector UI
+
+This made runtime PAD data collection easier to manage during debugging.
+
+**PAD Feature Ablation Support**:
+
+- added `PAD_DEBUG_FEATURE_MODE` in `src/antispoofing/pad_feature_extractor.py`
+- supported debug modes:
+
+  - `full`
+  - `lbp_only`
+  - `lbp_lft`
+  - `no_quality`
+  - `no_down_quality`
+
+- kept the ablation logic isolated inside the feature extractor
+
+This supported controlled runtime-focused PAD feature ablation tests.
+
+**TGSD Prototype Integration**:
+
+- created `src/antispoofing/pad_tgsd_features.py`
+- implemented a first TGSD-style gradient discrepancy feature
+- integrated TGSD into `src/antispoofing/pad_feature_extractor.py`
+- updated feature block indexing after adding the new feature
+
+PAD feature dimensions after TGSD:
+
+- single scale: `65`
+- full two-scale vector: `130`
+
+**PAD Runtime Ablation Results**:
+
+Initial feature ablations showed:
+
+- `full` remained the best baseline
+- `lbp_only` performed worst on runtime live samples
+- `lbp_lft` improved over `lbp_only` but stayed below `full`
+- `no_down_quality` stayed close to `full` but did not improve it
+
+First TGSD result on runtime evaluation:
+
+- `full` without TGSD:
+
+  - Accuracy: `0.776`
+  - Recall: `0.35`
+  - F1 Score: `0.50`
+  - live correct: `14/40`
+  - spoof correct: `83/85`
+
+- `full` with TGSD:
+
+  - Accuracy: `0.792`
+  - Recall: `0.40`
+  - F1 Score: `0.5517`
+  - live correct: `16/40`
+  - spoof correct: `83/85`
+
+The first TGSD prototype improved runtime live recall without reducing spoof accuracy.
+
+---

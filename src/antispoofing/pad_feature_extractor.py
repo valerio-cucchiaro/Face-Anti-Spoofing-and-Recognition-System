@@ -18,6 +18,21 @@ import numpy as np
 from src.antispoofing.pad_texture_features import extract_lbp_features
 from src.antispoofing.pad_quality_features import extract_quality_features
 from src.antispoofing.pad_lft_features import extract_lft_features
+from src.antispoofing.pad_tgsd_features import extract_tgsd_feature
+
+
+# ----- DEBUG FEATURE CONFIGURATION ----- #
+# This switch is meant for temporary PAD debugging and feature ablation
+# experiments. It lets us compare different feature subsets without
+# manually commenting and uncommenting blocks before each run.
+#
+# Supported modes:
+# - full: full original PAD feature vector
+# - lbp_only: keep only LBP from both scales
+# - lbp_lft: keep LBP + LFT from both scales
+# - no_quality: remove quality features from both scales
+# - no_down_quality: keep all features except the downsampled quality block
+PAD_DEBUG_FEATURE_MODE = "full"
 
 
 def extract_pad_features_single_scale(face_image):
@@ -28,14 +43,89 @@ def extract_pad_features_single_scale(face_image):
     lbp_features = extract_lbp_features(face_image)
     quality_features = extract_quality_features(face_image)
     lft_features = extract_lft_features(face_image)
+    tgsd_feature = extract_tgsd_feature(face_image)
 
     combined_features = np.concatenate((
         lbp_features,
         quality_features,
-        lft_features
+        lft_features,
+        tgsd_feature,
     ))
 
     return combined_features.astype(np.float32)
+
+
+def select_debug_feature_subset(
+    features_original,
+    features_downsampled,
+    mode=PAD_DEBUG_FEATURE_MODE,
+):
+    """
+    Select a debug feature subset for controlled PAD ablation tests.
+
+    This helper is intentionally small and centralized so we can switch
+    between a few debug modes without touching the rest of the training
+    and runtime evaluation pipeline.
+    """
+
+    orig_lbp = features_original[0:54]
+    orig_quality = features_original[54:60]
+    orig_lft = features_original[60:64]
+    orig_tgsd = features_original[64:65]
+
+    down_lbp = features_downsampled[0:54]
+    down_quality = features_downsampled[54:60]
+    down_lft = features_downsampled[60:64]
+    down_tgsd = features_downsampled[64:65]
+
+    if mode == "full":
+        return np.concatenate((
+            features_original,
+            features_downsampled,
+        ))
+
+    if mode == "lbp_only":
+        return np.concatenate((
+            orig_lbp,
+            down_lbp,
+        ))
+
+    if mode == "lbp_lft":
+        return np.concatenate((
+            orig_lbp,
+            orig_lft,
+            orig_tgsd,
+            down_lbp,
+            down_lft,
+            down_tgsd,
+        ))
+
+    if mode == "no_quality":
+        return np.concatenate((
+            orig_lbp,
+            orig_lft,
+            orig_tgsd,
+            down_lbp,
+            down_lft,
+            down_tgsd,
+        ))
+
+    if mode == "no_down_quality":
+        return np.concatenate((
+            orig_lbp,
+            orig_quality,
+            orig_lft,
+            orig_tgsd,
+            down_lbp,
+            down_lft,
+            down_tgsd,
+        ))
+
+    raise ValueError(
+        "Unsupported PAD_DEBUG_FEATURE_MODE: "
+        f"{mode}. Use 'full', 'lbp_only', 'lbp_lft', "
+        "'no_quality', or 'no_down_quality'."
+    )
 
 
 def extract_pad_features(face_image):
@@ -50,10 +140,9 @@ def extract_pad_features(face_image):
     downsampled_face = cv2.resize(blurred_face, (64, 64))
 
     features_downsampled = extract_pad_features_single_scale(downsampled_face)
-
-    combined_features = np.concatenate((
+    combined_features = select_debug_feature_subset(
         features_original,
-        features_downsampled
-    ))
+        features_downsampled,
+    )
 
     return combined_features.astype(np.float32)

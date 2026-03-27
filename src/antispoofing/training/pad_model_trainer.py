@@ -17,22 +17,23 @@ import joblib
 from pathlib import Path
 
 from src.antispoofing.training.pad_dataset_loader import (
-    TRAIN_LIVE_PATH,
-    TRAIN_SPOOF_PATH,
+    CASIA_SAMPLE_RATIO,
+    TRAIN_SAMPLING_SEED,
     load_combined_pad_training_dataset,
+    load_casia_pad_training_dataset,
     load_combined_with_runtime_pad_training_dataset,
     load_replay_pad_training_dataset,
     load_runtime_pad_training_dataset,
-    load_pad_split_dataset,
 )
 from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
+from src.antispoofing.pad_feature_extractor import PAD_DEBUG_FEATURE_MODE
 
 
 # ----- CONSTANTS ----- #
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_svm.joblib"
 SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_scaler.joblib"
 TRAIN_MODE = "replay"
-RUNTIME_REPEAT = 5
+RUNTIME_REPEAT = 10
 
 
 def load_configured_training_dataset(train_mode=None):
@@ -51,7 +52,11 @@ def load_configured_training_dataset(train_mode=None):
 
     if selected_mode == "casia":
         print("=== PAD TRAINING MODE: CASIA TRAIN ===")
-        return "CASIA train", load_pad_split_dataset(TRAIN_LIVE_PATH, TRAIN_SPOOF_PATH)
+        dataset_name = (
+            f"CASIA train (sample_ratio={CASIA_SAMPLE_RATIO}, "
+            f"sampling_seed={TRAIN_SAMPLING_SEED})"
+        )
+        return dataset_name, load_casia_pad_training_dataset()
 
     if selected_mode == "replay":
         print("=== PAD TRAINING MODE: REPLAY-ATTACK TRAIN ===")
@@ -91,6 +96,7 @@ def train_pad_model(train_mode=None):
     spoof_count = (y_train == 0).sum()
 
     print("Dataset:", dataset_name)
+    print("PAD debug feature mode:", PAD_DEBUG_FEATURE_MODE)
     print("Total samples:", len(y_train))
     print("X_train shape:", X_train.shape)
     print("y_train shape:", y_train.shape)
