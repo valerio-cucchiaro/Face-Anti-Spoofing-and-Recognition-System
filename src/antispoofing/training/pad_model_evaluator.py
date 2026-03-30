@@ -22,6 +22,7 @@ model to distinguish between live faces and spoof attacks.
 
 import joblib
 from pathlib import Path
+import time
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
 from src.antispoofing.training.pad_dataset_loader import (
@@ -84,13 +85,16 @@ def evaluate_single_pad_dataset(eval_mode, scaler, classifier):
     Evaluate the trained PAD model on one selected PAD test dataset.
     """
 
+    load_start_time = time.perf_counter()
     dataset_name, (X_test, y_test) = load_configured_test_dataset(eval_mode)
+    load_elapsed = time.perf_counter() - load_start_time
 
     if len(y_test) == 0:
         print("Dataset:", dataset_name)
         print("No valid samples found for evaluation.")
         return
 
+    evaluation_start_time = time.perf_counter()
     X_test_scaled = scaler.transform(X_test)
     y_pred = classifier.predict(X_test_scaled)
 
@@ -106,6 +110,7 @@ def evaluate_single_pad_dataset(eval_mode, scaler, classifier):
     print("Total test samples:", len(y_test))
     print("Live test samples:", (y_test == 1).sum())
     print("Spoof test samples:", (y_test == 0).sum())
+    print(f"PAD evaluation dataset loading completed in {load_elapsed:.2f}s")
     print("Accuracy:", accuracy)
     print("Precision:", precision)
     print("Recall:", recall)
@@ -114,6 +119,7 @@ def evaluate_single_pad_dataset(eval_mode, scaler, classifier):
 
     print("Live mean:", X_test[y_test == 1].mean(axis=0))
     print("Spoof mean:", X_test[y_test == 0].mean(axis=0))
+    print(f"PAD evaluation completed in {time.perf_counter() - evaluation_start_time:.2f}s")
     print()
 
 
@@ -124,6 +130,7 @@ def evaluate_pad_model(eval_mode=None):
     """
 
     selected_mode = eval_mode or EVAL_MODE
+    total_start_time = time.perf_counter()
 
     scaler = joblib.load(SCALER_PATH)
     classifier = joblib.load(MODEL_PATH)
@@ -131,9 +138,11 @@ def evaluate_pad_model(eval_mode=None):
     if selected_mode == "all":
         for mode in ("casia", "replay", "runtime"):
             evaluate_single_pad_dataset(mode, scaler, classifier)
+        print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
         return
 
     evaluate_single_pad_dataset(selected_mode, scaler, classifier)
+    print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
 
 
 if __name__ == "__main__":

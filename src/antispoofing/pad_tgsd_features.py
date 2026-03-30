@@ -2,17 +2,14 @@
 Module: pad_tgsd_features
 
 Description:
-This module implements a lightweight TGSD-style descriptor for face
-anti-spoofing.
+This module implements a TGSD-style descriptor for face anti-spoofing.
 
-The current implementation exposes a single scalar feature computed
-from the difference between the gradient magnitude of the original face
-image and the gradient magnitude of a lightly blurred version of the
-same image.
+The descriptor is based on a top gradient similarity (TGS) map built
+from the gradient magnitude of the original face image and the
+gradient magnitude of a lightly blurred version of the same image.
 
-This file is intentionally isolated from the existing PAD feature
-blocks so TGSD can be tested as a separate feature family before being
-integrated into the main PAD feature extractor.
+The final TGSD value is computed as the standard deviation of the top
+5 percent highest values from the TGS map.
 """
 
 import cv2
@@ -32,38 +29,61 @@ def to_grayscale(image):
     return image
 
 
-def compute_mean_gradient_magnitude(gray_face):
+def compute_gradient_magnitude(gray):
     """
-    Compute the average Sobel gradient magnitude of a grayscale face.
+    Compute the Sobel gradient magnitude of a grayscale image.
     """
 
-    sobel_x = cv2.Sobel(gray_face, cv2.CV_32F, 1, 0, ksize=3)
-    sobel_y = cv2.Sobel(gray_face, cv2.CV_32F, 0, 1, ksize=3)
-    gradient_magnitude = cv2.magnitude(sobel_x, sobel_y)
+    gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+    gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
 
-    return float(np.mean(gradient_magnitude))
+    return np.sqrt(gx ** 2 + gy ** 2)
+
+
+def compute_tgs_map(gray):
+    """
+    Compute the top gradient similarity (TGS) map of a grayscale image.
+    """
+
+    blur = cv2.GaussianBlur(gray, TGSD_GAUSSIAN_KERNEL_SIZE, 0)
+
+    g_orig = compute_gradient_magnitude(gray)
+    g_blur = compute_gradient_magnitude(blur)
+
+    return (
+        (2.0 * g_orig * g_blur + TGSD_EPSILON)
+        / (g_orig ** 2 + g_blur ** 2 + TGSD_EPSILON)
+    )
 
 
 def extract_tgsd_feature(face_image):
     """
-    Extract a single TGSD-style feature from a face image.
+    Extract a single TGSD feature from a face image.
 
-    The descriptor is the normalized difference between the mean
-    gradient magnitude of the original image and the same quantity
-    measured after a light Gaussian blur. Larger values indicate that
-    fine-detail gradients are more strongly attenuated by smoothing.
+    The feature is the standard deviation of the top 5 percent highest
+    values from the TGS map.
     """
 
-    gray_face = to_grayscale(face_image).astype(np.uint8)
+    gray_face = to_grayscale(face_image)
+    tgs = compute_tgs_map(gray_face)
+    values = tgs.flatten()
 
-    original_gradient_mean = compute_mean_gradient_magnitude(gray_face)
+    k = max(1, int(0.05 * len(values)))
+    top_values = np.partition(values, -k)[-k:]
+    tgsd_value = np.std(top_values)
 
-    blurred_face = cv2.GaussianBlur(gray_face, TGSD_GAUSSIAN_KERNEL_SIZE, 0)
-    blurred_gradient_mean = compute_mean_gradient_magnitude(blurred_face)
+    return float(tgsd_value)
 
-    tgsd_value = (
-        abs(original_gradient_mean - blurred_gradient_mean)
-        / (original_gradient_mean + TGSD_EPSILON)
-    )
 
-    return np.array([tgsd_value], dtype=np.float32)
+def extract_tgsd_features(face_image):
+    """
+    Extract TGSD features at two scales from a face image.
+    """
+
+    gray_face = to_grayscale(face_image)
+    downsampled_face = cv2.resize(gray_face, (0, 0), fx=0.5, fy=0.5)
+
+    feature_original = extract_tgsd_feature(gray_face)
+    feature_downsampled = extract_tgsd_feature(downsampled_face)
+
+    return np.array([feature_original, feature_downsampled], dtype=np.float32)

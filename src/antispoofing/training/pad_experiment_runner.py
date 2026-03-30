@@ -11,6 +11,7 @@ project may train on one dataset combination and evaluate on another.
 
 from src.antispoofing.training.pad_model_trainer import train_pad_model
 from src.antispoofing.training.pad_model_evaluator import evaluate_pad_model
+import time
 # ----- CONSTANTS ----- #
 TRAIN_MODE = "combined_runtime"
 EVAL_MODE = "runtime"
@@ -36,12 +37,14 @@ def run(train_mode=None, eval_mode=None):
     """
     selected_train_mode = train_mode or TRAIN_MODE
     selected_eval_mode = eval_mode or EVAL_MODE
+    total_start_time = time.perf_counter()
 
     print(f"=== TRAINING ({selected_train_mode}) ===")
     train_pad_model(selected_train_mode)
 
     print(f"=== EVALUATION ({selected_eval_mode}) ===")
     evaluate_pad_model(selected_eval_mode)
+    print(f"=== TOTAL PAD EXPERIMENT TIME: {time.perf_counter() - total_start_time:.2f}s ===")
 
 if __name__ == "__main__":
     run()

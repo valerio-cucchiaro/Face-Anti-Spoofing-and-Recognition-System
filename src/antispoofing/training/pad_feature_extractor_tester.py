@@ -3,6 +3,7 @@ import random
 from pathlib import Path
 from src.antispoofing.pad_texture_features import extract_lbp_features
 from src.antispoofing.pad_quality_features import extract_quality_features
+from src.antispoofing.pad_lftp_features import extract_lftp_hist
 from src.antispoofing.pad_feature_extractor import extract_pad_features
 
 
@@ -65,7 +66,21 @@ def test_combined_features():
     #print features values
     print("Combined feature vector values:", features)
 
-    
+def test_lftp_features():
+    DATASET_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "casia_pad" / "train" / "live"
+
+    image_files = list(DATASET_PATH.glob("*.png"))
+    if not image_files:
+        raise FileNotFoundError(f"No images found in dataset path: {DATASET_PATH}")
+    image_path = random.choice(image_files)
+
+    image = cv2.imread(str(image_path))
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    features = extract_lftp_hist(gray)
+    print("LFTP feature vector shape:", features.shape)
+    print("LFTP histogram sum:", features.sum())
+    print("LFTP first 16 values:", features[:16])
 
 
 
@@ -78,5 +93,7 @@ if __name__ == "__main__":
     test_texture_features()
     print("\nTesting quality features...")
     test_quality_features()
+    print("\nTesting LFTP features...")
+    test_lftp_features()
     print("\nTesting combined features...")
     test_combined_features()

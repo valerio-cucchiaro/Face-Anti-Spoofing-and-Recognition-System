@@ -18,7 +18,8 @@ import numpy as np
 from src.antispoofing.pad_texture_features import extract_lbp_features
 from src.antispoofing.pad_quality_features import extract_quality_features
 from src.antispoofing.pad_lft_features import extract_lft_features
-from src.antispoofing.pad_tgsd_features import extract_tgsd_feature
+from src.antispoofing.pad_lftp_features import extract_lftp_hist, to_grayscale as lftp_to_grayscale
+from src.antispoofing.pad_tgsd_features import extract_tgsd_features
 
 
 # ----- DEBUG FEATURE CONFIGURATION ----- #
@@ -43,13 +44,11 @@ def extract_pad_features_single_scale(face_image):
     lbp_features = extract_lbp_features(face_image)
     quality_features = extract_quality_features(face_image)
     lft_features = extract_lft_features(face_image)
-    tgsd_feature = extract_tgsd_feature(face_image)
 
     combined_features = np.concatenate((
         lbp_features,
         quality_features,
         lft_features,
-        tgsd_feature,
     ))
 
     return combined_features.astype(np.float32)
@@ -58,6 +57,8 @@ def extract_pad_features_single_scale(face_image):
 def select_debug_feature_subset(
     features_original,
     features_downsampled,
+    tgsd_features,
+    lftp_features,
     mode=PAD_DEBUG_FEATURE_MODE,
 ):
     """
@@ -71,17 +72,21 @@ def select_debug_feature_subset(
     orig_lbp = features_original[0:54]
     orig_quality = features_original[54:60]
     orig_lft = features_original[60:64]
-    orig_tgsd = features_original[64:65]
 
     down_lbp = features_downsampled[0:54]
     down_quality = features_downsampled[54:60]
     down_lft = features_downsampled[60:64]
-    down_tgsd = features_downsampled[64:65]
+
+    orig_tgsd = tgsd_features[0:1]
+    down_tgsd = tgsd_features[1:2]
 
     if mode == "full":
         return np.concatenate((
             features_original,
+            orig_tgsd,
             features_downsampled,
+            down_tgsd,
+            lftp_features,
         ))
 
     if mode == "lbp_only":
@@ -134,15 +139,25 @@ def extract_pad_features(face_image):
     """
 
     features_original = extract_pad_features_single_scale(face_image)
+    tgsd_features = extract_tgsd_features(face_image)
 
     # Blur before downsampling to reduce aliasing and make the second scale focus on coarser spoof artefacts.
     blurred_face = cv2.GaussianBlur(face_image, (3, 3), 0)
     downsampled_face = cv2.resize(blurred_face, (64, 64))
 
     features_downsampled = extract_pad_features_single_scale(downsampled_face)
+    gray_face = lftp_to_grayscale(face_image)
+    downsampled_gray = lftp_to_grayscale(downsampled_face)
+    lftp_features = np.concatenate((
+        extract_lftp_hist(gray_face),
+        extract_lftp_hist(downsampled_gray),
+    ))
+
     combined_features = select_debug_feature_subset(
         features_original,
         features_downsampled,
+        tgsd_features,
+        lftp_features,
     )
 
     return combined_features.astype(np.float32)

@@ -22,6 +22,7 @@ one for the extracted feature vectors and one for the class labels.
 import cv2
 import numpy as np
 from pathlib import Path
+import time
 
 from src.antispoofing.pad_crop_utils import extract_pad_face_crop
 from src.antispoofing.pad_frame_quality import PAD_MIN_VARIANCE_LAPLACIAN
@@ -58,6 +59,7 @@ RUNTIME_TEST_SPOOF_PATH = RUNTIME_ROOT / "test" / "spoof"
 THRESHOLD_AREA = 8000
 TRAIN_SAMPLING_SEED = 42
 CASIA_SAMPLE_RATIO = 1.0
+PAD_IMAGE_PROGRESS_STEP = 500
 
 
 def sample_image_paths(paths, ratio=1.0, seed=None):
@@ -375,6 +377,7 @@ def load_pad_split_dataset(
     features = []
     labels = []
     valid_extensions = {".png", ".jpg", ".jpeg"}
+    start_time = time.perf_counter()
 
     # Load the detector only when the dataset images are still raw
     # frames that require face detection and crop construction.
@@ -414,8 +417,14 @@ def load_pad_split_dataset(
         indices = np.sort(indices)
         spoof_paths = [spoof_paths[i] for i in indices]
 
+    print(f"Loading PAD split: live={live_path} spoof={spoof_path}")
+    print(f"Dataset type: {dataset_type}")
+    print(f"Selected live images: {len(live_paths)}")
+    print(f"Selected spoof images: {len(spoof_paths)}")
+
     # Process live images
-    for img_path in live_paths:
+    valid_live = 0
+    for index, img_path in enumerate(live_paths, start=1):
         img = cv2.imread(str(img_path))
         if img is None:
             continue
@@ -431,9 +440,14 @@ def load_pad_split_dataset(
 
         features.append(img_features)
         labels.append(1)
+        valid_live += 1
+
+        if index % PAD_IMAGE_PROGRESS_STEP == 0:
+            print(f"Processed live images: {index}/{len(live_paths)}")
 
     # Process spoof images
-    for img_path in spoof_paths:
+    valid_spoof = 0
+    for index, img_path in enumerate(spoof_paths, start=1):
         img = cv2.imread(str(img_path))
         if img is None:
             continue
@@ -449,6 +463,15 @@ def load_pad_split_dataset(
 
         features.append(img_features)
         labels.append(0)
+        valid_spoof += 1
+
+        if index % PAD_IMAGE_PROGRESS_STEP == 0:
+            print(f"Processed spoof images: {index}/{len(spoof_paths)}")
+
+    elapsed = time.perf_counter() - start_time
+    print(f"Valid live samples extracted: {valid_live}")
+    print(f"Valid spoof samples extracted: {valid_spoof}")
+    print(f"PAD split loading completed in {elapsed:.2f}s")
 
     return np.array(features, dtype=np.float32), np.array(labels, dtype=np.int32)
 

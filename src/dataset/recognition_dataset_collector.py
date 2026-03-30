@@ -3,7 +3,7 @@ Module: recognition_dataset_collector
 
 Description:
 This module is responsible for collecting face images used to build
-the training dataset for the recognition model.
+the gallery or probe partitions of the custom recognition dataset.
 
 The script captures frames from the webcam, detects and validates a
 face with MediaPipe, applies the same preprocessing pipeline used in
@@ -23,22 +23,36 @@ from src.preprocessing.frame_preprocessing import get_valid_face
 
 
 # ----- CONSTANTS ----- #
-THRESHOLD_AREA = 8000   
-PERSON = "valerio"
-DATASET = Path(__file__).resolve().parent.parent.parent / "data" / "recognition_train" / PERSON
-MAX_IMAGES = 30 
+THRESHOLD_AREA = 8000
+PERSON = "francesca"
+MODE = "probe"      # gallery or probe
+MAX_IMAGES_GALLERY = 30
+MAX_IMAGES_PROBE = 10
+
+if MODE not in {"gallery", "probe"}:
+    raise ValueError("MODE must be either 'gallery' or 'probe'")
+
+DATASET = (
+    Path(__file__).resolve().parent.parent.parent
+    / "data"
+    / "recognition"
+    / "custom"
+    / MODE
+    / PERSON
+)
+MAX_IMAGES = MAX_IMAGES_GALLERY if MODE == "gallery" else MAX_IMAGES_PROBE
 
 
 def collect_dataset():
     """
     Collect face samples from the webcam to build the recognition
-    training dataset.
+    custom dataset.
 
     The function detects the largest valid face in each frame through
     the shared MediaPipe-based validation helper, applies the standard
     recognition preprocessing pipeline, and saves the resulting face
-    images to the dataset directory when the user presses the capture
-    key.
+    images to the selected gallery or probe directory when the user
+    presses the capture key.
     """
 
     # create the dataset directory if it doesn't exist
@@ -88,7 +102,7 @@ def collect_dataset():
             # preprocess the detected face
             face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
 
-            # draw boundig box
+            # draw bounding box
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
             # show processed face

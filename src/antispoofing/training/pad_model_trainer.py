@@ -15,6 +15,7 @@ classify detected faces as live or spoof before face recognition.
 
 import joblib
 from pathlib import Path
+import time
 
 from src.antispoofing.training.pad_dataset_loader import (
     CASIA_SAMPLE_RATIO,
@@ -88,8 +89,12 @@ def train_pad_model(train_mode=None):
     Train the PAD model using the selected PAD training dataset.
     """
 
+    total_start_time = time.perf_counter()
+
     # Load the training dataset
+    load_start_time = time.perf_counter()
     dataset_name, (X_train, y_train) = load_configured_training_dataset(train_mode)
+    load_elapsed = time.perf_counter() - load_start_time
 
     # print control information about the loaded dataset
     live_count = (y_train == 1).sum()
@@ -102,9 +107,12 @@ def train_pad_model(train_mode=None):
     print("y_train shape:", y_train.shape)
     print("Live samples:", live_count)
     print("Spoof samples:", spoof_count)
+    print(f"PAD training dataset loading completed in {load_elapsed:.2f}s")
 
     # Train the PAD classifier
+    training_start_time = time.perf_counter()
     scaler, classifier = train_pad_classifier(X_train, y_train)
+    training_elapsed = time.perf_counter() - training_start_time
 
     # create models directory if it does not exist
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +124,8 @@ def train_pad_model(train_mode=None):
     print("PAD model trained and saved successfully")
     print("Model path:", MODEL_PATH)
     print("Scaler path:", SCALER_PATH)
+    print(f"PAD classifier training completed in {training_elapsed:.2f}s")
+    print(f"Total PAD training time: {time.perf_counter() - total_start_time:.2f}s")
 
 
 

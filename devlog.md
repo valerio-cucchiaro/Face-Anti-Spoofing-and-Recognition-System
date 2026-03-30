@@ -809,3 +809,104 @@ First TGSD result on runtime evaluation:
 The first TGSD prototype improved runtime live recall without reducing spoof accuracy.
 
 ---
+
+## 2026/03/30
+
+**Recognition Dataset Structure Refactor**:
+
+- replaced the old custom recognition folders `data/recognition_train/` and `data/recognition_test/` with the new biometric structure `data/recognition/custom/gallery/` and `data/recognition/custom/probe/`
+- created the full recognition dataset tree under `data/recognition/` for `custom`, `orl`, and `lfw`, including `raw`, `gallery`, and `probe` subfolders for the public datasets
+- migrated the existing custom identity `valerio` into the new `gallery` / `probe` layout
+- updated `src/dataset/recognition_dataset_collector.py` so it now writes directly to the new custom recognition structure and uses `gallery` / `probe` modes instead of the older `train` / `test` naming
+- kept separate collection limits for the two custom splits: `30` gallery images and `10` probe images
+
+This refactor aligns the recognition module with the biometric `gallery / probe` terminology used in the course and removes the older duplicate folder convention.
+
+**Recognition Public Dataset Preparation Utilities**:
+
+- created `src/dataset/orl_dataset_splitter.py`
+- implemented fixed ORL split generation with images `1-5` -> gallery and images `6-10` -> probe
+- preserved the original ORL dataset under `data/recognition/orl/raw`
+- made the ORL split generation idempotent by clearing old outputs before recreating them
+- added validation for malformed ORL identity folders and incomplete subject folders
+- created `src/dataset/lfw_dataset_splitter.py`
+- implemented LFW identity filtering based on a minimum number of valid images
+- implemented dynamic per-identity gallery / probe splitting for LFW
+- preserved the original LFW dataset under `data/recognition/lfw/raw`
+- added summary reporting for processed and skipped LFW identities
+
+This established a clean and reproducible preparation path for both public recognition datasets while keeping the raw sources untouched.
+
+**Recognition Training and Evaluation Pipeline Refactor**:
+
+- created `src/recognition/recognition_dataset_loader.py`
+- implemented support for loading recognition data from `custom`, `orl`, `lfw`, or `all`
+- implemented shared loading logic for both gallery and probe splits
+- added automatic identity namespacing when training on `all` to avoid collisions across datasets
+- created `src/recognition/recognition_model_trainer.py`
+- implemented configurable recognition training modes: `custom`, `orl`, `lfw`, `all`
+- kept a single recognition model output in `models/lbph_model.xml` and `models/label_map.pkl`
+- created `src/recognition/recognition_model_evaluator.py`
+- implemented configurable recognition evaluation modes: `custom`, `orl`, `lfw`, `all`
+- created `src/recognition/recognition_experiment_runner.py`
+- aligned the recognition experiment flow with the PAD structure by separating loader, trainer, evaluator, and experiment runner
+- supported independent train / eval mode selection in the recognition runner
+
+This replaced the previous single-dataset recognition workflow with a modular experiment pipeline aligned with the PAD architecture.
+
+**Recognition Debug Logging and Experiment Tracking**:
+
+- added lightweight progress logging to the new recognition loader
+- added gallery / probe loading summaries with identity counts, sample counts, and timings
+- added timing information for dataset loading, LBPH training, evaluation, and total experiment runtime
+- added periodic evaluation progress reporting for large probe sets
+- created and organized `recognition.txt` as a compact recognition experiment note file
+- summarized the first `all -> all` recognition experiment inside `recognition.txt`
+
+Initial observations from the first combined recognition run:
+
+- `ORL` evaluation remained strong
+- `custom` currently acts mainly as a sanity check because it is still small
+- `LFW` evaluation is much harder for the current LBPH setup
+- the main runtime bottleneck is LFW evaluation rather than training
+
+**Recognition Legacy Cleanup**:
+
+- removed the legacy recognition loader from `src/dataset/recognition_dataset_loader.py`
+- removed the legacy recognition scripts `src/recognition/train_model.py` and `src/recognition/test_model.py`
+- kept the new modular recognition pipeline as the single active path for recognition experiments
+
+**PAD Feature Extension and Debug Alignment**:
+
+- created `src/antispoofing/pad_lftp_features.py`
+- implemented a first lightweight LFTP descriptor based on local FFT-magnitude texture codes and a normalized 256-bin histogram
+- updated `src/antispoofing/pad_tgsd_features.py` to replace the previous single-scalar version with a cleaner TGS-map-based formulation
+- extended TGSD extraction to two scales through the new `extract_tgsd_features()` interface
+- updated `src/antispoofing/pad_feature_extractor.py` so the full PAD vector now includes:
+
+  - original-scale base features
+  - original-scale TGSD
+  - downsampled-scale base features
+  - downsampled-scale TGSD
+  - original and downsampled LFTP histograms
+
+- updated the PAD debug feature selection flow so TGSD and LFTP stay isolated as explicit feature blocks
+- updated `src/antispoofing/training/pad_feature_extractor_tester.py` to validate the new LFTP block
+
+This extends the PAD feature space with additional frequency-based information while keeping the feature families separated enough for future ablation work.
+
+**PAD Debug Logging Alignment**:
+
+- added dataset loading summaries to `src/antispoofing/training/pad_dataset_loader.py`
+- added progress logging with larger step intervals suitable for PAD dataset sizes
+- added timing output for PAD dataset loading, PAD classifier training, PAD evaluation, and total PAD experiment runtime
+- updated the PAD experiment runner to report the total experiment duration
+
+**Project Tracking Cleanup**:
+
+- updated `.gitignore` to ignore the new unified `data/recognition/` tree instead of the older `recognition_train` / `recognition_test` folders
+- added `recognition.txt` to the ignored experiment-note files alongside `antispoofing.txt`
+
+This improves observability during long PAD runs without producing excessive console output.
+
+---
