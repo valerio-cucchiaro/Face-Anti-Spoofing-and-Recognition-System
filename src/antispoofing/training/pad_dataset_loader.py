@@ -59,6 +59,7 @@ RUNTIME_TEST_SPOOF_PATH = RUNTIME_ROOT / "test" / "spoof"
 THRESHOLD_AREA = 8000
 TRAIN_SAMPLING_SEED = 42
 CASIA_SAMPLE_RATIO = 1.0
+REPLAY_SAMPLE_RATIO = 1.0
 PAD_IMAGE_PROGRESS_STEP = 500
 
 
@@ -172,7 +173,13 @@ def extract_pad_features_from_dataset_image(
     )
 
 
-def load_combined_pad_training_dataset():
+def load_combined_pad_training_dataset(
+    casia_sample_ratio=CASIA_SAMPLE_RATIO,
+    replay_sample_ratio=REPLAY_SAMPLE_RATIO,
+    sample_seed=TRAIN_SAMPLING_SEED,
+    casia_balance=False,
+    replay_balance=True,
+):
     """
     Load the combined PAD training dataset (CASIA + Replay-Attack).
     """
@@ -181,9 +188,10 @@ def load_combined_pad_training_dataset():
     X1, y1 = load_pad_split_dataset(
         TRAIN_LIVE_PATH,
         TRAIN_SPOOF_PATH,
-        live_ratio=CASIA_SAMPLE_RATIO,
-        spoof_ratio=CASIA_SAMPLE_RATIO,
-        sample_seed=TRAIN_SAMPLING_SEED,
+        balance=casia_balance,
+        live_ratio=casia_sample_ratio,
+        spoof_ratio=casia_sample_ratio,
+        sample_seed=sample_seed,
         dataset_type="raw_frame",
     )
 
@@ -192,8 +200,10 @@ def load_combined_pad_training_dataset():
     X2, y2 = load_pad_split_dataset(
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
-        balance=True,
-        sample_seed=TRAIN_SAMPLING_SEED,
+        balance=replay_balance,
+        live_ratio=replay_sample_ratio,
+        spoof_ratio=replay_sample_ratio,
+        sample_seed=sample_seed,
         dataset_type="raw_frame",
     )
 
@@ -203,29 +213,40 @@ def load_combined_pad_training_dataset():
     return X, y
 
 
-def load_casia_pad_training_dataset():
+def load_casia_pad_training_dataset(
+    sample_ratio=CASIA_SAMPLE_RATIO,
+    sample_seed=TRAIN_SAMPLING_SEED,
+    balance=False,
+):
     """
     Load the CASIA PAD training dataset with deterministic sampling.
     """
     return load_pad_split_dataset(
         TRAIN_LIVE_PATH,
         TRAIN_SPOOF_PATH,
-        live_ratio=CASIA_SAMPLE_RATIO,
-        spoof_ratio=CASIA_SAMPLE_RATIO,
-        sample_seed=TRAIN_SAMPLING_SEED,
+        balance=balance,
+        live_ratio=sample_ratio,
+        spoof_ratio=sample_ratio,
+        sample_seed=sample_seed,
         dataset_type="raw_frame",
     )
 
 
-def load_replay_pad_training_dataset():
+def load_replay_pad_training_dataset(
+    sample_ratio=REPLAY_SAMPLE_RATIO,
+    sample_seed=TRAIN_SAMPLING_SEED,
+    balance=True,
+):
     """
     Load the Replay-Attack PAD training dataset only.
     """
     return load_pad_split_dataset(
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
-        balance=True,
-        sample_seed=TRAIN_SAMPLING_SEED,
+        balance=balance,
+        live_ratio=sample_ratio,
+        spoof_ratio=sample_ratio,
+        sample_seed=sample_seed,
         dataset_type="raw_frame",
     )
 
@@ -293,7 +314,14 @@ def load_pad_test_dataset_combined():
     return X, y
 
 
-def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
+def load_combined_with_runtime_pad_training_dataset(
+    runtime_repeat=5,
+    casia_sample_ratio=CASIA_SAMPLE_RATIO,
+    replay_sample_ratio=REPLAY_SAMPLE_RATIO,
+    sample_seed=TRAIN_SAMPLING_SEED,
+    casia_balance=False,
+    replay_balance=True,
+):
     """
     Load the combined PAD training dataset and oversample the runtime
     training split so it has a stronger influence during training.
@@ -303,9 +331,10 @@ def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
     X1, y1 = load_pad_split_dataset(
         TRAIN_LIVE_PATH,
         TRAIN_SPOOF_PATH,
-        live_ratio=CASIA_SAMPLE_RATIO,
-        spoof_ratio=CASIA_SAMPLE_RATIO,
-        sample_seed=TRAIN_SAMPLING_SEED,
+        balance=casia_balance,
+        live_ratio=casia_sample_ratio,
+        spoof_ratio=casia_sample_ratio,
+        sample_seed=sample_seed,
         dataset_type="raw_frame",
     )
 
@@ -313,8 +342,10 @@ def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
     X2, y2 = load_pad_split_dataset(
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
-        balance=True,
-        sample_seed=TRAIN_SAMPLING_SEED,
+        balance=replay_balance,
+        live_ratio=replay_sample_ratio,
+        spoof_ratio=replay_sample_ratio,
+        sample_seed=sample_seed,
         dataset_type="raw_frame",
     )
 
@@ -339,8 +370,11 @@ def load_combined_with_runtime_pad_training_dataset(runtime_repeat=5):
     runtime_weight = (runtime_effective_count / total_count * 100) if total_count else 0.0
 
     print("Number of samples effectively used for training")
-    print("Training sampling seed:", TRAIN_SAMPLING_SEED)
-    print(f"CASIA sample ratio: {CASIA_SAMPLE_RATIO:.2f}")
+    print("Training sampling seed:", sample_seed)
+    print(f"CASIA sample ratio: {casia_sample_ratio:.2f}")
+    print(f"Replay sample ratio: {replay_sample_ratio:.2f}")
+    print("CASIA pre-extraction balance:", casia_balance)
+    print("Replay pre-extraction balance:", replay_balance)
     print("CASIA train:", casia_count)
     print("Replay-Attack train:", replay_count)
     print("Runtime train (base):", runtime_base_count)
@@ -370,8 +404,10 @@ def load_pad_split_dataset(
     This function reads live and spoof images from the provided
     directories, extracts PAD feature vectors, and assigns binary labels.
 
-    If balance=True, the spoof class is randomly reduced to match
-    the number of live images.
+    If balance=True, the larger class is downsampled before feature
+    extraction to match the smaller one. After detection, quality
+    filtering, and feature extraction the final valid sample counts
+    can still become unbalanced.
     """
 
     features = []
@@ -407,18 +443,27 @@ def load_pad_split_dataset(
         seed=None if sample_seed is None else sample_seed + 1,
     )
 
-    # Replay-Attack contains many more spoof frames than live frames.
-    # During training we optionally downsample spoof samples to reduce bias.
+    # Optionally downsample the larger class before feature extraction
+    # so the split starts from a balanced set of image paths.
     if balance:
         n_live = len(live_paths)
-        n_spoof = min(len(spoof_paths), n_live)
+        n_spoof = len(spoof_paths)
+        n_target = min(n_live, n_spoof)
         rng = np.random.default_rng(sample_seed)
-        indices = rng.choice(len(spoof_paths), size=n_spoof, replace=False)
-        indices = np.sort(indices)
-        spoof_paths = [spoof_paths[i] for i in indices]
+
+        if n_live > n_target:
+            indices = rng.choice(len(live_paths), size=n_target, replace=False)
+            indices = np.sort(indices)
+            live_paths = [live_paths[i] for i in indices]
+
+        if n_spoof > n_target:
+            indices = rng.choice(len(spoof_paths), size=n_target, replace=False)
+            indices = np.sort(indices)
+            spoof_paths = [spoof_paths[i] for i in indices]
 
     print(f"Loading PAD split: live={live_path} spoof={spoof_path}")
     print(f"Dataset type: {dataset_type}")
+    print(f"Pre-extraction balance enabled: {balance}")
     print(f"Selected live images: {len(live_paths)}")
     print(f"Selected spoof images: {len(spoof_paths)}")
 
@@ -471,6 +516,11 @@ def load_pad_split_dataset(
     elapsed = time.perf_counter() - start_time
     print(f"Valid live samples extracted: {valid_live}")
     print(f"Valid spoof samples extracted: {valid_spoof}")
+    if valid_live + valid_spoof > 0:
+        live_ratio = valid_live / (valid_live + valid_spoof) * 100
+        spoof_ratio = valid_spoof / (valid_live + valid_spoof) * 100
+        print(f"Final valid live weight: {live_ratio:.2f}%")
+        print(f"Final valid spoof weight: {spoof_ratio:.2f}%")
     print(f"PAD split loading completed in {elapsed:.2f}s")
 
     return np.array(features, dtype=np.float32), np.array(labels, dtype=np.int32)

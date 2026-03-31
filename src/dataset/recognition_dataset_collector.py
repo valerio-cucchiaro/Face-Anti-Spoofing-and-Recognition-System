@@ -97,20 +97,23 @@ def collect_dataset():
 
         elif message == "Face detected":
             x, y, w, h = face_rect
-            valid_face = True
             
             # preprocess the detected face
             face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
+            if face is None:
+                cv2.putText(frame, "Invalid face crop", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 165, 255), 2, cv2.LINE_AA)
+            else:
+                valid_face = True
 
-            # draw bounding box
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                # draw bounding box
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-            # show processed face
-            cv2.imshow('Face', face)
+                # show processed face
+                cv2.imshow('Face', face)
 
-            # display message
-            cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-            cv2.putText(frame, f"Samples: {image_count} / {MAX_IMAGES}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2, cv2.LINE_AA)
+                # display message
+                cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+                cv2.putText(frame, f"Samples: {image_count} / {MAX_IMAGES}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2, cv2.LINE_AA)
         
         # show webcam 
         cv2.imshow('Webcam', frame)

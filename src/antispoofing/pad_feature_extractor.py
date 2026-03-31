@@ -5,19 +5,21 @@ Description:
 This module combines the descriptors used for face anti-spoofing
 detection.
 
-It extracts Local Binary Pattern (LBP) features and image quality
-features from a face image, then concatenates them into a single
-fixed-length feature vector.
+The baseline descriptor combines Local Binary Pattern (LBP), image
+quality, and one selectable LFT representation at two scales.
 
-The resulting combined descriptor is used as input to the
-presentation attack detection (PAD) classifier.
+Optional debug additions can then append TGSD and LFTP blocks on top of
+that baseline to support controlled PAD ablation experiments.
 """
 
 import cv2
 import numpy as np
 from src.antispoofing.pad_texture_features import extract_lbp_features
 from src.antispoofing.pad_quality_features import extract_quality_features
-from src.antispoofing.pad_lft_features import extract_lft_features
+from src.antispoofing.pad_lft_features import (
+    extract_lft_features,
+    extract_lft_ggd_light_features,
+)
 from src.antispoofing.pad_lftp_features import extract_lftp_hist, to_grayscale as lftp_to_grayscale
 from src.antispoofing.pad_tgsd_features import extract_tgsd_features
 
@@ -28,22 +30,32 @@ from src.antispoofing.pad_tgsd_features import extract_tgsd_features
 # manually commenting and uncommenting blocks before each run.
 #
 # Supported modes:
-# - full: full original PAD feature vector
-# - lbp_only: keep only LBP from both scales
-# - lbp_lft: keep LBP + LFT from both scales
-# - no_quality: remove quality features from both scales
-# - no_down_quality: keep all features except the downsampled quality block
-PAD_DEBUG_FEATURE_MODE = "full"
+# - baseline: multi-scale baseline only
+# - full: baseline + TGSD + LFTP
+PAD_DEBUG_FEATURE_MODE = "baseline"
+PAD_LFT_MODE = "summary"   # summary or ggd_light
 
 
 def extract_pad_features_single_scale(face_image):
     """
-    Extract PAD features from a single-scale face image.
+    Extract one scale of the PAD baseline descriptor.
+
+    The per-scale descriptor always includes LBP and quality features.
+    The LFT branch is then represented either by the original summary
+    statistics or by the lightweight GGD-inspired pair [shape, variance].
     """
 
     lbp_features = extract_lbp_features(face_image)
     quality_features = extract_quality_features(face_image)
-    lft_features = extract_lft_features(face_image)
+    if PAD_LFT_MODE == "summary":
+        lft_features = extract_lft_features(face_image)
+    elif PAD_LFT_MODE == "ggd_light":
+        lft_features = extract_lft_ggd_light_features(face_image)
+    else:
+        raise ValueError(
+            "Unsupported PAD_LFT_MODE: "
+            f"{PAD_LFT_MODE}. Use 'summary' or 'ggd_light'."
+        )
 
     combined_features = np.concatenate((
         lbp_features,
@@ -55,93 +67,50 @@ def extract_pad_features_single_scale(face_image):
 
 
 def select_debug_feature_subset(
-    features_original,
-    features_downsampled,
+    baseline_features,
     tgsd_features,
     lftp_features,
-    mode=PAD_DEBUG_FEATURE_MODE,
+    mode=None,
 ):
     """
-    Select a debug feature subset for controlled PAD ablation tests.
+    Select the final PAD feature vector for the current debug mode.
 
-    This helper is intentionally small and centralized so we can switch
-    between a few debug modes without touching the rest of the training
-    and runtime evaluation pipeline.
+    The baseline branch is always built first. The "full" mode appends
+    TGSD and LFTP on top of that same baseline so runtime and offline
+    experiments share the same feature path.
     """
 
-    orig_lbp = features_original[0:54]
-    orig_quality = features_original[54:60]
-    orig_lft = features_original[60:64]
+    selected_mode = mode or PAD_DEBUG_FEATURE_MODE
 
-    down_lbp = features_downsampled[0:54]
-    down_quality = features_downsampled[54:60]
-    down_lft = features_downsampled[60:64]
+    if selected_mode == "baseline":
+        return baseline_features
 
-    orig_tgsd = tgsd_features[0:1]
-    down_tgsd = tgsd_features[1:2]
-
-    if mode == "full":
+    if selected_mode == "full":
         return np.concatenate((
-            features_original,
-            orig_tgsd,
-            features_downsampled,
-            down_tgsd,
+            baseline_features,
+            tgsd_features,
             lftp_features,
-        ))
-
-    if mode == "lbp_only":
-        return np.concatenate((
-            orig_lbp,
-            down_lbp,
-        ))
-
-    if mode == "lbp_lft":
-        return np.concatenate((
-            orig_lbp,
-            orig_lft,
-            orig_tgsd,
-            down_lbp,
-            down_lft,
-            down_tgsd,
-        ))
-
-    if mode == "no_quality":
-        return np.concatenate((
-            orig_lbp,
-            orig_lft,
-            orig_tgsd,
-            down_lbp,
-            down_lft,
-            down_tgsd,
-        ))
-
-    if mode == "no_down_quality":
-        return np.concatenate((
-            orig_lbp,
-            orig_quality,
-            orig_lft,
-            orig_tgsd,
-            down_lbp,
-            down_lft,
-            down_tgsd,
         ))
 
     raise ValueError(
         "Unsupported PAD_DEBUG_FEATURE_MODE: "
-        f"{mode}. Use 'full', 'lbp_only', 'lbp_lft', "
-        "'no_quality', or 'no_down_quality'."
+        f"{selected_mode}. Use 'baseline' or 'full'."
     )
 
 
 def extract_pad_features(face_image):
     """
-    Extract the combined multi-scale PAD feature vector from a face image.
+    Extract the complete multi-scale PAD feature vector from a face image.
+
+    The function always builds the two-scale baseline first. Depending on
+    ``PAD_DEBUG_FEATURE_MODE``, it can either return that baseline as-is
+    or append TGSD and LFTP blocks for the legacy full configuration.
     """
 
     features_original = extract_pad_features_single_scale(face_image)
     tgsd_features = extract_tgsd_features(face_image)
 
-    # Blur before downsampling to reduce aliasing and make the second scale focus on coarser spoof artefacts.
+    # Blur before downsampling so the second scale emphasizes coarser spoof artefacts.
     blurred_face = cv2.GaussianBlur(face_image, (3, 3), 0)
     downsampled_face = cv2.resize(blurred_face, (64, 64))
 
@@ -152,10 +121,13 @@ def extract_pad_features(face_image):
         extract_lftp_hist(gray_face),
         extract_lftp_hist(downsampled_gray),
     ))
-
-    combined_features = select_debug_feature_subset(
+    baseline_features = np.concatenate((
         features_original,
         features_downsampled,
+    ))
+
+    combined_features = select_debug_feature_subset(
+        baseline_features,
         tgsd_features,
         lftp_features,
     )

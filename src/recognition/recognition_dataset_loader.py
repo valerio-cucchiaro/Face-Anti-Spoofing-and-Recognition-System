@@ -9,6 +9,12 @@ It supports the custom, ORL, and LFW recognition datasets and can
 load them individually or combine them when required by an experiment.
 Gallery images are used for training, while probe images are used for
 evaluation.
+
+The supported experiment modes are intentionally explicit:
+- `custom`, `orl`, `lfw`: single-dataset runs
+- `custom_orl`: realistic mixed training setup without LFW
+- `all`: full mixed experiment including LFW, mainly useful for broad
+  comparisons and stress-style analysis
 """
 
 import cv2
@@ -35,28 +41,40 @@ DATASET_SPLIT_DIRS = {
 }
 VALID_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pgm"}
 IDENTITY_PROGRESS_STEP = 50
+DATASET_MODE_MAP = {
+    "custom": ["custom"],
+    "orl": ["orl"],
+    "lfw": ["lfw"],
+    "custom_orl": ["custom", "orl"],
+    "all": ["custom", "orl", "lfw"],
+}
 
 
 def resolve_dataset_names(mode):
     """
     Resolve a configured recognition mode into one or more dataset names.
-    """
-    if mode == "all":
-        return ["custom", "orl", "lfw"]
 
-    if mode in DATASET_SPLIT_DIRS:
-        return [mode]
+    The same mode vocabulary is used for both training and evaluation so
+    experiment definitions stay simple. Combined modes are expanded into
+    the ordered list of datasets they include.
+    """
+    if mode in DATASET_MODE_MAP:
+        return DATASET_MODE_MAP[mode]
 
     raise ValueError(
-        f"Unsupported recognition mode: {mode}. Use 'custom', 'orl', 'lfw', or 'all'."
+        f"Unsupported recognition mode: {mode}. "
+        "Use 'custom', 'orl', 'lfw', 'custom_orl', or 'all'."
     )
 
 
 def should_namespace_identities(mode):
     """
     Decide whether identity names should be prefixed with the dataset name.
+
+    Namespacing is enabled for combined modes so identities coming from
+    different datasets cannot collide in the shared label space.
     """
-    return mode == "all"
+    return mode in {"custom_orl", "all"}
 
 
 def build_identity_name(dataset_name, person_name, namespace_identities=False):

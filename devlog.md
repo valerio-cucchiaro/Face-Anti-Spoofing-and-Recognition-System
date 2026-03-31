@@ -910,3 +910,75 @@ This extends the PAD feature space with additional frequency-based information w
 This improves observability during long PAD runs without producing excessive console output.
 
 ---
+
+## 2026/03/31
+
+**Recognition Runtime and Evaluation Alignment**:
+
+- updated `src/recognition/face_recognizer.py` so the recognition runtime now loads a dedicated JSON config together with the LBPH model and label map
+- added `models/recognition_config.json` as the single source for the runtime `unknown_threshold`
+- updated `src/pipeline/run_pipeline_full.py` to use the loaded runtime threshold instead of relying only on a fixed constant
+- added a runtime guard so recognition is skipped safely when `preprocess_face_for_recognition(...)` returns `None`
+- refined `src/preprocessing/face_preprocessing.py` and related recognition comments/docstrings to stay aligned with the current runtime flow
+
+This closed the main inconsistency between recognition evaluation and runtime inference and reduced the risk of runtime crashes on invalid face crops.
+
+**Recognition Experiment Policy Cleanup**:
+
+- extended `src/recognition/recognition_dataset_loader.py` with the explicit `custom_orl` mode to separate the realistic `custom + orl` training setup from the wider `all` experiment that still includes `lfw`
+- updated `src/recognition/recognition_experiment_runner.py` and `src/recognition/recognition_model_trainer.py` so LBPH parameters can now be passed explicitly for controlled tuning runs
+- updated `src/recognition/recognition_model_evaluator.py` to:
+
+  - compute richer score statistics
+  - report the worst-performing identities
+  - analyze candidate thresholds on full evaluation records
+  - distinguish the `saved_runtime_threshold` from the threshold suggested by the current run
+  - allow runtime threshold updates only from defensible runs with both genuine and impostor samples
+
+- fixed the runtime-threshold policy so the official config is no longer overwritten by easy fallback runs such as `custom -> custom`
+
+This made the recognition experiments easier to interpret and aligned the threshold policy with the actual project goals.
+
+**Recognition Tracking and Tuning Setup**:
+
+- created and organized `recognition.md` as the main recognition experiment report
+- documented:
+
+  - the current recognition setup
+  - the roadmap
+  - the fixed base comparisons
+  - the threshold policy
+  - the LBPH tuning criteria and provisional ranking
+
+- recorded the current base comparisons:
+
+  - `custom -> custom`
+  - `custom_orl -> custom`
+  - `orl -> orl`
+  - `custom_orl -> orl`
+
+- started the LBPH tuning campaign by enabling controlled runs over `radius`, `neighbors`, `grid_x`, and `grid_y`
+
+At this stage the best provisional LBPH configuration is `radius=1`, `neighbors=8`, `grid_x=6`, `grid_y=6`, while the `neighbors=16` branch is still pending.
+
+**PAD Experiment Tracking Refresh**:
+
+- created and organized `antispoofing.md` as the main PAD experiment report
+- consolidated in one place:
+
+  - the current PAD baseline
+  - the TGSD and GGD/LFT roadmap
+  - the fast-mode comparison rules
+  - the standard metrics to keep across runs
+
+- updated the PAD training/debug files so the current feature-ablation and runtime-oriented experiment flow is easier to track:
+
+  - `src/antispoofing/pad_feature_extractor.py`
+  - `src/antispoofing/pad_lft_features.py`
+  - `src/antispoofing/training/pad_dataset_loader.py`
+  - `src/antispoofing/training/pad_experiment_runner.py`
+  - `src/antispoofing/training/pad_model_trainer.py`
+
+This gives the project two synchronized experiment logs, one for recognition and one for anti-spoofing, so the next test campaigns can be compared without rebuilding the context each time.
+
+---

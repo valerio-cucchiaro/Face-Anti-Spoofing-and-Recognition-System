@@ -95,3 +95,22 @@ def extract_lft_features(face_image):
         [mean_value, std_value, skewness_value, kurtosis_value],
         dtype=np.float32
     )
+
+
+def extract_lft_ggd_light_features(face_image):
+    """
+    Extract a lightweight GGD-inspired descriptor from the LFT map.
+
+    The descriptor keeps only two stable statistics per scale:
+    a shape proxy and the variance of the LFT distribution.
+    """
+
+    lft_map = compute_lft_map(face_image)
+    x = lft_map.ravel().astype(np.float32)
+
+    variance = np.var(x)
+    mean_abs = np.mean(np.abs(x))
+    mean_sq = np.mean(x ** 2)
+    shape = mean_abs / (np.sqrt(mean_sq) + EPSILON)
+
+    return np.array([shape, variance], dtype=np.float32)

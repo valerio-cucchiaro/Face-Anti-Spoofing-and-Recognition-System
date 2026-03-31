@@ -3,10 +3,14 @@ Module: recognition_model_trainer
 
 Description:
 This module trains the face recognition model using one selected
-gallery dataset or the combination of all supported gallery datasets.
+gallery dataset or one of the supported mixed gallery configurations.
 
 The trained LBPH model and the corresponding label map are saved to the
 shared recognition model paths used by the rest of the project.
+
+The trainer also supports configurable LBPH hyperparameters so the
+project can run small tuning campaigns without changing the training
+logic itself.
 """
 
 import cv2
@@ -21,13 +25,42 @@ from src.recognition.recognition_dataset_loader import load_gallery_dataset
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
 LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
 TRAIN_MODE = "custom"
+DEFAULT_LBPH_PARAMS = {
+    "radius": 1,
+    "neighbors": 8,
+    "grid_x": 8,
+    "grid_y": 8,
+}
 
 
-def train_recognition_model(train_mode=None):
+def resolve_lbph_params(lbph_params=None):
+    """
+    Resolve the effective LBPH hyperparameters for the current run.
+
+    Parameters not provided by the caller fall back to the project
+    defaults so experiments can override only the values they need.
+    """
+    resolved_params = DEFAULT_LBPH_PARAMS.copy()
+
+    if lbph_params is not None:
+        resolved_params.update(lbph_params)
+
+    return resolved_params
+
+
+def train_recognition_model(train_mode=None, lbph_params=None):
     """
     Train the recognition model using the selected gallery configuration.
+
+    Supported training modes are defined by the shared dataset loader and
+    currently include both single-dataset runs and explicit mixed modes
+    such as `custom_orl` and `all`.
+
+    LBPH hyperparameters can be overridden through ``lbph_params`` so
+    tuning experiments can reuse the same training entry point.
     """
     selected_mode = train_mode or TRAIN_MODE
+    selected_lbph_params = resolve_lbph_params(lbph_params)
     total_start_time = time.perf_counter()
 
     print(f"=== RECOGNITION TRAINING MODE: {selected_mode.upper()} ===")
@@ -48,12 +81,16 @@ def train_recognition_model(train_mode=None):
         print(f"{dataset_name} gallery samples: {sample_count}")
 
     print("Training LBPH model...")
+    print(
+        "LBPH params:",
+        ", ".join(f"{key}={value}" for key, value in selected_lbph_params.items()),
+    )
 
     recognizer = cv2.face.LBPHFaceRecognizer_create(
-        radius=1,
-        neighbors=8,
-        grid_x=8,
-        grid_y=8,
+        radius=selected_lbph_params["radius"],
+        neighbors=selected_lbph_params["neighbors"],
+        grid_x=selected_lbph_params["grid_x"],
+        grid_y=selected_lbph_params["grid_y"],
     )
     training_start_time = time.perf_counter()
     recognizer.train(faces, labels)

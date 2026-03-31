@@ -43,7 +43,3 @@ models/label_map.pkl
 models/lbph_model.xml
 models/pad_scaler.joblib
 models/pad_svm.joblib
-
-# txt
-antispoofing.txt
-recognition.txt

@@ -75,7 +75,8 @@ def run_pipeline_full():
         reset_after_misses=PAD_RESET_AFTER_MISSES,
     )
 
-    recognizer, label_map = load_recognizer()
+    recognizer, label_map, recognition_config = load_recognizer()
+    runtime_threshold = recognition_config["unknown_threshold"]
 
     prev_face_rect = None
 
@@ -193,10 +194,18 @@ def run_pipeline_full():
             # Only perform recognition if final PAD decision is live
             if final_pad_label == "live":
                 face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
-                predicted_name, confidence = predict_identity(face, recognizer, label_map)
-                cv2.imshow("Face", face)
-                cv2.putText(frame, f"Identity: {predicted_name}", (x, y + h + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
-                cv2.putText(frame, f"Confidence: {confidence:.2f}", (x, y + h + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2, cv2.LINE_AA)
+                if face is None:
+                    cv2.putText(frame, "Recognition skipped: invalid face crop", (x, y + h + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                else:
+                    predicted_name, confidence = predict_identity(
+                        face,
+                        recognizer,
+                        label_map,
+                        threshold=runtime_threshold,
+                    )
+                    cv2.imshow("Face", face)
+                    cv2.putText(frame, f"Identity: {predicted_name}", (x, y + h + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
+                    cv2.putText(frame, f"Confidence: {confidence:.2f}", (x, y + h + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2, cv2.LINE_AA)
             else:
                 cv2.putText(frame, "Recognition blocked", (x, y + h + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
         
