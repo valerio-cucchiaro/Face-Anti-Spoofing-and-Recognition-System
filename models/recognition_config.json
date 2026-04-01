@@ -1,11 +1,11 @@
 {
-    "unknown_threshold": 197.45599450050526,
+    "unknown_threshold": 29.46113113342839,
     "threshold_source": "custom_orl_to_orl",
     "train_mode": "custom_orl",
     "eval_mode": "orl",
-    "genuine_matches": 180,
-    "impostor_matches": 20,
-    "mean_genuine_confidence": 160.1694630645943,
-    "mean_impostor_confidence": 204.96388568381525,
+    "genuine_matches": 187,
+    "impostor_matches": 13,
+    "mean_genuine_confidence": 24.37565447068043,
+    "mean_impostor_confidence": 27.913272648861412,
     "suggested_threshold_rule": "midpoint_max_genuine_min_impostor"
 }

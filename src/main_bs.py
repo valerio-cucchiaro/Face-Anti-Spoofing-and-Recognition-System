@@ -1,9 +1,9 @@
 """
-Entry point for the Biometric Systems pipeline.
+Entry point for the Biometric Systems recognition-only runtime.
 
-This script runs the biometric pipeline of the project, including
-face detection, preprocessing, recognition, and anti-spoofing
-modules used for biometric identity verification.
+This script launches the webcam pipeline dedicated to face
+recognition. It is useful when recognition must be tested in
+isolation without the PAD gate.
 """
 
 

@@ -20,9 +20,15 @@ runner so small tuning sweeps can reuse the same high-level execution
 path.
 """
 
+import argparse
+import time
+
+from src.preprocessing.face_preprocessing import (
+    configure_recognition_preprocessing,
+    get_recognition_preprocessing_config,
+)
 from src.recognition.recognition_model_trainer import train_recognition_model
 from src.recognition.recognition_model_evaluator import evaluate_recognition_model
-import time
 
 
 # ----- CONSTANTS ----- #
@@ -30,7 +36,7 @@ TRAIN_MODE = "all"  # options: custom, orl, lfw, custom_orl, all
 EVAL_MODE = "all"   # options: custom, orl, lfw, custom_orl, all
 
 
-def run(train_mode=None, eval_mode=None):
+def run(train_mode=None, eval_mode=None, crop_padding_ratio=None):
     """
     Execute a full recognition experiment using the current training
     and evaluation configuration.
@@ -56,10 +62,16 @@ def run(train_mode=None, eval_mode=None):
         train_mode=train_mode,
         eval_mode=eval_mode,
         lbph_params=None,
+        crop_padding_ratio=crop_padding_ratio,
     )
 
 
-def run_with_lbph_params(train_mode=None, eval_mode=None, lbph_params=None):
+def run_with_lbph_params(
+    train_mode=None,
+    eval_mode=None,
+    lbph_params=None,
+    crop_padding_ratio=None,
+):
     """
     Execute a full recognition experiment with optional LBPH overrides.
 
@@ -73,6 +85,14 @@ def run_with_lbph_params(train_mode=None, eval_mode=None, lbph_params=None):
     selected_eval_mode = eval_mode or EVAL_MODE
     total_start_time = time.perf_counter()
 
+    configure_recognition_preprocessing(crop_padding_ratio=crop_padding_ratio)
+    preprocessing_config = get_recognition_preprocessing_config()
+
+    print(
+        "=== RECOGNITION PREPROCESSING "
+        f"(normalization={preprocessing_config['normalization_mode']}, "
+        f"padding_ratio={preprocessing_config['crop_padding_ratio']:.3f}) ==="
+    )
     print(f"=== TRAINING ({selected_train_mode}) ===")
     train_recognition_model(selected_train_mode, lbph_params=lbph_params)
 
@@ -81,27 +101,48 @@ def run_with_lbph_params(train_mode=None, eval_mode=None, lbph_params=None):
     print(f"=== TOTAL EXPERIMENT TIME: {time.perf_counter() - total_start_time:.2f}s ===")
 
 
+def build_arg_parser():
+    """
+    Build the command-line interface for the recognition experiment runner.
+
+    The CLI mirrors ``run_with_lbph_params`` so batch scripts can launch
+    recognition experiments without editing this file for every run.
+    """
+    parser = argparse.ArgumentParser(
+        description="Run a recognition experiment with optional LBPH overrides."
+    )
+    parser.add_argument("--train-mode", choices=["custom", "orl", "lfw", "custom_orl", "all"])
+    parser.add_argument("--eval-mode", choices=["custom", "orl", "lfw", "custom_orl", "all"])
+    parser.add_argument("--radius", type=int)
+    parser.add_argument("--neighbors", type=int)
+    parser.add_argument("--grid-x", type=int)
+    parser.add_argument("--grid-y", type=int)
+    parser.add_argument("--preprocess-padding-ratio", type=float)
+    return parser
+
+
+def lbph_params_from_args(args):
+    """
+    Convert parsed CLI arguments into an optional LBPH override dict.
+    """
+    lbph_params = {
+        key: value
+        for key, value in {
+            "radius": args.radius,
+            "neighbors": args.neighbors,
+            "grid_x": args.grid_x,
+            "grid_y": args.grid_y,
+        }.items()
+        if value is not None
+    }
+    return lbph_params or None
+
+
 if __name__ == "__main__":
-    # run()
-
+    cli_args = build_arg_parser().parse_args()
     run_with_lbph_params(
-        train_mode="custom_orl",
-        eval_mode="orl",
-        lbph_params={
-            "radius": 2,
-            "neighbors": 8,
-            "grid_x": 10,
-            "grid_y": 10,
-        },
+        train_mode=cli_args.train_mode,
+        eval_mode=cli_args.eval_mode,
+        lbph_params=lbph_params_from_args(cli_args),
+        crop_padding_ratio=cli_args.preprocess_padding_ratio,
     )
-    run_with_lbph_params(
-        train_mode="custom_orl",
-        eval_mode="custom",
-        lbph_params={
-            "radius": 2,
-            "neighbors": 8,
-            "grid_x": 10,
-            "grid_y": 10,
-        },
-    )
-

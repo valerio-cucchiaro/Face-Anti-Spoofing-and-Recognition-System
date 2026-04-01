@@ -14,9 +14,13 @@ classify detected faces as live or spoof before face recognition.
 """
 
 import joblib
-from pathlib import Path
 import time
 
+from src.antispoofing.pad_model_config import (
+    build_pad_model_config,
+    get_pad_artifact_paths,
+    save_pad_model_config,
+)
 from src.antispoofing.training.pad_dataset_loader import (
     CASIA_SAMPLE_RATIO,
     REPLAY_SAMPLE_RATIO,
@@ -28,12 +32,9 @@ from src.antispoofing.training.pad_dataset_loader import (
     load_runtime_pad_training_dataset,
 )
 from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
-from src.antispoofing.pad_feature_extractor import PAD_DEBUG_FEATURE_MODE
+from src.antispoofing.pad_feature_extractor import PAD_DEBUG_FEATURE_MODE, PAD_LFT_MODE
 
 
-# ----- CONSTANTS ----- #
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_svm.joblib"
-SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_scaler.joblib"
 TRAIN_MODE = "replay"
 EXPERIMENT_SPEED = "full"
 FULL_RUNTIME_REPEAT = 10
@@ -215,6 +216,8 @@ def train_pad_model(
     runtime_repeat_override=None,
     casia_balance_override=None,
     replay_balance_override=None,
+    artifact_profile="runtime",
+    update_runtime_artifacts=False,
 ):
     """
     Train the PAD model using the selected PAD training dataset.
@@ -224,6 +227,11 @@ def train_pad_model(
     runtime oversampling factor for a specific experiment. The same
     override mechanism is available for CASIA and Replay-Attack
     pre-extraction balancing.
+
+    The trained artifacts can be stored under a dedicated profile
+    (for example ``fast`` or ``full``). When ``update_runtime_artifacts``
+    is enabled, the same trained model is also copied to the canonical
+    runtime paths used by webcam inference.
     """
 
     total_start_time = time.perf_counter()
@@ -245,6 +253,7 @@ def train_pad_model(
 
     print("Dataset:", dataset_name)
     print("PAD debug feature mode:", PAD_DEBUG_FEATURE_MODE)
+    print("PAD LFT mode:", PAD_LFT_MODE)
     print("Total samples:", len(y_train))
     print("X_train shape:", X_train.shape)
     print("y_train shape:", y_train.shape)
@@ -257,16 +266,47 @@ def train_pad_model(
     scaler, classifier = train_pad_classifier(X_train, y_train)
     training_elapsed = time.perf_counter() - training_start_time
 
+    artifact_paths = get_pad_artifact_paths(artifact_profile)
+
     # create models directory if it does not exist
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    artifact_paths["model_path"].parent.mkdir(parents=True, exist_ok=True)
 
     # Save the trained model and scaler to disk
-    joblib.dump(scaler, SCALER_PATH)
-    joblib.dump(classifier, MODEL_PATH)
+    joblib.dump(scaler, artifact_paths["scaler_path"])
+    joblib.dump(classifier, artifact_paths["model_path"])
+
+    # Save the feature configuration used to produce the trained PAD
+    # artifacts so runtime inference can restore the exact same setup.
+    pad_model_config = build_pad_model_config(
+        debug_feature_mode=PAD_DEBUG_FEATURE_MODE,
+        lft_mode=PAD_LFT_MODE,
+        feature_dim=X_train.shape[1],
+    )
+    save_pad_model_config(
+        pad_model_config,
+        config_path=artifact_paths["config_path"],
+    )
+
+    if update_runtime_artifacts and artifact_profile != "runtime":
+        runtime_paths = get_pad_artifact_paths("runtime")
+        joblib.dump(scaler, runtime_paths["scaler_path"])
+        joblib.dump(classifier, runtime_paths["model_path"])
+        save_pad_model_config(
+            pad_model_config,
+            config_path=runtime_paths["config_path"],
+        )
  
     print("PAD model trained and saved successfully")
-    print("Model path:", MODEL_PATH)
-    print("Scaler path:", SCALER_PATH)
+    print("Artifact profile:", artifact_profile)
+    print("Model path:", artifact_paths["model_path"])
+    print("Scaler path:", artifact_paths["scaler_path"])
+    print("Config path:", artifact_paths["config_path"])
+    if update_runtime_artifacts and artifact_profile != "runtime":
+        runtime_paths = get_pad_artifact_paths("runtime")
+        print("Runtime model path:", runtime_paths["model_path"])
+        print("Runtime scaler path:", runtime_paths["scaler_path"])
+        print("Runtime config path:", runtime_paths["config_path"])
+    print("PAD config:", pad_model_config)
     print(f"PAD classifier training completed in {training_elapsed:.2f}s")
     print(f"Total PAD training time: {time.perf_counter() - total_start_time:.2f}s")
 

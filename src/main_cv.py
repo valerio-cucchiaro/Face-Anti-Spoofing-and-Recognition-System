@@ -1,11 +1,9 @@
 """
-Entry point for the Computer Vision pipeline.
+Entry point for the Computer Vision PAD-only runtime.
 
-This script launches the pipeline used for the Computer Vision
-project, focusing on face detection, preprocessing, and visual
-analysis tasks such as anti-spoofing or liveness detection.
-
-Recognition may be excluded depending on the experimental setup.
+This script launches the webcam pipeline dedicated to face
+anti-spoofing. It is useful when PAD and liveness behavior must be
+tested without the recognition stage.
 """
 
 from src.pipeline.run_pipeline_cv import run_pipeline_cv

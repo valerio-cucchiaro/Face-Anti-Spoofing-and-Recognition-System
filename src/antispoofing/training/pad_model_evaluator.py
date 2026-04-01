@@ -21,10 +21,15 @@ model to distinguish between live faces and spoof attacks.
 """
 
 import joblib
-from pathlib import Path
 import time
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
+from src.antispoofing.pad_model_config import (
+    configure_pad_feature_extractor_from_config,
+    get_expected_feature_dim_from_scaler,
+    get_pad_artifact_paths,
+    load_pad_model_config,
+)
 from src.antispoofing.training.pad_dataset_loader import (
     load_pad_test_dataset_casia,
     load_pad_test_dataset_replay,
@@ -34,9 +39,6 @@ from src.antispoofing.training.pad_dataset_loader import (
 )
 
 
-# ----- CONSTANTS ----- #
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_svm.joblib"
-SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_scaler.joblib"
 EVAL_MODE = "runtime"     # casia, replay, runtime
 
 
@@ -123,17 +125,33 @@ def evaluate_single_pad_dataset(eval_mode, scaler, classifier):
     print()
 
 
-def evaluate_pad_model(eval_mode=None):
+def evaluate_pad_model(eval_mode=None, artifact_profile="runtime"):
     """
     Evaluate the trained PAD model on one dataset or on all supported
     datasets sequentially.
+
+    ``artifact_profile`` selects which saved PAD artifacts must be
+    evaluated. This keeps fast and full experiment outputs separate
+    while preserving a canonical runtime artifact set.
     """
 
     selected_mode = eval_mode or EVAL_MODE
     total_start_time = time.perf_counter()
 
-    scaler = joblib.load(SCALER_PATH)
-    classifier = joblib.load(MODEL_PATH)
+    artifact_paths = get_pad_artifact_paths(artifact_profile)
+    scaler = joblib.load(artifact_paths["scaler_path"])
+    classifier = joblib.load(artifact_paths["model_path"])
+    expected_feature_dim = get_expected_feature_dim_from_scaler(scaler)
+    pad_config = load_pad_model_config(
+        expected_feature_dim=expected_feature_dim,
+        config_path=artifact_paths["config_path"],
+    )
+    configure_pad_feature_extractor_from_config(pad_config)
+
+    print("PAD artifact profile:", artifact_profile)
+    print("PAD debug feature mode:", pad_config["pad_debug_feature_mode"])
+    print("PAD LFT mode:", pad_config["pad_lft_mode"])
+    print("Expected PAD feature dim:", pad_config["feature_dim"])
 
     if selected_mode == "all":
         for mode in ("casia", "replay", "runtime"):

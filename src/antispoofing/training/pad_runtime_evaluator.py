@@ -30,6 +30,11 @@ import joblib
 from pathlib import Path
 
 from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
+from src.antispoofing.pad_model_config import (
+    configure_pad_feature_extractor_from_config,
+    get_expected_feature_dim_from_scaler,
+    load_pad_model_config,
+)
 
 
 # ----- CONSTANTS ----- #
@@ -76,6 +81,14 @@ def evaluate_folder(folder_path, true_label, scaler, classifier):
 
         # Reshape because scaler and classifier expect 2D input.
         features = features.reshape(1, -1)
+        extracted_feature_dim = int(features.shape[1])
+        expected_feature_dim = get_expected_feature_dim_from_scaler(scaler)
+        if extracted_feature_dim != expected_feature_dim:
+            raise ValueError(
+                "PAD runtime evaluator feature mismatch: extracted "
+                f"{extracted_feature_dim} features, but the loaded model expects "
+                f"{expected_feature_dim}."
+            )
         features_scaled = scaler.transform(features)
 
         prediction = int(classifier.predict(features_scaled)[0])
@@ -127,10 +140,16 @@ def main():
     # Load the same scaler and classifier used by the runtime detector.
     scaler = joblib.load(SCALER_PATH)
     classifier = joblib.load(MODEL_PATH)
+    expected_feature_dim = get_expected_feature_dim_from_scaler(scaler)
+    pad_config = load_pad_model_config(expected_feature_dim=expected_feature_dim)
+    configure_pad_feature_extractor_from_config(pad_config)
 
     print("=== PAD RUNTIME TEST DATASET EVALUATION ===")
     print(f"Live folder : {LIVE_PATH}")
     print(f"Spoof folder: {SPOOF_PATH}")
+    print("PAD debug feature mode:", pad_config["pad_debug_feature_mode"])
+    print("PAD LFT mode:", pad_config["pad_lft_mode"])
+    print("Expected PAD feature dim:", pad_config["feature_dim"])
 
     print("=== EVALUATING LIVE IMAGES ===")
     live_total, live_valid, live_correct = evaluate_folder(

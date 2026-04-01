@@ -22,6 +22,8 @@ from pathlib import Path
 import numpy as np
 import time
 
+from src.preprocessing.face_preprocessing import preprocess_loaded_face_for_recognition
+
 
 # ----- CONSTANTS ----- #
 RECOGNITION_ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "recognition"
@@ -123,7 +125,11 @@ def load_images_from_identity_dir(identity_dir):
             print(f"Warning: Could not read image {image_path}")
             continue
 
-        images.append((image_path, image))
+        preprocessed_image = preprocess_loaded_face_for_recognition(image)
+        if preprocessed_image is None:
+            continue
+
+        images.append((image_path, preprocessed_image))
 
     return images
 

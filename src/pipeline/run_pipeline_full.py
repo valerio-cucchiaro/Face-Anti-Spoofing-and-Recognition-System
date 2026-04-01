@@ -2,19 +2,19 @@
 Module: run_pipeline_full
 
 Description:
-This module implements the complete runtime pipeline of the biometric
-face recognition system. It orchestrates the main processing flow of
-the application using the system webcam.
+This module implements the complete real-time runtime pipeline of the
+biometric face-recognition system.
 
-The pipeline performs the following stages:
+The runtime is organized as a lightweight state machine:
+- DETECT: search for a valid face
+- PAD_CHECK: accumulate liveness evidence through PAD smoothing
+- RECOGNITION_LOCKED: keep a stable live lock and run recognition
+- RESET: clear the session and return to DETECT
 
-webcam acquisition -> face detection -> face validation -> face
-preprocessing -> antispoofing (PAD) -> face recognition ->
-visualization of results
-
-The module integrates MediaPipe face detection, preprocessing,
-anti-spoofing, and recognition. It applies temporal smoothing to PAD
-decisions and displays the final biometric output in real time.
+The PAD temporal smoothing remains delegated to ``PadRuntimeState``,
+while the recognition temporal smoothing remains delegated to
+``RecognitionRuntimeState``. This module orchestrates when those two
+subsystems should be used.
 """
 
 import cv2
@@ -25,19 +25,23 @@ from src.antispoofing.pad_frame_quality import (
     evaluate_bbox_stability,
     evaluate_pad_crop_quality,
 )
+from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
 from src.antispoofing.pad_runtime_state import PadRuntimeState
 from src.detection.face_detector import load_mediapipe_detector
-from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
 from src.preprocessing.frame_preprocessing import get_valid_face
+from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
+from src.pipeline.runtime_session_state import RuntimeSessionState
 from src.recognition.face_recognizer import load_recognizer, predict_identity
-from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
+from src.recognition.recognition_runtime_state import RecognitionRuntimeState
 
 
 # ----- FACE DETECTION AND VALIDATION ----- #
-THRESHOLD_AREA = 8000   # minimum area of the detected face to be considered valid
+THRESHOLD_AREA = 8000
 
 # ----- PAD TEMPORAL SMOOTHING ----- #
 PAD_WINDOW_SIZE = 5
+PAD_RUN_INTERVAL = 3
+PAD_LIVE_LOCK_CONFIRMATIONS = 3
 
 # ----- PAD HYSTERESIS THRESHOLDS ----- #
 PAD_ENTER_LIVE_THRESHOLD = 0.70
@@ -48,25 +52,31 @@ PAD_EXIT_SPOOF_THRESHOLD = 0.45
 # ----- PAD STATE RESET ----- #
 PAD_RESET_AFTER_MISSES = 15
 
+# ----- RECOGNITION TEMPORAL SMOOTHING ----- #
+RECOGNITION_WINDOW_SIZE = 5
+RECOGNITION_MIN_CONFIRMATIONS = 3
+RECOGNITION_RESET_AFTER_MISSES = 10
+RECOGNITION_RUN_INTERVAL = 3
 
-def run_pipeline_full():
+# ----- RECOGNITION THRESHOLDS ----- #
+# Live webcam threshold chosen explicitly for runtime/demo usage.
+RUNTIME_RECOGNITION_THRESHOLD = 45.0
+
+# ----- SESSION RESET RULES ----- #
+SESSION_RESET_AFTER_MISSES = 10
+LOCK_RESET_AFTER_UNSTABLE_BBOX = 3
+LOCK_RESET_AFTER_INVALID_CROP = 3
+
+# ----- RUNTIME DEBUG ----- #
+FULL_RUNTIME_VERBOSE_LOGS = False
+
+
+def create_pad_runtime_state():
     """
-    Execute the full real-time processing pipeline.
-
-    The function captures frames from the webcam, detects and validates
-    faces, applies runtime PAD decision smoothing, performs identity
-    recognition only when the final PAD decision is live, and displays
-    the results on screen.
+    Build the PAD temporal state used by the runtime pipeline.
     """
-    cap = cv2.VideoCapture(0)
 
-    if not cap.isOpened():
-        raise RuntimeError("Could not open webcam")
-
-    detector = load_mediapipe_detector()
-    pad_detector = AntiSpoofingDetector()
-
-    pad_runtime_state = PadRuntimeState(
+    return PadRuntimeState(
         window_size=PAD_WINDOW_SIZE,
         enter_live_threshold=PAD_ENTER_LIVE_THRESHOLD,
         exit_live_threshold=PAD_EXIT_LIVE_THRESHOLD,
@@ -75,10 +85,159 @@ def run_pipeline_full():
         reset_after_misses=PAD_RESET_AFTER_MISSES,
     )
 
-    recognizer, label_map, recognition_config = load_recognizer()
-    runtime_threshold = recognition_config["unknown_threshold"]
 
-    prev_face_rect = None
+def create_recognition_runtime_state():
+    """
+    Build the recognition temporal state used by the runtime pipeline.
+    """
+
+    return RecognitionRuntimeState(
+        window_size=RECOGNITION_WINDOW_SIZE,
+        min_confirmations=RECOGNITION_MIN_CONFIRMATIONS,
+        reset_after_misses=RECOGNITION_RESET_AFTER_MISSES,
+    )
+
+
+def log_runtime_event(message):
+    """
+    Print a concise runtime event to the console.
+    """
+
+    print(f"[RUNTIME] {message}")
+
+
+def log_runtime_verbose(message):
+    """
+    Print a detailed runtime debug message only when verbose logging is
+    enabled for the full pipeline.
+    """
+
+    if FULL_RUNTIME_VERBOSE_LOGS:
+        print(f"[RUNTIME] {message}")
+
+
+def reset_runtime_session(session_state):
+    """
+    Reset the runtime session and recreate the temporal PAD and
+    recognition states.
+    """
+
+    session_state.reset_session()
+    return create_pad_runtime_state(), create_recognition_runtime_state()
+
+
+def draw_face_overlay(
+    frame,
+    face_rect,
+    box_color,
+    phase_text,
+    pad_text,
+    recognition_text,
+    identity_text=None,
+):
+    """
+    Draw a compact overlay around the current face box.
+
+    The runtime keeps the on-screen overlay intentionally small and
+    stable, while more detailed events are emitted to the console.
+    """
+
+    x, y, w, h = face_rect
+    top_line_y = max(25, y - 55)
+    second_top_line_y = max(50, y - 30)
+    bottom_line_1_y = y + h + 25
+    bottom_line_2_y = y + h + 55
+
+    cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
+    cv2.putText(
+        frame,
+        phase_text,
+        (x, top_line_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        frame,
+        pad_text,
+        (x, second_top_line_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        box_color,
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        frame,
+        recognition_text,
+        (x, bottom_line_1_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 0),
+        2,
+        cv2.LINE_AA,
+    )
+
+    if identity_text is not None:
+        cv2.putText(
+            frame,
+            identity_text,
+            (x, bottom_line_2_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+
+
+def get_box_color(session_state, final_pad_label):
+    """
+    Select the bounding-box color from the runtime phase and PAD state.
+    """
+
+    if session_state.current_phase == RuntimeSessionState.RECOGNITION_LOCKED:
+        return (0, 255, 0)
+
+    if final_pad_label == "spoof":
+        return (0, 0, 255)
+
+    if final_pad_label == "live":
+        return (0, 255, 255)
+
+    return (0, 255, 255)
+
+
+def run_pipeline_full():
+    """
+    Execute the full real-time biometric runtime pipeline.
+
+    The runtime first confirms liveness through PAD. Only after a stable
+    live lock is reached does it open a dedicated recognition phase,
+    where recognition can accumulate evidence without being disrupted by
+    continuous heavy PAD reevaluation.
+    """
+
+    cap = cv2.VideoCapture(0)
+
+    if not cap.isOpened():
+        raise RuntimeError("Could not open webcam")
+
+    detector = load_mediapipe_detector()
+    pad_detector = AntiSpoofingDetector()
+    recognizer, label_map = load_recognizer()
+    runtime_threshold = RUNTIME_RECOGNITION_THRESHOLD
+
+    session_state = RuntimeSessionState()
+    pad_runtime_state = create_pad_runtime_state()
+    recognition_runtime_state = create_recognition_runtime_state()
+
+    frame_counter = 0
+    log_runtime_event(
+        f"Recognition runtime threshold: {runtime_threshold:.2f}"
+    )
 
     while True:
         ret, frame = cap.read()
@@ -86,129 +245,254 @@ def run_pipeline_full():
         if not ret:
             print("Failed to grab frame")
             break
-        
+
+        frame_counter += 1
+
         face_rect, gray_frame, message = get_valid_face(
             frame,
             detector,
             THRESHOLD_AREA,
         )
 
-        if message == "No face detected" or message == "No valid face detected":
-            prev_face_rect = None
-            state_result = pad_runtime_state.update(face_missing=True)
-            cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-
-        elif message == "Move closer to the camera":
-            prev_face_rect = None
-            state_result = pad_runtime_state.update(face_missing=True)
-            cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-
-        elif message == "Face detected":
-            x, y, w, h = face_rect
-
-            current_face_rect = (x, y, w, h)
-            stability_result = evaluate_bbox_stability(
-                current_face_rect,
-                prev_face_rect,
+        if message != "Face detected":
+            session_state.register_missing_face()
+            session_state.previous_face_rect = None
+            session_state.last_pad_result = pad_runtime_state.update(face_missing=True)
+            session_state.store_recognition_result(
+                recognition_runtime_state.update(face_missing=True)
             )
-            bbox_stable = stability_result["is_stable"]
-            prev_face_rect = current_face_rect
 
-            # Build the PAD crop through the shared helper used by the
-            # collector and offline PAD utilities.
-            pad_face_crop = extract_pad_face_crop(gray_frame, x, y, w, h)
+            if session_state.missing_face_counter >= SESSION_RESET_AFTER_MISSES:
+                if session_state.transition_to(RuntimeSessionState.RESET):
+                    log_runtime_event("Reset: face lost")
+                pad_runtime_state, recognition_runtime_state = reset_runtime_session(
+                    session_state
+                )
 
-            # Evaluate the PAD crop quality before updating the temporal state.
-            quality_result = evaluate_pad_crop_quality(pad_face_crop, PAD_MIN_VARIANCE_LAPLACIAN)
-            laplacian_variance = quality_result["laplacian_variance"]
-            update_pad_history = quality_result["is_frame_usable_for_history"] and bbox_stable
-
-            # Run PAD inference only on valid crops, otherwise mark the frame as invalid.
-            if quality_result["is_valid_crop"]:
-                pad_result = pad_detector.predict(pad_face_crop)
-            else:
-                pad_result = {"status": "invalid_crop", "label": None, "score": None}
-
-            state_result = pad_runtime_state.update(
-                pad_result=pad_result,
-                frame_usable=update_pad_history,
-                face_missing=False,
+            display_message = (
+                "Searching face" if message == "No face detected" else message
             )
-            current_pad_status = state_result["current_status"]
-            current_pad_label = state_result["current_label"]
-            current_pad_score = state_result["current_score"]
-            mean_live_probability = state_result["mean_live_probability"]
-            final_pad_label = state_result["final_label"]
+            cv2.putText(
+                frame,
+                display_message,
+                (30, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 0, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            cv2.imshow("Webcam", frame)
 
-            # Choose box color from final smoothed decision
-            if final_pad_label == "live":
-                box_color = (0, 255, 0)
-            elif final_pad_label == "spoof":
-                box_color = (0, 0, 255)
-            else:
-                box_color = (0, 255, 255)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
+            continue
 
-            cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
+        session_state.clear_missing_face_counter()
 
-            # Build the current PAD text safely even when inference fails.
-            if current_pad_status == "ok" and current_pad_label is not None and current_pad_score is not None:
-                current_pad_text = f"PAD now: {current_pad_label.upper()} ({current_pad_score:.2f})"
-            else:
-                current_pad_text = "PAD now: UNKNOWN"
+        x, y, w, h = face_rect
+        current_face_rect = (x, y, w, h)
+        stability_result = evaluate_bbox_stability(
+            current_face_rect,
+            session_state.previous_face_rect,
+        )
+        bbox_stable = stability_result["is_stable"]
+        session_state.store_face_rect(current_face_rect)
 
-            # Show the current-frame PAD prediction and its score.
-            cv2.putText(frame, current_pad_text, (x, y - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+        if session_state.current_phase == RuntimeSessionState.DETECT:
+            if session_state.transition_to(RuntimeSessionState.PAD_CHECK):
+                log_runtime_event("Entering PAD_CHECK")
 
-            if mean_live_probability is not None:
-                final_pad_text = f"PAD final: {final_pad_label.upper()} | avg_live={mean_live_probability:.2f}"
-            else:
-                final_pad_text = f"PAD final: {final_pad_label.upper()}"
+        pad_face_crop = extract_pad_face_crop(gray_frame, x, y, w, h)
+        quality_result = evaluate_pad_crop_quality(
+            pad_face_crop,
+            PAD_MIN_VARIANCE_LAPLACIAN,
+        )
+        pad_frame_usable = (
+            quality_result["is_frame_usable_for_history"] and bbox_stable
+        )
 
-            # Show the final smoothed PAD decision derived from recent frames.
-            cv2.putText(frame, final_pad_text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, box_color, 2, cv2.LINE_AA)
+        if session_state.current_phase == RuntimeSessionState.PAD_CHECK:
+            should_run_pad = (frame_counter % PAD_RUN_INTERVAL == 0)
 
-            # --- DEBUG --- #
-            if not quality_result["is_valid_crop"]:
-                if not quality_result["is_large_enough"]:
-                    quality_text = f"PAD frame: SKIPPED | too small ({quality_result['crop_width']}x{quality_result['crop_height']})"
-                elif not quality_result["has_plausible_aspect_ratio"]:
-                    quality_text = f"PAD frame: SKIPPED | bad ratio ({quality_result['aspect_ratio']:.2f})"
+            if should_run_pad:
+                if quality_result["is_valid_crop"]:
+                    pad_result = pad_detector.predict(pad_face_crop)
                 else:
-                    quality_text = "PAD frame: SKIPPED | invalid crop"
-                quality_color = (0, 165, 255)
+                    pad_result = {
+                        "status": "invalid_crop",
+                        "label": None,
+                        "score": None,
+                    }
 
-            elif not quality_result["is_sharp_enough"]:
-                quality_text = f"PAD frame: SKIPPED | blur={laplacian_variance:.1f}"
-                quality_color = (0, 165, 255)
+                pad_state_result = pad_runtime_state.update(
+                    pad_result=pad_result,
+                    frame_usable=pad_frame_usable,
+                    face_missing=False,
+                )
+                session_state.store_pad_result(pad_state_result)
 
-            elif not bbox_stable:
-                quality_text = "PAD frame: SKIPPED | unstable bbox"
-                quality_color = (0, 165, 255)
-
-            else:
-                quality_text = f"PAD frame: ACCEPTED | {quality_result['crop_width']}x{quality_result['crop_height']} | blur={laplacian_variance:.1f}"
-                quality_color = (0, 255, 0)
-
-            cv2.putText(frame, quality_text, (x, y + h + 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, quality_color, 2, cv2.LINE_AA)
-
-            # Only perform recognition if final PAD decision is live
-            if final_pad_label == "live":
-                face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
-                if face is None:
-                    cv2.putText(frame, "Recognition skipped: invalid face crop", (x, y + h + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+                if (
+                    pad_state_result["final_label"] == "live"
+                    and pad_frame_usable
+                    and bbox_stable
+                ):
+                    live_count = session_state.register_pad_live_confirmation()
                 else:
-                    predicted_name, confidence = predict_identity(
-                        face,
-                        recognizer,
-                        label_map,
-                        threshold=runtime_threshold,
+                    session_state.reset_pad_live_confirmation()
+                    live_count = 0
+
+                if live_count >= PAD_LIVE_LOCK_CONFIRMATIONS:
+                    session_state.live_lock_active = True
+                    session_state.transition_to(
+                        RuntimeSessionState.RECOGNITION_LOCKED
                     )
-                    cv2.imshow("Face", face)
-                    cv2.putText(frame, f"Identity: {predicted_name}", (x, y + h + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
-                    cv2.putText(frame, f"Confidence: {confidence:.2f}", (x, y + h + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2, cv2.LINE_AA)
+                    log_runtime_event("PAD locked: LIVE")
+                    log_runtime_event("Entering RECOGNITION_LOCKED")
+
+            final_pad_label = session_state.last_pad_result["final_label"]
+            mean_live_probability = session_state.last_pad_result[
+                "mean_live_probability"
+            ]
+            if mean_live_probability is not None:
+                pad_text = (
+                    f"PAD: {final_pad_label.upper()} | avg_live="
+                    f"{mean_live_probability:.2f}"
+                )
             else:
-                cv2.putText(frame, "Recognition blocked", (x, y + h + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
-        
+                pad_text = f"PAD: {final_pad_label.upper()}"
+
+            recognition_text = (
+                "Checking liveness..."
+                f" ({session_state.pad_live_confirmation_count}/"
+                f"{PAD_LIVE_LOCK_CONFIRMATIONS})"
+            )
+            box_color = get_box_color(session_state, final_pad_label)
+            draw_face_overlay(
+                frame,
+                face_rect,
+                box_color,
+                "State: CHECKING LIVENESS",
+                pad_text,
+                recognition_text,
+            )
+
+        elif session_state.current_phase == RuntimeSessionState.RECOGNITION_LOCKED:
+            session_state.register_locked_bbox_stability(bbox_stable)
+            session_state.register_locked_crop_validity(
+                quality_result["is_valid_crop"]
+            )
+
+            if (
+                session_state.locked_unstable_counter >= LOCK_RESET_AFTER_UNSTABLE_BBOX
+            ):
+                session_state.transition_to(RuntimeSessionState.RESET)
+                log_runtime_event("Reset: abrupt movement")
+            elif (
+                session_state.locked_invalid_crop_counter
+                >= LOCK_RESET_AFTER_INVALID_CROP
+            ):
+                session_state.transition_to(RuntimeSessionState.RESET)
+                log_runtime_event("Reset: face crop lost")
+
+            if session_state.current_phase == RuntimeSessionState.RESET:
+                pad_runtime_state, recognition_runtime_state = reset_runtime_session(
+                    session_state
+                )
+                draw_face_overlay(
+                    frame,
+                    face_rect,
+                    (0, 165, 255),
+                    "State: RESET",
+                    "PAD: unlocked",
+                    "Resetting session",
+                )
+            else:
+                should_run_recognition = (
+                    frame_counter % RECOGNITION_RUN_INTERVAL == 0
+                )
+                recognition_frame_usable = (
+                    bbox_stable
+                    and quality_result["is_valid_crop"]
+                    and quality_result["is_sharp_enough"]
+                )
+                if should_run_recognition:
+                    face = None
+                    if recognition_frame_usable:
+                        face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
+
+                    if face is None:
+                        recognition_result = recognition_runtime_state.update(
+                            frame_usable=False,
+                            recognition_allowed=True,
+                            face_missing=False,
+                        )
+                    else:
+                        predicted_name, confidence = predict_identity(
+                            face,
+                            recognizer,
+                            label_map,
+                            threshold=runtime_threshold,
+                        )
+                        recognition_result = recognition_runtime_state.update(
+                            predicted_name=predicted_name,
+                            confidence=confidence,
+                            frame_usable=True,
+                            recognition_allowed=True,
+                            face_missing=False,
+                        )
+
+                    current_name = recognition_result["current_name"]
+                    current_confidence = recognition_result["current_confidence"]
+                    final_name = recognition_result["final_name"]
+                    stable_count = recognition_result["stable_count"]
+                    history_size = recognition_result["history_size"]
+                    confidence_text = (
+                        f"{current_confidence:.2f}"
+                        if current_confidence is not None
+                        else "None"
+                    )
+                    log_runtime_verbose(
+                        "Recognition check: "
+                        f"usable={recognition_frame_usable} | "
+                        f"threshold={runtime_threshold:.2f} | "
+                        f"current={current_name} | "
+                        f"confidence={confidence_text} | "
+                        f"final={final_name} | "
+                        f"votes={stable_count}/{history_size}"
+                    )
+
+                    previous_identity = session_state.last_stable_identity
+                    session_state.store_recognition_result(recognition_result)
+                    current_identity = session_state.last_stable_identity
+                    if (
+                        current_identity != "Unknown"
+                        and current_identity != previous_identity
+                    ):
+                        log_runtime_event(
+                            f"Recognition result: {current_identity}"
+                        )
+
+                recognition_result = session_state.last_recognition_result
+                final_identity = recognition_result["final_name"]
+                if final_identity == "Unknown":
+                    identity_text = "Identity: Unknown"
+                else:
+                    identity_text = f"Identity: {final_identity}"
+
+                recognition_text = "Recognition active"
+
+                draw_face_overlay(
+                    frame,
+                    face_rect,
+                    get_box_color(session_state, "live"),
+                    "State: LIVE LOCKED",
+                    "PAD: LOCKED LIVE",
+                    recognition_text,
+                    identity_text=identity_text,
+                )
+
         cv2.imshow("Webcam", frame)
 
         key = cv2.waitKey(1) & 0xFF

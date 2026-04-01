@@ -982,3 +982,84 @@ At this stage the best provisional LBPH configuration is `radius=1`, `neighbors=
 This gives the project two synchronized experiment logs, one for recognition and one for anti-spoofing, so the next test campaigns can be compared without rebuilding the context each time.
 
 ---
+
+## 2026/04/01
+
+**Recognition Runtime Policy and Runtime Split Cleanup**:
+
+- separated the recognition evaluation threshold from the live webcam threshold
+- kept the offline threshold inside `models/recognition_config.json` only as evaluator-side reference data
+- removed the dependency on `recognition_config.json` from the live runtime path
+- updated `src/recognition/face_recognizer.py` so the runtime now loads only:
+
+  - `models/lbph_model.xml`
+  - `models/label_map.pkl`
+
+- introduced an explicit live recognition threshold in the runtime pipeline
+- clarified comments and docstrings so offline evaluation policy and live runtime policy are no longer mixed
+- updated `src/recognition/recognition_model_evaluator.py` terminology to treat the saved threshold as an offline evaluation reference instead of a runtime control value
+
+This cleaned up one of the main conceptual ambiguities of the recognition module: the threshold used to analyze dataset runs is no longer confused with the threshold used for the live webcam demo.
+
+**Recognition Runtime Stabilization and Session-State Refactor**:
+
+- added `src/recognition/recognition_runtime_state.py` as the temporal state manager for runtime recognition smoothing
+- introduced short-window confirmation logic for recognition results before showing a stable identity
+- refactored `src/pipeline/run_pipeline_full.py` into a lightweight state machine with:
+
+  - `DETECT`
+  - `PAD_CHECK`
+  - `RECOGNITION_LOCKED`
+  - `RESET`
+
+- added `src/pipeline/runtime_session_state.py` to store the persistent runtime state shared across frames
+- changed the runtime flow so PAD is used to enter the live phase, while recognition then works inside a separate locked phase
+- reduced the risk that PAD continuously destabilizes recognition during live inference
+- simplified the full runtime overlay and kept only compact, stable information on screen
+
+This made the integrated webcam pipeline more coherent and much closer to a real runtime session flow instead of a frame-by-frame cascade with conflicting gates.
+
+**Dedicated Runtime Entry Points for BS and CV**:
+
+- replaced the old disabled placeholders with two real split runtimes:
+
+  - `src/pipeline/run_pipeline_bs.py` for recognition-only runtime
+  - `src/pipeline/run_pipeline_cv.py` for PAD-only runtime
+
+- updated the entry points:
+
+  - `src/main.py`
+  - `src/main_bs.py`
+  - `src/main_cv.py`
+
+- aligned comments and docstrings so each entry point clearly states whether it runs:
+
+  - the full integrated runtime
+  - the recognition-only runtime
+  - the PAD-only runtime
+
+- added lightweight debug logging to the split runtimes without overloading the integrated full pipeline
+
+This made it possible to isolate runtime behavior more cleanly and compare the recognition and PAD modules separately before recombining them in the full demo.
+
+**PAD Model/Runtime Alignment and Artifact Management**:
+
+- added `src/antispoofing/pad_model_config.py` to centralize PAD model metadata and avoid feature-mode mismatches between training, evaluation, and runtime
+- updated the PAD runtime detector and evaluators to restore the correct PAD feature configuration from saved metadata
+- added explicit runtime checks on the extracted PAD feature dimension to prevent silent model/config mismatches
+- extended the PAD experiment flow so `fast` and `full` runs now save separate artifacts instead of overwriting the same files
+- kept the canonical runtime artifacts as the stable target used by webcam inference, while preserving experiment-specific snapshots for comparison
+
+This closes the previous gap between PAD experiments and live runtime usage, and makes it much safer to iterate on PAD without accidentally losing the stable runtime model.
+
+**PAD Runtime Profiling and Feature-Cost Diagnosis**:
+
+- instrumented the PAD-only runtime to profile the cost of the live PAD inference blocks
+- extended the PAD feature extraction path with timing breakdowns for the main descriptor families
+- confirmed that the dominant runtime cost is not detection, crop handling, quality checks, scaling, or SVM inference
+- identified the current LFTP block as the main computational bottleneck during live PAD feature extraction
+- verified at runtime that the active PAD configuration is the baseline `128`-feature setup, so the remaining performance issue comes from unnecessary feature work rather than from loading the wrong saved model
+
+This profiling pass gave a concrete explanation for the remaining runtime lag and turned the PAD performance problem from a generic suspicion into a measurable feature-extraction bottleneck.
+
+---

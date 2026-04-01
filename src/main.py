@@ -1,12 +1,9 @@
 """
-Entry point for the full biometric system pipeline.
+Entry point for the full biometric runtime.
 
-This script starts the complete runtime pipeline of the project,
-including face detection, preprocessing, recognition, and any
-additional modules integrated into the full system.
-
-It is intended to run the complete demonstration version of the
-project.
+This script launches the complete webcam pipeline that combines
+face detection, PAD, and recognition inside the runtime state
+machine used for the integrated demo.
 """
 
 from src.pipeline.run_pipeline_full import run_pipeline_full

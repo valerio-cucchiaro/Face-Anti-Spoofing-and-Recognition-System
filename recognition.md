@@ -51,6 +51,14 @@ Configurazione lanciata:
 - trainer: `src/recognition/recognition_model_trainer.py`
 - evaluator: `src/recognition/recognition_model_evaluator.py`
 - runner: `src/recognition/recognition_experiment_runner.py`
+- configurazione LBPH di riferimento e default attuale:
+  - `radius=1`
+  - `neighbors=8`
+  - `grid_x=6`
+  - `grid_y=6`
+- preprocessing recognition di riferimento e default attuale:
+  - normalizzazione: `equalizeHist`
+  - crop padding ratio: `0.10`
 - modello salvato in:
   - `models/lbph_model.xml`
   - `models/label_map.pkl`
@@ -186,7 +194,7 @@ Portare la recognition alla miglior versione onesta e difendibile del progetto, 
 
 ### Priorita media
 
-- [ ] fare tuning piccolo ma serio dei parametri LBPH
+- [x] fare tuning piccolo ma serio dei parametri LBPH
   - obiettivo: testare se una configurazione migliore aiuta davvero sul custom
   - griglia iniziale consigliata:
     - `radius`: `1, 2, 3`
@@ -197,18 +205,107 @@ Portare la recognition alla miglior versione onesta e difendibile del progetto, 
     - `src/recognition/recognition_model_trainer.py`
     - `src/recognition/recognition_experiment_runner.py`
   - stato implementazione:
-    - trainer e runner ora supportano parametri LBPH configurabili
-    - i test di tuning non sono ancora stati lanciati
+    - trainer e runner supportano parametri LBPH configurabili
+    - la configurazione migliore operativamente selezionata e `radius=1`, `neighbors=8`, `grid_x=6`, `grid_y=6`
+    - questa configurazione e stata anche allineata come default del trainer
+    - i casi con `neighbors=16` restano documentati, ma al momento sono quasi impraticabili nei batch lunghi e non sono prioritari
 
-- [ ] testare 1-2 varianti semplici di preprocessing
+- [x] testare 1-2 varianti semplici di preprocessing
   - obiettivo: aumentare stabilita del crop senza stravolgere la pipeline
-  - varianti sensate:
-    - padding leggero del bounding box
-    - controllo minimo sulla dimensione del volto
-    - confronto `equalizeHist ON/OFF`
-    - confronto `equalizeHist` vs `CLAHE`
+  - varianti testate:
+    - confronto normalizzazione `equalizeHist` vs `CLAHE` vs nessuna equalizzazione
+    - confronto crop con padding `0.00`, `0.05`, `0.10`, `0.15`
   - file coinvolti:
     - `src/preprocessing/face_preprocessing.py`
+    - `src/recognition/recognition_experiment_runner.py`
+    - `src/recognition/recognition_dataset_loader.py`
+  - esito:
+    - `CLAHE` non ha portato vantaggi utili e non viene mantenuta
+    - `equalizeHist` resta la scelta piu difendibile come normalizzazione standard
+    - `padding=0.10` e il valore migliore tra quelli provati
+    - `padding=0.05` peggiora
+    - `padding=0.15` peggiora soprattutto su `custom_orl -> orl`
+    - il preprocessing di riferimento diventa quindi `equalizeHist + padding ratio 0.10`
+
+- [x] chiarire il quality gate prima della recognition
+  - esito:
+    - non viene aggiunto un secondo quality gate dedicato alla recognition
+    - il controllo qualita utile e gia svolto a monte dal PAD runtime
+  - nota:
+    - oggi la pipeline runtime passa da detection, validazione base del volto e quality checks PAD prima della recognition
+    - il PAD e gia piu restrittivo della recognition su dimensione crop, aspect ratio, blur e stabilita bbox
+    - duplicare gli stessi controlli subito prima di LBPH sarebbe in gran parte ridondante e rallenterebbe il flusso
+    - per i test offline da dataset questo tipo di gate non e prioritario
+  - file di riferimento:
+    - `src/pipeline/run_pipeline_full.py`
+    - `src/preprocessing/frame_preprocessing.py`
+    - `src/antispoofing/pad_frame_quality.py`
+
+- [x] aggiungere smoothing temporale anche alla recognition
+  - obiettivo: evitare che il nome venga mostrato o cambiato sulla base di un solo frame buono
+  - comportamento atteso:
+    - conferma su piu frame consecutivi oppure finestra breve con decisione stabile
+    - riduzione del flicker e dei cambi casuali di identita
+  - nota:
+    - oggi lo smoothing esiste sul PAD ma non sulla recognition
+    - implementato con uno stato runtime dedicato, nello stesso stile del PAD
+    - configurazione runtime attuale:
+      - finestra: `5` frame
+      - conferme minime: `3`
+      - reset dopo assenze / blocchi: `10` frame
+  - file coinvolti:
+    - `src/pipeline/run_pipeline_full.py`
+    - `src/recognition/recognition_runtime_state.py`
+
+- [ ] migliorare la confidence oltre il solo `unknown_threshold`
+  - obiettivo: non basare la decisione solo sulla distanza assoluta del best match
+  - direzioni sensate restando con LBPH:
+    - stabilita del candidato nel tempo
+    - euristiche di ambiguita su score e decisione
+    - eventuale confronto con candidati alternativi se si rende il matching piu esplicito
+  - nota:
+    - oggi il runtime usa solo `predict -> label + confidence` e poi threshold assoluta
+    - questo e sufficiente per una baseline, ma non per una confidence robusta
+  - file coinvolti:
+    - `src/recognition/face_recognizer.py`
+    - `src/pipeline/run_pipeline_full.py`
+
+- [ ] distinguere `Unknown` da `Uncertain`
+  - obiettivo: separare i casi di persona non presente dai casi di probe scarsa o decisione ambigua
+  - casi da separare:
+    - `Unknown`: volto live ma identita non presente o rifiutata in modo pulito
+    - `Uncertain`: volto live ma qualita insufficiente oppure match instabile / ambiguo
+  - nota:
+    - oggi runtime e recognition tendono a collassare tutto nel binomio nome noto / `Unknown`
+  - file coinvolti:
+    - `src/pipeline/run_pipeline_full.py`
+    - `src/recognition/face_recognizer.py`
+
+- [ ] rendere piu seria la valutazione open-set della recognition
+  - obiettivo: misurare known vs unknown in modo piu vicino al comportamento reale del runtime
+  - metriche minime da aggiungere o rendere esplicite:
+    - known riconosciuti correttamente
+    - known rifiutati come `Unknown`
+    - unknown accettati come identita note
+  - nota:
+    - l'evaluator attuale e gia informativo su genuine, impostor e threshold
+    - manca ancora una lettura piu esplicita in termini open-set identification
+  - file coinvolti:
+    - `src/recognition/recognition_model_evaluator.py`
+
+- [ ] aggiungere logging delle decisioni runtime della recognition
+  - obiettivo: capire da dove nasce un errore o un rifiuto durante il runtime
+  - informazioni minime da salvare:
+    - PAD finale
+    - esito del quality gate recognition
+    - candidato top
+    - score / confidence
+    - eventuale stato `Unknown` o `Uncertain`
+    - decisione finale mostrata a video
+  - nota:
+    - oggi la pipeline mostra overlay utili, ma non salva un log runtime strutturato
+  - file coinvolti:
+    - `src/pipeline/run_pipeline_full.py`
 
 ### Priorita bassa
 
@@ -219,6 +316,30 @@ Portare la recognition alla miglior versione onesta e difendibile del progetto, 
     - supporto a test rapidi o report piu leggibili
   - file coinvolti:
     - `src/recognition/recognition_dataset_loader.py`
+
+### Estensioni non obbligatorie
+
+- [ ] multi-template per identita come gestione esplicita
+  - obiettivo: rendere esplicita la variabilita intra-identita invece di lasciarla assorbita completamente dal classificatore
+  - nota importante:
+    - in forma base questa idea e gia presente, perche il training LBPH usa gia piu immagini per persona nella gallery
+    - quindi non siamo nel caso "una sola immagine per identita"
+    - quello che manca e una gestione esplicita lato decisione runtime, in cui template multipli restano osservabili come oggetti biometrici separati
+  - quando ha senso:
+    - se si vuole controllare meglio la variabilita intra-persona
+    - se si vuole rendere il matching piu interpretabile
+    - se si vuole fare un salto oltre la sola logica implicita del modello attuale
+
+- [ ] rendere esplicita la decisione per identita, non solo implicita nel classificatore
+  - obiettivo: avere visibilita sulla competizione tra identita e non solo sul best match finale
+  - nota importante:
+    - con LBPH il sistema e gia piu vicino a una decisione per identita che a un nearest-neighbor puro tra file
+    - pero questa decisione resta implicita nel modello e non e davvero analizzabile
+    - oggi non si vedono in modo esplicito secondo candidato, margine tra identita o competizione identity-level
+  - quando ha senso:
+    - se si vuole confidence piu robusta
+    - se si vuole introdurre margine tra candidati
+    - se si vuole passare a una logica open-set piu forte o a matching piu esplicito
 
 ### Ordine consigliato
 
@@ -266,6 +387,12 @@ Per ogni modifica confrontare sempre:
 
 Questa classifica e basata sui test gia lanciati con `neighbors = 8`. I test con `neighbors = 16` sono ancora da completare.
 
+Nota pratica aggiornata:
+- i test con `neighbors = 16` si stanno rivelando quasi impraticabili nei batch lunghi
+- almeno nel setup attuale, il tempo richiesto dal primo run `custom_orl -> orl` con `neighbors = 16` e gia abbastanza alto da rendere poco realistico completare una campagna completa in modo operativo
+- per questo motivo `neighbors = 16` va trattato come verifica opzionale isolata, non come sweep standard del tuning
+- la base comparativa realmente usabile resta quindi quella con `neighbors = 8`
+
 1. `radius=1`, `neighbors=8`, `grid_x=6`, `grid_y=6`
    - `custom_orl -> orl`: accuracy `0.9600`, `accepted_impostor=4`, `rejected_genuine=5`
    - `custom_orl -> custom`: accuracy `1.0000`
@@ -292,6 +419,59 @@ Questa classifica e basata sui test gia lanciati con `neighbors = 8`. I test con
 - `radius=2`, `neighbors=8`, `grid=6` resta una candidata forte, ma perde punti per il numero maggiore di `rejected_genuine`
 - le configurazioni con `grid=10` stanno peggiorando sia la separazione su `orl` sia la stabilita sul `custom`
 - prima di chiudere il tuning vanno ancora verificati i casi con `neighbors = 16`
+- i casi con `neighbors = 16` restano documentati come estensione possibile, ma non sono prioritari finche restano cosi lenti
+
+## Tuning Preprocessing Recognition
+
+### Normalizzazione
+
+Confronto fatto su:
+- `custom_orl -> custom`
+- `custom_orl -> orl`
+
+Risultati sintetici:
+- `equalizeHist`
+  - `custom_orl -> custom`: accuracy `0.95`
+  - `custom_orl -> orl`: accuracy `0.97`
+- `CLAHE`
+  - `custom_orl -> custom`: accuracy `0.95`
+  - `custom_orl -> orl`: accuracy `0.95`
+- nessuna equalizzazione
+  - `custom_orl -> custom`: accuracy `1.00`
+  - `custom_orl -> orl`: accuracy `0.965`
+
+Lettura:
+- `CLAHE` non conviene
+- il confronto vero e tra `equalizeHist` e nessuna equalizzazione
+- nessuna equalizzazione va meglio sul `custom`
+- `equalizeHist` resta leggermente migliore e piu difendibile sul run di riferimento `custom_orl -> orl`
+- per questo motivo la normalizzazione standard mantenuta e `equalizeHist`
+
+### Padding del crop
+
+Confronto fatto con normalizzazione fissata a `equalizeHist`.
+
+Risultati sintetici:
+- `padding=0.00`
+  - `custom_orl -> custom`: accuracy `0.95`
+  - `custom_orl -> orl`: accuracy `0.97`
+- `padding=0.05`
+  - `custom_orl -> custom`: accuracy `0.90`
+  - `custom_orl -> orl`: accuracy `0.96`
+- `padding=0.10`
+  - `custom_orl -> custom`: accuracy `1.00`
+  - `custom_orl -> orl`: accuracy `0.975`
+- `padding=0.15`
+  - `custom_orl -> custom`: accuracy `1.00`
+  - `custom_orl -> orl`: accuracy `0.935`
+
+Lettura:
+- `0.05` peggiora
+- `0.15` peggiora in modo netto sul run `custom_orl -> orl`
+- `0.10` e il miglior compromesso complessivo
+- il preprocessing standard della recognition viene quindi fissato a:
+  - `equalizeHist`
+  - `padding ratio = 0.10`
 
 ## Confronti fissi correnti
 
@@ -439,6 +619,10 @@ Questi run restano utili come confronto allargato o stress experiment, ma non fa
 - ORL continua ad andare bene
 - LFW resta il dataset piu difficile per LBPH
 - il custom aggiornato e migliorato sensibilmente rispetto al primo run
+- il nuovo confronto `all -> lfw` con preprocessing aggiornato (`equalizeHist + padding 0.10`) non migliora LFW rispetto allo storico
+  - storico `all -> lfw`: accuracy `0.0692`, correct `282/4078`
+  - nuovo `all -> lfw`: accuracy `0.0525`, correct `214/4078`
+  - conclusione: il preprocessing scelto resta valido per il caso reale, ma non risolve il limite strutturale di LBPH su `LFW`
 
 ## Prossimi test utili
 

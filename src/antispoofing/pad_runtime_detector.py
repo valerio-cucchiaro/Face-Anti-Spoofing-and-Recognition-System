@@ -16,9 +16,17 @@ appears to be a live face or a spoof attack.
 """
 
 import joblib
+import time
 from pathlib import Path
 
-from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
+from src.antispoofing.pad_inference_preprocessing import (
+    extract_pad_features_from_crop_with_timing,
+)
+from src.antispoofing.pad_model_config import (
+    configure_pad_feature_extractor_from_config,
+    get_expected_feature_dim_from_scaler,
+    load_pad_model_config,
+)
 
 
 # ----- CONSTANTS ----- #
@@ -42,27 +50,48 @@ class AntiSpoofingDetector:
 
         self.scaler = joblib.load(SCALER_PATH)
         self.classifier = joblib.load(MODEL_PATH)
+        self.expected_feature_dim = get_expected_feature_dim_from_scaler(self.scaler)
+        self.pad_config = load_pad_model_config(
+            expected_feature_dim=self.expected_feature_dim
+        )
+        configure_pad_feature_extractor_from_config(self.pad_config)
 
     def predict(self, face_image):
         """
         Predict whether the input face crop corresponds to a live face
         or a spoof attack.
-
         """
 
-        features = extract_pad_features_from_crop(face_image)
-        #print("PAD features shape:", None if features is None else features.shape)
+        extraction_start_time = time.perf_counter()
+        features, feature_timings = extract_pad_features_from_crop_with_timing(
+            face_image
+        )
+        extraction_elapsed_ms = (time.perf_counter() - extraction_start_time) * 1000.0
 
         if features is None or len(features) == 0:
             return {
                 "status": "invalid_input",
                 "prediction": None,
                 "label": "unknown",
-                "score": 0.0
+                "score": 0.0,
+                "timings_ms": {
+                    **feature_timings,
+                    "total_predict": extraction_elapsed_ms,
+                },
             }
 
         # Reshape to match classifier input format (n_samples, n_features)
         features = features.reshape(1, -1)
+
+        extracted_feature_dim = int(features.shape[1])
+        if extracted_feature_dim != self.expected_feature_dim:
+            raise ValueError(
+                "PAD runtime feature mismatch: extracted "
+                f"{extracted_feature_dim} features, but the loaded model expects "
+                f"{self.expected_feature_dim}. Active PAD config: "
+                f"{self.pad_config['pad_debug_feature_mode']} + "
+                f"{self.pad_config['pad_lft_mode']}."
+            )
 
         # Apply feature normalization
         features_scaled = self.scaler.transform(features)
@@ -70,8 +99,6 @@ class AntiSpoofingDetector:
         # Run PAD classifier
         prediction = self.classifier.predict(features_scaled)[0]
         probabilities = self.classifier.predict_proba(features_scaled)[0]
-        # print("PAD probabilities:", probabilities)
-        # print("PAD prediction raw:", prediction)
 
         if prediction == 1:
             label = "live"
@@ -85,5 +112,9 @@ class AntiSpoofingDetector:
             "status": "ok",
             "prediction": int(prediction),
             "label": label,
-            "score": float(score)
+            "score": float(score),
+            "timings_ms": {
+                **feature_timings,
+                "total_predict": extraction_elapsed_ms,
+            },
         }

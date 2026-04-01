@@ -8,8 +8,8 @@ sequentially.
 
 Evaluation uses the single recognition model currently stored on disk,
 which is overwritten every time a new training run is executed. For
-selected evaluation pairs, it also stores the runtime threshold
-configuration used by the recognition pipeline.
+selected evaluation pairs, it also stores an offline threshold
+reference derived from the current score distributions.
 
 Besides the global accuracy summary, the evaluator also reports:
 - score statistics for genuine and impostor predictions
@@ -17,11 +17,11 @@ Besides the global accuracy summary, the evaluator also reports:
 - a small threshold analysis that approximates runtime accept/reject
   behavior for a few candidate thresholds
 
-Runtime threshold updates are intentionally stricter than plain
+Offline threshold updates are intentionally stricter than plain
 evaluation: a threshold is persisted only when the selected run is an
 approved reference pair and contains both genuine and impostor scores,
 so fallback thresholds from overly easy runs are never promoted to the
-runtime configuration.
+stored evaluation reference.
 """
 
 import cv2
@@ -31,6 +31,7 @@ from pathlib import Path
 import statistics
 import time
 
+from src.preprocessing.face_preprocessing import get_recognition_preprocessing_config
 from src.recognition.recognition_dataset_loader import load_probe_dataset, should_namespace_identities
 
 
@@ -63,7 +64,7 @@ def load_trained_recognition_model():
 
 def save_recognition_config(config_data):
     """
-    Save the recognition runtime configuration to disk as JSON.
+    Save the recognition evaluation configuration to disk as JSON.
     """
     RECOGNITION_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -71,13 +72,13 @@ def save_recognition_config(config_data):
         json.dump(config_data, file, indent=4)
 
 
-def load_runtime_threshold_config():
+def load_evaluation_threshold_config():
     """
-    Load the currently saved runtime threshold configuration, if any.
+    Load the currently saved offline threshold configuration, if any.
 
     This is used only for reporting purposes inside the evaluator so the
-    current run can be compared against the threshold that the runtime
-    pipeline would use right now.
+    current run can be compared against the last persisted offline
+    threshold reference.
     """
     if not RECOGNITION_CONFIG_PATH.exists():
         return None
@@ -86,20 +87,25 @@ def load_runtime_threshold_config():
         return json.load(file)
 
 
-def should_save_runtime_threshold(train_mode, eval_mode, allow_runtime_update=False):
+def should_save_evaluation_threshold(
+    train_mode,
+    eval_mode,
+    allow_config_update=False,
+):
     """
-    Decide whether the current evaluation should update the runtime threshold.
+    Decide whether the current evaluation should update the offline threshold.
 
-    The project intentionally updates the runtime threshold only for a
+    The project intentionally updates the stored evaluation threshold only for a
     restricted subset of train/eval pairs considered representative of
-    the current runtime target. The run must also contain both genuine
-    and impostor scores and must not rely on the fallback threshold rule.
+    the project reference protocol. The run must also contain both
+    genuine and impostor scores and must not rely on the fallback
+    threshold rule.
     """
     valid_pairs = {
         ("orl", "orl"),
         ("custom_orl", "orl"),
     }
-    return allow_runtime_update and (train_mode, eval_mode) in valid_pairs
+    return allow_config_update and (train_mode, eval_mode) in valid_pairs
 
 
 def compute_score_statistics(scores):
@@ -120,7 +126,8 @@ def compute_score_statistics(scores):
 
 def compute_suggested_threshold(genuine_scores, impostor_scores):
     """
-    Compute a runtime threshold from the evaluation score distributions.
+    Compute an offline threshold suggestion from the evaluation score
+    distributions.
 
     When both genuine and impostor scores are available, use the midpoint
     between the worst genuine score and the best impostor score. This is
@@ -166,7 +173,7 @@ def compute_identity_accuracy(records):
 
 def evaluate_threshold_candidates(records, candidates):
     """
-    Evaluate a few runtime threshold candidates on the collected records.
+    Evaluate a few threshold candidates on the collected records.
 
     For LBPH, lower confidence is better:
     - confidence < threshold  -> accepted as the predicted identity
@@ -256,7 +263,7 @@ def print_identity_breakdown(identity_stats, limit=5):
 
 def print_threshold_analysis(threshold_results):
     """
-    Print a small runtime-oriented analysis for candidate thresholds.
+    Print a compact accept/reject analysis for candidate thresholds.
     """
     if not threshold_results:
         print("Threshold analysis: unavailable")
@@ -281,16 +288,22 @@ def evaluate_single_recognition_dataset(
     recognizer,
     label_map,
     namespace_identities=False,
-    allow_runtime_update=False,
+    allow_config_update=False,
 ):
     """
     Evaluate the trained recognition model on one selected probe dataset.
 
     The function computes the global summary, richer score statistics,
     a per-identity breakdown, a small threshold analysis, and optionally
-    updates the runtime threshold configuration on disk.
+    updates the stored offline threshold reference on disk.
     """
     print(f"=== RECOGNITION EVALUATION MODE: {eval_mode.upper()} ===")
+    preprocessing_config = get_recognition_preprocessing_config()
+    print(
+        "Recognition preprocessing:",
+        f"normalization={preprocessing_config['normalization_mode']},",
+        f"padding_ratio={preprocessing_config['crop_padding_ratio']:.3f}",
+    )
 
     load_start_time = time.perf_counter()
     probe_records, dataset_counts = load_probe_dataset(
@@ -351,12 +364,12 @@ def evaluate_single_recognition_dataset(
     impostor_stats = compute_score_statistics(impostor_scores)
     identity_stats = compute_identity_accuracy(evaluation_records)
 
-    current_runtime_config = load_runtime_threshold_config()
-    saved_runtime_threshold = None
-    saved_runtime_threshold_source = None
-    if current_runtime_config is not None:
-        saved_runtime_threshold = current_runtime_config.get("unknown_threshold")
-        saved_runtime_threshold_source = current_runtime_config.get("threshold_source")
+    current_evaluation_config = load_evaluation_threshold_config()
+    saved_evaluation_threshold = None
+    saved_evaluation_threshold_source = None
+    if current_evaluation_config is not None:
+        saved_evaluation_threshold = current_evaluation_config.get("unknown_threshold")
+        saved_evaluation_threshold_source = current_evaluation_config.get("threshold_source")
 
     suggested_threshold = None
     suggested_threshold_rule = None
@@ -382,8 +395,8 @@ def evaluate_single_recognition_dataset(
 
     threshold_candidates = [
         {
-            "label": "saved_runtime_threshold",
-            "threshold": saved_runtime_threshold,
+            "label": "saved_evaluation_threshold",
+            "threshold": saved_evaluation_threshold,
         },
         {
             "label": "suggested_threshold",
@@ -402,23 +415,23 @@ def evaluate_single_recognition_dataset(
     print_score_statistics("Genuine", genuine_stats)
     print_score_statistics("Impostor", impostor_stats)
     print_identity_breakdown(identity_stats, limit=5)
-    if saved_runtime_threshold is not None:
+    if saved_evaluation_threshold is not None:
         print(
-            "Saved runtime threshold source:",
-            saved_runtime_threshold_source or "unknown",
+            "Saved evaluation threshold source:",
+            saved_evaluation_threshold_source or "unknown",
         )
     print_threshold_analysis(threshold_results)
 
     has_both_classes = bool(genuine_scores) and bool(impostor_scores)
     non_fallback_rule = suggested_threshold_rule != "max_genuine_plus_5_fallback"
-    can_update_runtime_threshold = should_save_runtime_threshold(
+    can_update_evaluation_threshold = should_save_evaluation_threshold(
         train_mode,
         eval_mode,
-        allow_runtime_update=allow_runtime_update,
+        allow_config_update=allow_config_update,
     )
 
     if (
-        can_update_runtime_threshold
+        can_update_evaluation_threshold
         and suggested_threshold is not None
         and has_both_classes
         and non_fallback_rule
@@ -435,22 +448,22 @@ def evaluate_single_recognition_dataset(
             "suggested_threshold_rule": suggested_threshold_rule,
         }
         save_recognition_config(config_data)
-        print(f"Recognition runtime config saved to: {RECOGNITION_CONFIG_PATH}")
-    elif allow_runtime_update:
-        if not can_update_runtime_threshold:
+        print(f"Recognition evaluation config saved to: {RECOGNITION_CONFIG_PATH}")
+    elif allow_config_update:
+        if not can_update_evaluation_threshold:
             print(
-                "Runtime threshold not updated: "
-                "train/eval pair is not allowed to define the runtime config."
+                "Evaluation threshold not updated: "
+                "train/eval pair is not allowed to define the stored reference."
             )
         elif not has_both_classes:
             print(
-                "Runtime threshold not updated: evaluation does not contain both "
+                "Evaluation threshold not updated: evaluation does not contain both "
                 "genuine and impostor scores."
             )
         elif not non_fallback_rule:
             print(
-                "Runtime threshold not updated: fallback threshold rule is not "
-                "allowed for runtime config."
+                "Evaluation threshold not updated: fallback threshold rule is not "
+                "allowed for the stored reference."
             )
 
     print(f"Evaluation completed in {time.perf_counter() - evaluation_start_time:.2f}s")
@@ -477,7 +490,7 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None):
                 recognizer,
                 label_map,
                 namespace_identities=namespace_identities,
-                allow_runtime_update=False,
+                allow_config_update=False,
             )
         print(f"Total evaluation time: {time.perf_counter() - total_start_time:.2f}s")
         return
@@ -488,7 +501,7 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None):
         recognizer,
         label_map,
         namespace_identities=namespace_identities,
-        allow_runtime_update=True,
+        allow_config_update=True,
     )
     print(f"Total evaluation time: {time.perf_counter() - total_start_time:.2f}s")
 

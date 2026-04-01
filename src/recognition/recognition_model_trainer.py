@@ -18,6 +18,7 @@ import pickle
 from pathlib import Path
 import time
 
+from src.preprocessing.face_preprocessing import get_recognition_preprocessing_config
 from src.recognition.recognition_dataset_loader import load_gallery_dataset
 
 
@@ -28,8 +29,8 @@ TRAIN_MODE = "custom"
 DEFAULT_LBPH_PARAMS = {
     "radius": 1,
     "neighbors": 8,
-    "grid_x": 8,
-    "grid_y": 8,
+    "grid_x": 6,
+    "grid_y": 6,
 }
 
 
@@ -62,8 +63,14 @@ def train_recognition_model(train_mode=None, lbph_params=None):
     selected_mode = train_mode or TRAIN_MODE
     selected_lbph_params = resolve_lbph_params(lbph_params)
     total_start_time = time.perf_counter()
+    preprocessing_config = get_recognition_preprocessing_config()
 
     print(f"=== RECOGNITION TRAINING MODE: {selected_mode.upper()} ===")
+    print(
+        "Recognition preprocessing:",
+        f"normalization={preprocessing_config['normalization_mode']},",
+        f"padding_ratio={preprocessing_config['crop_padding_ratio']:.3f}",
+    )
     print("Loading gallery dataset...")
 
     load_start_time = time.perf_counter()
