@@ -1063,3 +1063,79 @@ This closes the previous gap between PAD experiments and live runtime usage, and
 This profiling pass gave a concrete explanation for the remaining runtime lag and turned the PAD performance problem from a generic suspicion into a measurable feature-extraction bottleneck.
 
 ---
+
+## 2026/04/02
+
+**Recognition**:
+
+- stabilized the `bs` runtime with a slower visual state machine, hold-time / hysteresis, cleaner labels, and less log spam
+- validated live behavior on `custom:valerio`; difficult tablet probes now tend to fall back to `Unknown` instead of producing unstable identity switches
+- verified that `custom:francesca` is present in the trained model and current custom split
+
+**PAD**:
+
+- fixed the runtime feature path so TGSD / LFTP are computed only when the active mode requires them
+- removed the leftover unconditional LFTP timing block that was still causing webcam lag
+- realigned PAD runtime metadata / artifacts and promoted the coherent `fast` `baseline + ggd_light` (`124`-feature) set to the canonical runtime files
+- confirmed in `cv` that the old `~450ms` LFTP spike disappeared, with PAD checks now roughly in the `11-20ms` range
+- completed the lightweight PAD comparisons and confirmed `baseline + TGSD + GGD(LFT)_light` as the strongest fast configuration
+- tested tighter TGSD variants and kept `tau170 | sobel | top5` as the promoted setting; `prewitt`, `top10`, and `GGD(LFT)_true` remain archived as non-promoted branches
+- promoted the final winning PAD config to the canonical runtime artifacts and verified in `cv` that it stays responsive while handling live/spoof transitions well
+- completed the `full` PAD verification on `CASIA`, `Replay-Attack`, and runtime test splits; the winning config stayed strong on spoof/general datasets while the remaining weakness is still live recall on the custom runtime split
+
+**Project Tracking**:
+
+- updated `recognition.md` and `antispoofing.md` to reflect the current runtime state, the final fast PAD comparison, and the subsequent `full` verification
+- reduced the active PAD batch script to the single winning `full` run with retry support
+- cleaned `.gitignore` for generated model artifacts and local runtime configs
+
+**PAD Runtime-Only Augmentation and Live-FN Analysis**:
+
+- extended the PAD experiment flow to log runtime false negatives for the `live` class with image paths and live probabilities
+- used the new logging to inspect the hardest `live` runtime failures and confirmed that the main weakness is still the real `live` side rather than spoof rejection
+- added photometric live augmentation support during PAD training with a controlled `mix` policy
+- compared:
+
+  - `mix`
+  - `gamma`
+  - `brightness_contrast`
+  - `side_shading`
+  - `gamma + side_shading`
+
+- confirmed that the broad `mix` helps more than single isolated branches
+- confirmed that the most useful improvement comes from applying the photometric live augmentation only to the runtime live training subset
+- promoted the current PAD fast reference to:
+
+  - `baseline + TGSD + GGD(LFT)_light`
+  - `tau170 | sobel | top5`
+  - `runtime-only mix`
+
+- rejected the following PAD branches after controlled tests:
+
+  - `light_asymmetry`
+  - `runtime_repeat=2` with runtime-only augmentation
+  - alternative TGSD settings already archived in the PAD report
+
+This closed the PAD feature-search phase and shifted the remaining focus toward live robustness and final full validation.
+
+**PAD and Recognition Cleanup**:
+
+- cleaned the active PAD path by removing rejected branches such as `light_asymmetry` and archiving the older non-promoted feature variants
+- reduced PAD logs and aligned `run_pipeline_cv.py` with the current PAD logic used in `run_pipeline_full.py`
+- reorganized `antispoofing.md` and `recognition.md` into compact reports with summary tables and updated roadmaps
+- aligned recognition defaults to the current reference setup:
+  - train: `custom_orl`
+  - eval: `orl`
+- aligned the recognition fallback runtime threshold to `45.0`
+- aligned `run_pipeline_bs.py` and `run_pipeline_full.py` more closely on the recognition side by using the same frame-usability gate and by freezing recognition cleanly during the post-live-lock delay
+- cleaned comments and docstrings in the active PAD and recognition modules
+
+**Final Project-State Sweep**:
+
+- performed a final consistency pass across PAD, recognition, and the runtime pipelines
+- verified syntax correctness on the active modules
+- confirmed that PAD and recognition are now both clean and aligned with the current setup
+- next real integration step:
+  - final `full` PAD run with the promoted `runtime-only mix` setup
+
+---

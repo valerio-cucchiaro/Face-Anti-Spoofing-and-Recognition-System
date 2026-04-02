@@ -19,27 +19,23 @@ from pathlib import Path
 # ----- CONSTANTS ----- #
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
 LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
-DEFAULT_PREDICTION_THRESHOLD = 75.0
+DEFAULT_PREDICTION_THRESHOLD = 45.0
 
 
 def load_recognizer():
     """
-    Load the trained LBPH recognition model and label map.
+    Load the trained LBPH recognition model and label map used by the
+    runtime pipelines.
     """
-
-    # check if trained model exists
     if not MODEL_PATH.exists():
         raise FileNotFoundError(f"Recognition model not found: {MODEL_PATH}")
 
-    # check if label map exists
     if not LABEL_MAP_PATH.exists():
         raise FileNotFoundError(f"Label map not found: {LABEL_MAP_PATH}")
 
-    # load trained LBPH recognizer
     recognizer = cv2.face.LBPHFaceRecognizer_create()
     recognizer.read(str(MODEL_PATH))
 
-    # load label map
     with open(LABEL_MAP_PATH, "rb") as f:
         label_map = pickle.load(f)
 
@@ -51,16 +47,14 @@ def predict_identity(face, recognizer, label_map, threshold=None):
     Predict the identity of a preprocessed face using the trained model.
 
     The function returns the predicted identity and the confidence score.
-    If no explicit threshold is provided, a conservative fallback
+    If no explicit threshold is provided, the project runtime fallback
     threshold is used to classify weak matches as ``"Unknown"``.
     """
     if threshold is None:
         threshold = DEFAULT_PREDICTION_THRESHOLD
 
-    # predict label and confidence from preprocessed face
     label, confidence = recognizer.predict(face)
 
-    # apply threshold for unknown identity
     if confidence < threshold:
         predicted_name = label_map[label]
     else:

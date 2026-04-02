@@ -48,6 +48,10 @@ class RecognitionRuntimeState:
         grace period and then resets it. When the current frame is
         simply not usable for recognition, the state is held without
         adding a new vote to the short-term history.
+
+        The runtime may still store `"Unknown"` inside the short-term
+        history. This is intentional: the temporal logic tracks both
+        stable known identities and persistent rejection of weak matches.
         """
 
         if face_missing or not recognition_allowed:
@@ -61,6 +65,9 @@ class RecognitionRuntimeState:
                 "stable_confidence": None,
                 "stable_count": 0,
                 "history_size": len(self.recognition_history),
+                "candidate_name": None,
+                "candidate_votes": 0,
+                "unknown_votes": 0,
                 "current_name": None,
                 "current_confidence": None,
                 "missing_face_counter": self.missing_face_counter,
@@ -80,6 +87,9 @@ class RecognitionRuntimeState:
             self.final_name = "Unknown"
             stable_confidence = None
             stable_count = 0
+            candidate_name = None
+            candidate_votes = 0
+            unknown_votes = 0
         else:
             # The most frequent recent identity becomes the candidate
             # stable output, but it must appear often enough and it must
@@ -88,6 +98,9 @@ class RecognitionRuntimeState:
                 entry["name"] for entry in self.recognition_history
             )
             stable_name, stable_count = name_counts.most_common(1)[0]
+            candidate_name = stable_name
+            candidate_votes = stable_count
+            unknown_votes = name_counts.get("Unknown", 0)
 
             if stable_name != "Unknown" and stable_count >= self.min_confirmations:
                 self.final_name = stable_name
@@ -110,6 +123,9 @@ class RecognitionRuntimeState:
             "stable_confidence": stable_confidence,
             "stable_count": stable_count,
             "history_size": len(self.recognition_history),
+            "candidate_name": candidate_name,
+            "candidate_votes": candidate_votes,
+            "unknown_votes": unknown_votes,
             "current_name": predicted_name,
             "current_confidence": confidence,
             "missing_face_counter": self.missing_face_counter,

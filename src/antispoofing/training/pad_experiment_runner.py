@@ -38,6 +38,14 @@ def run(
     replay_balance=None,
     pad_debug_feature_mode=None,
     pad_lft_mode=None,
+    tgsd_tau=None,
+    tgsd_top_percent=None,
+    tgsd_gradient_operator=None,
+    log_live_false_negatives=False,
+    live_false_negative_limit=None,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+    augment_live_photometric_scope="all",
 ):
     """
     Execute a full PAD experiment using the current training
@@ -67,8 +75,10 @@ def run(
     corresponding pre-extraction balancing flag associated with the
     selected speed preset.
 
-    pad_debug_feature_mode and pad_lft_mode can be used to switch the
-    PAD feature extractor configuration for controlled ablation runs.
+    pad_debug_feature_mode can be used to switch between the promoted
+    baseline and TGSD runtime branches. pad_lft_mode is kept explicit
+    so the runner can persist the active PAD config coherently, even
+    though the promoted LFT branch is now fixed to ``ggd_light``.
     """
     selected_train_mode = train_mode or TRAIN_MODE
     selected_eval_mode = eval_mode or EVAL_MODE
@@ -83,6 +93,9 @@ def run(
     configure_pad_feature_modes(
         debug_mode=pad_debug_feature_mode,
         lft_mode=pad_lft_mode,
+        tgsd_tau=tgsd_tau,
+        tgsd_top_percent=tgsd_top_percent,
+        tgsd_gradient_operator=tgsd_gradient_operator,
     )
 
     print(f"=== EXPERIMENT SPEED ({selected_speed}) ===")
@@ -101,12 +114,17 @@ def run(
         replay_balance_override=selected_replay_balance,
         artifact_profile=artifact_profile,
         update_runtime_artifacts=update_runtime_artifacts,
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
+        augment_live_photometric_scope=augment_live_photometric_scope,
     )
 
     print(f"=== EVALUATION ({selected_eval_mode}) ===")
     evaluate_pad_model(
         selected_eval_mode,
         artifact_profile=artifact_profile,
+        log_live_false_negatives=log_live_false_negatives,
+        live_false_negative_limit=live_false_negative_limit,
     )
     print(f"=== TOTAL PAD EXPERIMENT TIME: {time.perf_counter() - total_start_time:.2f}s ===")
 
@@ -128,8 +146,22 @@ def build_arg_parser():
     parser.add_argument("--runtime-repeat", type=int)
     parser.add_argument("--casia-balance", choices=["true", "false"])
     parser.add_argument("--replay-balance", choices=["true", "false"])
-    parser.add_argument("--pad-debug-feature-mode", choices=["baseline", "tgsd", "full"])
-    parser.add_argument("--pad-lft-mode", choices=["summary", "ggd_light"])
+    parser.add_argument("--pad-debug-feature-mode", choices=["baseline", "tgsd"])
+    parser.add_argument("--pad-lft-mode", choices=["ggd_light"])
+    parser.add_argument("--tgsd-tau", type=float)
+    parser.add_argument("--tgsd-top-percent", type=float)
+    parser.add_argument("--tgsd-gradient-operator", choices=["sobel"])
+    parser.add_argument("--log-live-false-negatives", action="store_true")
+    parser.add_argument("--live-false-negative-limit", type=int)
+    parser.add_argument("--augment-live-photometric", action="store_true")
+    parser.add_argument(
+        "--augment-live-photometric-mode",
+        choices=["mix"],
+    )
+    parser.add_argument(
+        "--augment-live-photometric-scope",
+        choices=["all", "runtime_only"],
+    )
     return parser
 
 
@@ -153,4 +185,14 @@ if __name__ == "__main__":
         replay_balance=parse_optional_bool(cli_args.replay_balance),
         pad_debug_feature_mode=cli_args.pad_debug_feature_mode,
         pad_lft_mode=cli_args.pad_lft_mode,
+        tgsd_tau=cli_args.tgsd_tau,
+        tgsd_top_percent=cli_args.tgsd_top_percent,
+        tgsd_gradient_operator=cli_args.tgsd_gradient_operator,
+        log_live_false_negatives=cli_args.log_live_false_negatives,
+        live_false_negative_limit=cli_args.live_false_negative_limit,
+        augment_live_photometric=cli_args.augment_live_photometric,
+        augment_live_photometric_mode=cli_args.augment_live_photometric_mode,
+        augment_live_photometric_scope=(
+            cli_args.augment_live_photometric_scope or "all"
+        ),
     )

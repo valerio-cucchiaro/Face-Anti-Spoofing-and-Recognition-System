@@ -12,6 +12,9 @@ dataset directory.
 
 Images are saved sequentially and can be captured interactively
 through keyboard input.
+
+This script is a manual data-collection utility, not part of the
+automated recognition training or evaluation flow.
 """
 
 import cv2
@@ -45,8 +48,7 @@ MAX_IMAGES = MAX_IMAGES_GALLERY if MODE == "gallery" else MAX_IMAGES_PROBE
 
 def collect_dataset():
     """
-    Collect face samples from the webcam to build the recognition
-    custom dataset.
+    Collect webcam face samples for the custom recognition dataset.
 
     The function detects the largest valid face in each frame through
     the shared MediaPipe-based validation helper, applies the standard
@@ -55,34 +57,26 @@ def collect_dataset():
     presses the capture key.
     """
 
-    # create the dataset directory if it doesn't exist
     DATASET.mkdir(parents=True, exist_ok=True)  
 
-    # get the list of existing images in the dataset
     existing_images = list(DATASET.glob("*.png"))
     image_count = len(existing_images)
 
-    # create a VideoCapture object to access the webcam
     cap = cv2.VideoCapture(0)
     detector = load_mediapipe_detector()
 
-    # check if the webcam is opened successfully: NO --> RunTimeError
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam")
 
     while True:
-        # read a frame from the webcam
         ret, frame = cap.read()  
 
-        # check if the frame was read successfully: NO --> break the loop
         if not ret:  
             print("Failed to grab frame")
             break
 
-        # flag to indicate if a valid face is detected
         valid_face = False
 
-        # Select the largest valid face from the current webcam frame.
         face_rect, gray_frame, message = get_valid_face(
             frame,
             detector,
@@ -98,27 +92,21 @@ def collect_dataset():
         elif message == "Face detected":
             x, y, w, h = face_rect
             
-            # preprocess the detected face
             face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
             if face is None:
                 cv2.putText(frame, "Invalid face crop", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 165, 255), 2, cv2.LINE_AA)
             else:
                 valid_face = True
 
-                # draw bounding box
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-                # show processed face
                 cv2.imshow('Face', face)
 
-                # display message
                 cv2.putText(frame, message, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
                 cv2.putText(frame, f"Samples: {image_count} / {MAX_IMAGES}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2, cv2.LINE_AA)
         
-        # show webcam 
         cv2.imshow('Webcam', frame)
 
-        # store the key pressed and exit when 'q' is pressed 
         key = cv2.waitKey(1) & 0xFF   
         if key == ord('s') and valid_face:
             if image_count < MAX_IMAGES:
@@ -131,7 +119,6 @@ def collect_dataset():
         if key == ord('q'):    
             break
 
-    # release the webcam and close all windows
     cap.release()  
     cv2.destroyAllWindows() 
 

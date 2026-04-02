@@ -61,6 +61,8 @@ TRAIN_SAMPLING_SEED = 42
 CASIA_SAMPLE_RATIO = 1.0
 REPLAY_SAMPLE_RATIO = 1.0
 PAD_IMAGE_PROGRESS_STEP = 500
+LIVE_PHOTOMETRIC_AUGMENTATION_SEED = 42
+LIVE_PHOTOMETRIC_AUGMENTATION_MODE = "mix"
 
 
 def sample_image_paths(paths, ratio=1.0, seed=None):
@@ -80,6 +82,96 @@ def sample_image_paths(paths, ratio=1.0, seed=None):
     indices = np.sort(indices)
 
     return [paths[i] for i in indices]
+
+
+def apply_gamma_adjustment(gray_image, rng):
+    """
+    Internal helper used by the promoted ``mix`` live augmentation.
+    """
+
+    gamma = float(rng.uniform(0.8, 1.25))
+    normalized = gray_image.astype(np.float32) / 255.0
+    adjusted = np.power(normalized, gamma)
+    return np.clip(adjusted * 255.0, 0, 255).astype(np.uint8), "gamma"
+
+
+def apply_brightness_contrast_adjustment(gray_image, rng):
+    """
+    Internal helper used by the promoted ``mix`` live augmentation.
+    """
+
+    alpha = float(rng.uniform(0.9, 1.1))
+    beta = float(rng.uniform(-15.0, 15.0))
+    adjusted = gray_image.astype(np.float32) * alpha + beta
+    return np.clip(adjusted, 0, 255).astype(np.uint8), "brightness_contrast"
+
+
+def apply_side_shading_adjustment(gray_image, rng):
+    """
+    Internal helper used by the promoted ``mix`` live augmentation.
+    """
+
+    height, width = gray_image.shape[:2]
+    if width <= 1:
+        return gray_image.copy(), "side_shading(flat)"
+
+    start = float(rng.uniform(0.88, 1.0))
+    end = float(rng.uniform(1.0, 1.12))
+    if rng.random() < 0.5:
+        start, end = end, start
+
+    gradient = np.linspace(start, end, width, dtype=np.float32)
+    shading_map = np.tile(gradient, (height, 1))
+    shaded = gray_image.astype(np.float32) * shading_map
+    return np.clip(shaded, 0, 255).astype(np.uint8), "side_shading"
+
+
+def apply_combined_light_adjustment(gray_image, rng):
+    """
+    Internal helper used by the promoted ``mix`` live augmentation.
+    """
+
+    adjusted_image, _ = apply_gamma_adjustment(gray_image, rng)
+    adjusted_image, _ = apply_brightness_contrast_adjustment(adjusted_image, rng)
+    return adjusted_image, "combined"
+
+
+def apply_gamma_side_shading_adjustment(gray_image, rng):
+    """
+    Internal helper used by the promoted ``mix`` live augmentation.
+    """
+
+    adjusted_image, _ = apply_gamma_adjustment(gray_image, rng)
+    adjusted_image, _ = apply_side_shading_adjustment(adjusted_image, rng)
+    return adjusted_image, "gamma_side_shading"
+
+
+def apply_live_photometric_augmentation(gray_image, rng, mode=None):
+    """
+    Create one mild photometric live augmentation.
+
+    The public PAD training setup now supports only the promoted
+    ``mix`` mode. The helper augmentation functions remain separate
+    only so the mix can randomly sample one family per live image.
+    """
+
+    selected_mode = mode or LIVE_PHOTOMETRIC_AUGMENTATION_MODE
+    if selected_mode != "mix":
+        raise ValueError(
+            "Unsupported live photometric augmentation mode: "
+            f"{selected_mode}. Use 'mix'."
+        )
+
+    augmentation_functions = (
+        apply_gamma_adjustment,
+        apply_brightness_contrast_adjustment,
+        apply_side_shading_adjustment,
+        apply_combined_light_adjustment,
+        apply_gamma_side_shading_adjustment,
+    )
+    augmentation_function = augmentation_functions[int(rng.integers(len(augmentation_functions)))]
+
+    return augmentation_function(gray_image, rng)
 
 
 def extract_pad_features_from_raw_frame(
@@ -179,6 +271,9 @@ def load_combined_pad_training_dataset(
     sample_seed=TRAIN_SAMPLING_SEED,
     casia_balance=False,
     replay_balance=True,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+    augment_live_photometric_scope="all",
 ):
     """
     Load the combined PAD training dataset (CASIA + Replay-Attack).
@@ -193,6 +288,10 @@ def load_combined_pad_training_dataset(
         spoof_ratio=casia_sample_ratio,
         sample_seed=sample_seed,
         dataset_type="raw_frame",
+        augment_live_photometric=(
+            augment_live_photometric and augment_live_photometric_scope == "all"
+        ),
+        augment_live_photometric_mode=augment_live_photometric_mode,
     )
 
     # ReplayAttack dataset
@@ -205,6 +304,10 @@ def load_combined_pad_training_dataset(
         spoof_ratio=replay_sample_ratio,
         sample_seed=sample_seed,
         dataset_type="raw_frame",
+        augment_live_photometric=(
+            augment_live_photometric and augment_live_photometric_scope == "all"
+        ),
+        augment_live_photometric_mode=augment_live_photometric_mode,
     )
 
     X = np.concatenate([X1, X2], axis=0)
@@ -217,6 +320,8 @@ def load_casia_pad_training_dataset(
     sample_ratio=CASIA_SAMPLE_RATIO,
     sample_seed=TRAIN_SAMPLING_SEED,
     balance=False,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
 ):
     """
     Load the CASIA PAD training dataset with deterministic sampling.
@@ -229,6 +334,8 @@ def load_casia_pad_training_dataset(
         spoof_ratio=sample_ratio,
         sample_seed=sample_seed,
         dataset_type="raw_frame",
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
     )
 
 
@@ -236,6 +343,8 @@ def load_replay_pad_training_dataset(
     sample_ratio=REPLAY_SAMPLE_RATIO,
     sample_seed=TRAIN_SAMPLING_SEED,
     balance=True,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
 ):
     """
     Load the Replay-Attack PAD training dataset only.
@@ -248,10 +357,15 @@ def load_replay_pad_training_dataset(
         spoof_ratio=sample_ratio,
         sample_seed=sample_seed,
         dataset_type="raw_frame",
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
     )
 
 
-def load_runtime_pad_training_dataset():
+def load_runtime_pad_training_dataset(
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+):
     """
     Load the custom runtime PAD training dataset only.
     """
@@ -260,6 +374,8 @@ def load_runtime_pad_training_dataset():
         RUNTIME_TRAIN_SPOOF_PATH,
         balance=False,
         dataset_type="final_pad_crop",
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
     )
 
 
@@ -321,6 +437,9 @@ def load_combined_with_runtime_pad_training_dataset(
     sample_seed=TRAIN_SAMPLING_SEED,
     casia_balance=False,
     replay_balance=True,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+    augment_live_photometric_scope="all",
 ):
     """
     Load the combined PAD training dataset and oversample the runtime
@@ -336,6 +455,10 @@ def load_combined_with_runtime_pad_training_dataset(
         spoof_ratio=casia_sample_ratio,
         sample_seed=sample_seed,
         dataset_type="raw_frame",
+        augment_live_photometric=(
+            augment_live_photometric and augment_live_photometric_scope == "all"
+        ),
+        augment_live_photometric_mode=augment_live_photometric_mode,
     )
 
     print("Loading ReplayAttack PAD dataset...")
@@ -347,10 +470,17 @@ def load_combined_with_runtime_pad_training_dataset(
         spoof_ratio=replay_sample_ratio,
         sample_seed=sample_seed,
         dataset_type="raw_frame",
+        augment_live_photometric=(
+            augment_live_photometric and augment_live_photometric_scope == "all"
+        ),
+        augment_live_photometric_mode=augment_live_photometric_mode,
     )
 
     print("Loading runtime PAD dataset...")
-    X3, y3 = load_runtime_pad_training_dataset()
+    X3, y3 = load_runtime_pad_training_dataset(
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
+    )
     runtime_base_count = len(y3)
 
     if len(y3) > 0 and runtime_repeat > 1:
@@ -397,6 +527,9 @@ def load_pad_split_dataset(
     sample_seed=None,
     dataset_type="raw_frame",
     apply_quality_gate=True,
+    return_image_paths=False,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
 ):
     """
     Load a custom PAD dataset split from specified directories.
@@ -412,8 +545,15 @@ def load_pad_split_dataset(
 
     features = []
     labels = []
+    sample_paths = []
     valid_extensions = {".png", ".jpg", ".jpeg"}
     start_time = time.perf_counter()
+    augmentation_seed = (
+        sample_seed if sample_seed is not None else LIVE_PHOTOMETRIC_AUGMENTATION_SEED
+    )
+    augmentation_rng = np.random.default_rng(augmentation_seed)
+    augmented_live = 0
+    augmentation_mode_counts = {}
 
     # Load the detector only when the dataset images are still raw
     # frames that require face detection and crop construction.
@@ -464,6 +604,12 @@ def load_pad_split_dataset(
     print(f"Loading PAD split: live={live_path} spoof={spoof_path}")
     print(f"Dataset type: {dataset_type}")
     print(f"Pre-extraction balance enabled: {balance}")
+    print(f"Live photometric augmentation enabled: {augment_live_photometric}")
+    if augment_live_photometric:
+        print(
+            "Live photometric augmentation mode:",
+            augment_live_photometric_mode or LIVE_PHOTOMETRIC_AUGMENTATION_MODE,
+        )
     print(f"Selected live images: {len(live_paths)}")
     print(f"Selected spoof images: {len(spoof_paths)}")
 
@@ -485,7 +631,37 @@ def load_pad_split_dataset(
 
         features.append(img_features)
         labels.append(1)
+        if return_image_paths:
+            sample_paths.append(str(img_path))
         valid_live += 1
+
+        if augment_live_photometric:
+            gray_img = img
+            if img.ndim == 3:
+                gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+            augmented_img, augmentation_name = apply_live_photometric_augmentation(
+                gray_img,
+                augmentation_rng,
+                mode=augment_live_photometric_mode,
+            )
+            if dataset_type == "raw_frame" and augmented_img.ndim == 2:
+                augmented_img = cv2.cvtColor(augmented_img, cv2.COLOR_GRAY2BGR)
+            augmented_features = extract_pad_features_from_dataset_image(
+                augmented_img,
+                detector=detector,
+                dataset_type=dataset_type,
+                apply_quality_gate=apply_quality_gate,
+            )
+            if augmented_features is not None:
+                features.append(augmented_features)
+                labels.append(1)
+                if return_image_paths:
+                    sample_paths.append(f"{img_path} | augmented:{augmentation_name}")
+                augmented_live += 1
+                augmentation_mode_counts[augmentation_name] = (
+                    augmentation_mode_counts.get(augmentation_name, 0) + 1
+                )
 
         if index % PAD_IMAGE_PROGRESS_STEP == 0:
             print(f"Processed live images: {index}/{len(live_paths)}")
@@ -508,6 +684,8 @@ def load_pad_split_dataset(
 
         features.append(img_features)
         labels.append(0)
+        if return_image_paths:
+            sample_paths.append(str(img_path))
         valid_spoof += 1
 
         if index % PAD_IMAGE_PROGRESS_STEP == 0:
@@ -515,6 +693,10 @@ def load_pad_split_dataset(
 
     elapsed = time.perf_counter() - start_time
     print(f"Valid live samples extracted: {valid_live}")
+    if augment_live_photometric:
+        print(f"Valid augmented live samples extracted: {augmented_live}")
+        if augmentation_mode_counts:
+            print("Augmentation mode counts:", augmentation_mode_counts)
     print(f"Valid spoof samples extracted: {valid_spoof}")
     if valid_live + valid_spoof > 0:
         live_ratio = valid_live / (valid_live + valid_spoof) * 100
@@ -523,7 +705,13 @@ def load_pad_split_dataset(
         print(f"Final valid spoof weight: {spoof_ratio:.2f}%")
     print(f"PAD split loading completed in {elapsed:.2f}s")
 
-    return np.array(features, dtype=np.float32), np.array(labels, dtype=np.int32)
+    features_array = np.array(features, dtype=np.float32)
+    labels_array = np.array(labels, dtype=np.int32)
+
+    if return_image_paths:
+        return features_array, labels_array, sample_paths
+
+    return features_array, labels_array
 
 
 if __name__ == "__main__":

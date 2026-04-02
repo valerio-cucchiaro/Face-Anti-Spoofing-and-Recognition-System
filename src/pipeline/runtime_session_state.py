@@ -40,6 +40,7 @@ class RuntimeSessionState:
         self.missing_face_counter = 0
         self.locked_unstable_counter = 0
         self.locked_invalid_crop_counter = 0
+        self.live_lock_started_at = None
         self.last_stable_identity = "Unknown"
         self.last_recognition_result = {
             "final_name": "Unknown",
@@ -166,6 +167,7 @@ class RuntimeSessionState:
         self.missing_face_counter = 0
         self.locked_unstable_counter = 0
         self.locked_invalid_crop_counter = 0
+        self.live_lock_started_at = None
         self.last_stable_identity = "Unknown"
         self.last_recognition_result = {
             "final_name": "Unknown",

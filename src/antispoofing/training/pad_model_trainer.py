@@ -32,7 +32,7 @@ from src.antispoofing.training.pad_dataset_loader import (
     load_runtime_pad_training_dataset,
 )
 from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
-from src.antispoofing.pad_feature_extractor import PAD_DEBUG_FEATURE_MODE, PAD_LFT_MODE
+from src.antispoofing.pad_feature_extractor import get_pad_feature_modes
 
 
 TRAIN_MODE = "replay"
@@ -103,6 +103,9 @@ def load_configured_training_dataset(
     runtime_repeat_override=None,
     casia_balance_override=None,
     replay_balance_override=None,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+    augment_live_photometric_scope="all",
 ):
     """
     Load the PAD training split selected by TRAIN_MODE.
@@ -139,15 +142,7 @@ def load_configured_training_dataset(
     casia_balance = speed_config["casia_balance"]
     replay_balance = speed_config["replay_balance"]
 
-    print(f"=== PAD EXPERIMENT SPEED: {speed_config['name'].upper()} ===")
-    print(f"CASIA sample ratio: {casia_sample_ratio:.2f}")
-    print(f"Replay sample ratio: {replay_sample_ratio:.2f}")
-    print("CASIA pre-extraction balance:", casia_balance)
-    print("Replay pre-extraction balance:", replay_balance)
-    print("Runtime repeat:", runtime_repeat)
-
     if selected_mode == "casia":
-        print("=== PAD TRAINING MODE: CASIA TRAIN ===")
         dataset_name = (
             f"CASIA train (sample_ratio={casia_sample_ratio}, "
             f"sampling_seed={TRAIN_SAMPLING_SEED})"
@@ -156,10 +151,11 @@ def load_configured_training_dataset(
             sample_ratio=casia_sample_ratio,
             sample_seed=TRAIN_SAMPLING_SEED,
             balance=casia_balance,
+            augment_live_photometric=augment_live_photometric,
+            augment_live_photometric_mode=augment_live_photometric_mode,
         )
 
     if selected_mode == "replay":
-        print("=== PAD TRAINING MODE: REPLAY-ATTACK TRAIN ===")
         dataset_name = (
             f"Replay-Attack train (sample_ratio={replay_sample_ratio}, "
             f"sampling_seed={TRAIN_SAMPLING_SEED})"
@@ -168,10 +164,11 @@ def load_configured_training_dataset(
             sample_ratio=replay_sample_ratio,
             sample_seed=TRAIN_SAMPLING_SEED,
             balance=replay_balance,
+            augment_live_photometric=augment_live_photometric,
+            augment_live_photometric_mode=augment_live_photometric_mode,
         )
 
     if selected_mode == "combined":
-        print("=== PAD TRAINING MODE: COMBINED TRAIN ===")
         dataset_name = (
             f"Combined train (casia_ratio={casia_sample_ratio}, "
             f"replay_ratio={replay_sample_ratio}, sampling_seed={TRAIN_SAMPLING_SEED})"
@@ -182,14 +179,18 @@ def load_configured_training_dataset(
             sample_seed=TRAIN_SAMPLING_SEED,
             casia_balance=casia_balance,
             replay_balance=replay_balance,
+            augment_live_photometric=augment_live_photometric,
+            augment_live_photometric_mode=augment_live_photometric_mode,
+            augment_live_photometric_scope=augment_live_photometric_scope,
         )
 
     if selected_mode == "runtime":
-        print("=== PAD TRAINING MODE: RUNTIME TRAIN ===")
-        return "Runtime train", load_runtime_pad_training_dataset()
+        return "Runtime train", load_runtime_pad_training_dataset(
+            augment_live_photometric=augment_live_photometric,
+            augment_live_photometric_mode=augment_live_photometric_mode,
+        )
 
     if selected_mode == "combined_runtime":
-        print("=== PAD TRAINING MODE: COMBINED + RUNTIME TRAIN ===")
         dataset_name = (
             "Combined + runtime train "
             f"(casia_ratio={casia_sample_ratio}, replay_ratio={replay_sample_ratio}, "
@@ -202,6 +203,9 @@ def load_configured_training_dataset(
             sample_seed=TRAIN_SAMPLING_SEED,
             casia_balance=casia_balance,
             replay_balance=replay_balance,
+            augment_live_photometric=augment_live_photometric,
+            augment_live_photometric_mode=augment_live_photometric_mode,
+            augment_live_photometric_scope=augment_live_photometric_scope,
         )
 
     raise ValueError(
@@ -218,6 +222,9 @@ def train_pad_model(
     replay_balance_override=None,
     artifact_profile="runtime",
     update_runtime_artifacts=False,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+    augment_live_photometric_scope="all",
 ):
     """
     Train the PAD model using the selected PAD training dataset.
@@ -244,21 +251,39 @@ def train_pad_model(
         runtime_repeat_override=runtime_repeat_override,
         casia_balance_override=casia_balance_override,
         replay_balance_override=replay_balance_override,
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
+        augment_live_photometric_scope=augment_live_photometric_scope,
     )
     load_elapsed = time.perf_counter() - load_start_time
 
     # print control information about the loaded dataset
     live_count = (y_train == 1).sum()
     spoof_count = (y_train == 0).sum()
+    active_feature_modes = get_pad_feature_modes()
 
-    print("Dataset:", dataset_name)
-    print("PAD debug feature mode:", PAD_DEBUG_FEATURE_MODE)
-    print("PAD LFT mode:", PAD_LFT_MODE)
-    print("Total samples:", len(y_train))
-    print("X_train shape:", X_train.shape)
-    print("y_train shape:", y_train.shape)
-    print("Live samples:", live_count)
-    print("Spoof samples:", spoof_count)
+    print("PAD training dataset:", dataset_name)
+    print(
+        "PAD feature setup:",
+        (
+            f"debug={active_feature_modes['pad_debug_feature_mode']} | "
+            f"lft={active_feature_modes['pad_lft_mode']} | "
+            f"tgsd_tau={active_feature_modes['tgsd_tau']} | "
+            f"tgsd_top_percent={active_feature_modes['tgsd_top_percent']} | "
+            f"tgsd_grad={active_feature_modes['tgsd_gradient_operator']}"
+        ),
+    )
+    if augment_live_photometric:
+        print(
+            "PAD live photometric augmentation:",
+            f"enabled | mode={augment_live_photometric_mode or 'mix'} | scope={augment_live_photometric_scope}",
+        )
+    else:
+        print("PAD live photometric augmentation: disabled")
+    print(
+        "PAD training samples:",
+        f"total={len(y_train)} | live={live_count} | spoof={spoof_count} | feature_dim={X_train.shape[1]}",
+    )
     print(f"PAD training dataset loading completed in {load_elapsed:.2f}s")
 
     # Train the PAD classifier
@@ -278,9 +303,12 @@ def train_pad_model(
     # Save the feature configuration used to produce the trained PAD
     # artifacts so runtime inference can restore the exact same setup.
     pad_model_config = build_pad_model_config(
-        debug_feature_mode=PAD_DEBUG_FEATURE_MODE,
-        lft_mode=PAD_LFT_MODE,
+        debug_feature_mode=active_feature_modes["pad_debug_feature_mode"],
+        lft_mode=active_feature_modes["pad_lft_mode"],
         feature_dim=X_train.shape[1],
+        tgsd_tau=active_feature_modes.get("tgsd_tau"),
+        tgsd_top_percent=active_feature_modes.get("tgsd_top_percent"),
+        tgsd_gradient_operator=active_feature_modes.get("tgsd_gradient_operator"),
     )
     save_pad_model_config(
         pad_model_config,
@@ -297,16 +325,17 @@ def train_pad_model(
         )
  
     print("PAD model trained and saved successfully")
-    print("Artifact profile:", artifact_profile)
-    print("Model path:", artifact_paths["model_path"])
-    print("Scaler path:", artifact_paths["scaler_path"])
-    print("Config path:", artifact_paths["config_path"])
+    print("PAD artifact profile:", artifact_profile)
+    print(
+        "PAD artifacts:",
+        f"model={artifact_paths['model_path']} | scaler={artifact_paths['scaler_path']} | config={artifact_paths['config_path']}",
+    )
     if update_runtime_artifacts and artifact_profile != "runtime":
         runtime_paths = get_pad_artifact_paths("runtime")
-        print("Runtime model path:", runtime_paths["model_path"])
-        print("Runtime scaler path:", runtime_paths["scaler_path"])
-        print("Runtime config path:", runtime_paths["config_path"])
-    print("PAD config:", pad_model_config)
+        print(
+            "PAD runtime artifacts:",
+            f"model={runtime_paths['model_path']} | scaler={runtime_paths['scaler_path']} | config={runtime_paths['config_path']}",
+        )
     print(f"PAD classifier training completed in {training_elapsed:.2f}s")
     print(f"Total PAD training time: {time.perf_counter() - total_start_time:.2f}s")
 

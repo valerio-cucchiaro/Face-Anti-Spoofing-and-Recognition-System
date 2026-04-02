@@ -16,8 +16,7 @@ The mode vocabulary is shared across training and evaluation:
 - `all`: full combined setup including LFW
 
 LBPH hyperparameters can also be passed to the trainer through this
-runner so small tuning sweeps can reuse the same high-level execution
-path.
+runner so small tuning sweeps can reuse the same execution path.
 """
 
 import argparse
@@ -32,31 +31,16 @@ from src.recognition.recognition_model_evaluator import evaluate_recognition_mod
 
 
 # ----- CONSTANTS ----- #
-TRAIN_MODE = "all"  # options: custom, orl, lfw, custom_orl, all
-EVAL_MODE = "all"   # options: custom, orl, lfw, custom_orl, all
+TRAIN_MODE = "custom_orl"  # options: custom, orl, lfw, custom_orl, all
+EVAL_MODE = "orl"          # options: custom, orl, lfw, custom_orl, all
 
 
 def run(train_mode=None, eval_mode=None, crop_padding_ratio=None):
     """
-    Execute a full recognition experiment using the current training
-    and evaluation configuration.
+    Execute one full recognition experiment.
 
-    Supported training modes:
-    - custom
-    - orl
-    - lfw
-    - custom_orl
-    - all
-
-    Supported evaluation modes:
-    - custom
-    - orl
-    - lfw
-    - custom_orl
-    - all
-
-    The runner always executes training first and then evaluates the
-    freshly saved model produced by that training run.
+    The runner always trains first and then evaluates the model
+    produced by that same run.
     """
     return run_with_lbph_params(
         train_mode=train_mode,

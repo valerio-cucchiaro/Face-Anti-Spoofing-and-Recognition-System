@@ -26,7 +26,7 @@ Thumbs.db
 *.tmp
 *.temp
 
-# Dataset (optional if very large)
+# Datasets
 data/recognition
 data/casia_pad
 data/pad_runtime_dataset
@@ -38,11 +38,12 @@ build/
 dist/
 *.egg-info/
 
-# Training Models
-models/label_map.pkl
-models/lbph_model.xml
-models/pad_scaler.joblib
-models/pad_svm.joblib
+# Generated model artifacts and local runtime configs
+models/*.pkl
+models/*.xml
+models/*.joblib
+models/pad_config*.json
+models/recognition_config.json
 
-# Logs
+# Runtime logs
 logs/

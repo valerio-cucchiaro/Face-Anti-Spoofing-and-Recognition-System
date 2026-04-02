@@ -1,6 +1,0 @@
-{
-  "pad_debug_feature_mode": "baseline",
-  "pad_lft_mode": "summary",
-  "feature_dim": 128,
-  "config_source": "saved_by_trainer"
-}

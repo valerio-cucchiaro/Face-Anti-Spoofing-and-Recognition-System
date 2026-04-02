@@ -39,7 +39,7 @@ from src.recognition.recognition_dataset_loader import load_probe_dataset, shoul
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
 LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
 RECOGNITION_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "recognition_config.json"
-EVAL_MODE = "custom"
+EVAL_MODE = "orl"
 PROBE_PROGRESS_STEP = 100
 
 
@@ -95,9 +95,8 @@ def should_save_evaluation_threshold(
     """
     Decide whether the current evaluation should update the offline threshold.
 
-    The project intentionally updates the stored evaluation threshold only for a
-    restricted subset of train/eval pairs considered representative of
-    the project reference protocol. The run must also contain both
+    The stored offline threshold is updated only for the approved
+    reference pairs used by the project. The run must also contain both
     genuine and impostor scores and must not rely on the fallback
     threshold rule.
     """
@@ -474,8 +473,11 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None):
     """
     Evaluate the recognition model on one dataset or on all supported
     datasets sequentially.
+
+    The standalone defaults match the current project reference setup:
+    `custom_orl -> orl`.
     """
-    selected_train_mode = train_mode or "custom"
+    selected_train_mode = train_mode or "custom_orl"
     selected_eval_mode = eval_mode or EVAL_MODE
     namespace_identities = should_namespace_identities(selected_train_mode)
     total_start_time = time.perf_counter()

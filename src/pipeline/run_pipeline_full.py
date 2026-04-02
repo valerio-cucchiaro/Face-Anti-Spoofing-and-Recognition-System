@@ -18,6 +18,7 @@ subsystems should be used.
 """
 
 import cv2
+import time
 
 from src.antispoofing.pad_crop_utils import extract_pad_face_crop
 from src.antispoofing.pad_frame_quality import (
@@ -48,6 +49,13 @@ PAD_ENTER_LIVE_THRESHOLD = 0.70
 PAD_EXIT_LIVE_THRESHOLD = 0.55
 PAD_ENTER_SPOOF_THRESHOLD = 0.30
 PAD_EXIT_SPOOF_THRESHOLD = 0.45
+PAD_STARTUP_DELAY_SECONDS = 2.0
+DISPLAY_LIVE_ENTRY_CONFIRMATIONS = 2
+DISPLAY_SPOOF_ENTRY_CONFIRMATIONS = 3
+DISPLAY_LIVE_EXIT_INCOHERENT = 3
+DISPLAY_SPOOF_EXIT_INCOHERENT = 2
+DISPLAY_PAD_HOLD_SECONDS = 1.0
+DISPLAY_PAD_MIN_ANALYZING_SECONDS = 1.0
 
 # ----- PAD STATE RESET ----- #
 PAD_RESET_AFTER_MISSES = 15
@@ -57,6 +65,13 @@ RECOGNITION_WINDOW_SIZE = 5
 RECOGNITION_MIN_CONFIRMATIONS = 3
 RECOGNITION_RESET_AFTER_MISSES = 10
 RECOGNITION_RUN_INTERVAL = 3
+DISPLAY_KNOWN_ENTRY_VOTES = 3
+DISPLAY_UNKNOWN_ENTRY_VOTES = 3
+DISPLAY_KNOWN_EXIT_INCOHERENT = 4
+DISPLAY_UNKNOWN_EXIT_INCOHERENT = 3
+DISPLAY_RECOGNITION_HOLD_SECONDS = 1.0
+DISPLAY_KNOWN_CONFIRM_TIMEOUT_SECONDS = 1.0
+RECOGNITION_START_DELAY_AFTER_LIVE_SECONDS = 1.0
 
 # ----- RECOGNITION THRESHOLDS ----- #
 # Live webcam threshold chosen explicitly for runtime/demo usage.
@@ -64,6 +79,7 @@ RUNTIME_RECOGNITION_THRESHOLD = 45.0
 
 # ----- SESSION RESET RULES ----- #
 SESSION_RESET_AFTER_MISSES = 10
+LOCK_RESET_AFTER_MISSING_FACE = 2
 LOCK_RESET_AFTER_UNSTABLE_BBOX = 3
 LOCK_RESET_AFTER_INVALID_CROP = 3
 
@@ -86,6 +102,156 @@ def create_pad_runtime_state():
     )
 
 
+def format_identity_for_display(name):
+    """
+    Make runtime identity labels a bit more readable on screen.
+    """
+
+    if name is None:
+        return None
+
+    return name.replace("custom:", "custom: ")
+
+
+class PadDisplayState:
+    """
+    Slow visual PAD state layered on top of the PAD runtime smoothing.
+    """
+
+    SEARCHING = "SEARCHING"
+    ANALYZING = "ANALYZING"
+    SHOW_LIVE = "SHOW_LIVE"
+    SHOW_SPOOF = "SHOW_SPOOF"
+
+    def __init__(self):
+        self.state = self.SEARCHING
+        self.state_since = None
+        self.incoherent_updates = 0
+        self.live_entry_counter = 0
+        self.spoof_entry_counter = 0
+
+    def _transition(self, new_state, now, logger, reason):
+        if self.state != new_state:
+            self.state = new_state
+            self.state_since = now
+            self.incoherent_updates = 0
+            self.live_entry_counter = 0
+            self.spoof_entry_counter = 0
+            logger(
+                "PAD overlay: "
+                f"state={new_state} | text={self.get_pad_text()} | reason={reason}"
+            )
+
+    def _hold_active(self, now):
+        if self.state_since is None:
+            return False
+        return (now - self.state_since) < DISPLAY_PAD_HOLD_SECONDS
+
+    def _analyzing_min_time_active(self, now):
+        if self.state_since is None:
+            return False
+        return (now - self.state_since) < DISPLAY_PAD_MIN_ANALYZING_SECONDS
+
+    def update(self, face_present, pad_state_result, pad_frame_usable, now, logger):
+        """
+        Update the visible PAD overlay state.
+        """
+
+        if not face_present:
+            self._transition(self.SEARCHING, now, logger, reason="face_missing")
+            return
+
+        final_label = pad_state_result["final_label"]
+
+        if self.state == self.SEARCHING:
+            self._transition(self.ANALYZING, now, logger, reason="face_detected")
+
+        if self.state == self.ANALYZING:
+            if self._analyzing_min_time_active(now):
+                self.live_entry_counter = 0
+                self.spoof_entry_counter = 0
+                return
+
+            if not pad_frame_usable:
+                self.live_entry_counter = 0
+                self.spoof_entry_counter = 0
+                return
+
+            if final_label == "live":
+                self.live_entry_counter += 1
+                self.spoof_entry_counter = 0
+                if self.live_entry_counter >= DISPLAY_LIVE_ENTRY_CONFIRMATIONS:
+                    self._transition(self.SHOW_LIVE, now, logger, reason="live_confirmed")
+                return
+
+            if final_label == "spoof":
+                self.spoof_entry_counter += 1
+                self.live_entry_counter = 0
+                if self.spoof_entry_counter >= DISPLAY_SPOOF_ENTRY_CONFIRMATIONS:
+                    self._transition(
+                        self.SHOW_SPOOF,
+                        now,
+                        logger,
+                        reason="spoof_confirmed",
+                    )
+                return
+
+            self.live_entry_counter = 0
+            self.spoof_entry_counter = 0
+            return
+
+        if self.state == self.SHOW_LIVE:
+            if final_label == "live" and pad_frame_usable:
+                self.incoherent_updates = 0
+                return
+
+            if self._hold_active(now):
+                return
+
+            if not pad_frame_usable or final_label in ("unknown", "spoof"):
+                self.incoherent_updates += 1
+                if self.incoherent_updates >= DISPLAY_LIVE_EXIT_INCOHERENT:
+                    self._transition(self.ANALYZING, now, logger, reason="live_decay")
+            return
+
+        if self.state == self.SHOW_SPOOF:
+            if final_label == "spoof" and pad_frame_usable:
+                self.incoherent_updates = 0
+                return
+
+            if self._hold_active(now):
+                return
+
+            if not pad_frame_usable or final_label in ("unknown", "live"):
+                self.incoherent_updates += 1
+                if self.incoherent_updates >= DISPLAY_SPOOF_EXIT_INCOHERENT:
+                    self._transition(self.ANALYZING, now, logger, reason="spoof_decay")
+
+    def get_pad_text(self):
+        """
+        Return the user-facing PAD line for the current overlay state.
+        """
+
+        if self.state == self.SEARCHING:
+            return "PAD: Searching face..."
+        if self.state == self.ANALYZING:
+            return "PAD: Analyzing..."
+        if self.state == self.SHOW_LIVE:
+            return "PAD: LIVE"
+        return "PAD: SPOOF"
+
+    def get_box_color(self):
+        """
+        Return the overlay color for the current PAD state.
+        """
+
+        if self.state == self.SHOW_LIVE:
+            return (0, 255, 0)
+        if self.state == self.SHOW_SPOOF:
+            return (0, 0, 255)
+        return (0, 255, 255)
+
+
 def create_recognition_runtime_state():
     """
     Build the recognition temporal state used by the runtime pipeline.
@@ -96,6 +262,212 @@ def create_recognition_runtime_state():
         min_confirmations=RECOGNITION_MIN_CONFIRMATIONS,
         reset_after_misses=RECOGNITION_RESET_AFTER_MISSES,
     )
+
+
+class RecognitionDisplayState:
+    """
+    Slow visual recognition state layered on top of recognition votes.
+    """
+
+    SEARCHING = "SEARCHING"
+    ANALYZING = "ANALYZING"
+    SHOW_KNOWN = "SHOW_KNOWN"
+    SHOW_UNKNOWN = "SHOW_UNKNOWN"
+
+    def __init__(self):
+        self.state = self.SEARCHING
+        self.display_name = None
+        self.state_since = None
+        self.last_known_reinforcement = None
+        self.incoherent_updates = 0
+
+    def _transition(self, new_state, now, logger, reason, display_name=None):
+        state_changed = self.state != new_state
+        name_changed = self.display_name != display_name
+
+        self.state = new_state
+        self.display_name = display_name
+        self.state_since = now
+        self.incoherent_updates = 0
+
+        if new_state == self.SHOW_KNOWN:
+            self.last_known_reinforcement = now
+        elif new_state != self.SHOW_KNOWN:
+            self.last_known_reinforcement = None
+
+        if state_changed or name_changed:
+            logger(
+                "Recognition overlay: "
+                f"state={new_state} | text={self.get_identity_text()} | reason={reason}"
+            )
+
+    def _hold_active(self, now):
+        if self.state_since is None:
+            return False
+        return (now - self.state_since) < DISPLAY_RECOGNITION_HOLD_SECONDS
+
+    def update(self, face_present, recognition_result, now, logger):
+        """
+        Update the visible recognition overlay state.
+        """
+
+        if not face_present:
+            self._transition(
+                self.SEARCHING,
+                now,
+                logger,
+                reason="face_missing",
+                display_name=None,
+            )
+            return
+
+        final_name = recognition_result["final_name"]
+        current_name = recognition_result["current_name"]
+        candidate_name = recognition_result.get("candidate_name")
+        candidate_votes = recognition_result.get("candidate_votes", 0)
+        unknown_votes = recognition_result.get("unknown_votes", 0)
+        history_size = recognition_result["history_size"]
+
+        if self.state == self.SEARCHING:
+            self._transition(
+                self.ANALYZING,
+                now,
+                logger,
+                reason="face_detected",
+                display_name=None,
+            )
+
+        if self.state == self.ANALYZING:
+            if final_name != "Unknown" and candidate_votes >= DISPLAY_KNOWN_ENTRY_VOTES:
+                self._transition(
+                    self.SHOW_KNOWN,
+                    now,
+                    logger,
+                    reason=f"known_confirmed:{final_name}",
+                    display_name=final_name,
+                )
+                return
+
+            if (
+                candidate_name == "Unknown"
+                and unknown_votes >= DISPLAY_UNKNOWN_ENTRY_VOTES
+            ):
+                self._transition(
+                    self.SHOW_UNKNOWN,
+                    now,
+                    logger,
+                    reason="unknown_confirmed",
+                    display_name=None,
+                )
+                return
+
+            if history_size < DISPLAY_KNOWN_ENTRY_VOTES:
+                return
+            return
+
+        if self.state == self.SHOW_KNOWN:
+            shown_name = self.display_name
+            same_name_confirmed = final_name == shown_name
+            same_name_pending = current_name == shown_name or candidate_name == shown_name
+
+            if same_name_confirmed:
+                self.last_known_reinforcement = now
+                self.incoherent_updates = 0
+                return
+
+            if self._hold_active(now):
+                return
+
+            if same_name_pending:
+                self.incoherent_updates = 0
+                return
+
+            self.incoherent_updates += 1
+
+            confirmation_timed_out = (
+                self.last_known_reinforcement is not None
+                and (now - self.last_known_reinforcement)
+                >= DISPLAY_KNOWN_CONFIRM_TIMEOUT_SECONDS
+            )
+            unknown_is_persistent = (
+                candidate_name == "Unknown"
+                and unknown_votes >= DISPLAY_UNKNOWN_ENTRY_VOTES
+            )
+
+            if (
+                self.incoherent_updates >= DISPLAY_KNOWN_EXIT_INCOHERENT
+                or confirmation_timed_out
+                or unknown_is_persistent
+            ):
+                self._transition(
+                    self.ANALYZING,
+                    now,
+                    logger,
+                    reason="known_decay",
+                    display_name=None,
+                )
+            return
+
+        if self.state == self.SHOW_UNKNOWN:
+            unknown_still_confirmed = (
+                candidate_name == "Unknown"
+                and unknown_votes >= DISPLAY_UNKNOWN_ENTRY_VOTES
+            )
+            known_is_confirmed = (
+                final_name != "Unknown"
+                and candidate_votes >= DISPLAY_KNOWN_ENTRY_VOTES
+            )
+
+            if unknown_still_confirmed:
+                self.incoherent_updates = 0
+                return
+
+            if self._hold_active(now):
+                return
+
+            if known_is_confirmed:
+                self._transition(
+                    self.ANALYZING,
+                    now,
+                    logger,
+                    reason=f"known_candidate_after_unknown:{final_name}",
+                    display_name=None,
+                )
+                return
+
+            self.incoherent_updates += 1
+            if self.incoherent_updates >= DISPLAY_UNKNOWN_EXIT_INCOHERENT:
+                self._transition(
+                    self.ANALYZING,
+                    now,
+                    logger,
+                    reason="unknown_released",
+                    display_name=None,
+                )
+
+    def get_identity_text(self):
+        """
+        Return the user-facing recognition line for the current overlay.
+        """
+
+        if self.state == self.SEARCHING:
+            return "Recognition: Searching face..."
+        if self.state == self.ANALYZING:
+            return "Recognition: Analyzing..."
+        if self.state == self.SHOW_UNKNOWN:
+            return "Identity: Unknown"
+        return f"Identity: {format_identity_for_display(self.display_name)}"
+
+    def get_identity_color(self):
+        """
+        Return the overlay color for the recognition identity line.
+        """
+
+        if self.state == self.SHOW_KNOWN:
+            return (0, 255, 0)
+        if self.state == self.SHOW_UNKNOWN:
+            return (0, 0, 255)
+        return (255, 255, 0)
 
 
 def log_runtime_event(message):
@@ -123,7 +495,12 @@ def reset_runtime_session(session_state):
     """
 
     session_state.reset_session()
-    return create_pad_runtime_state(), create_recognition_runtime_state()
+    return (
+        create_pad_runtime_state(),
+        create_recognition_runtime_state(),
+        PadDisplayState(),
+        RecognitionDisplayState(),
+    )
 
 
 def draw_face_overlay(
@@ -134,6 +511,7 @@ def draw_face_overlay(
     pad_text,
     recognition_text,
     identity_text=None,
+    identity_color=(0, 255, 0),
 ):
     """
     Draw a compact overlay around the current face box.
@@ -187,7 +565,7 @@ def draw_face_overlay(
             (x, bottom_line_2_y),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
-            (0, 255, 0),
+            identity_color,
             2,
             cv2.LINE_AA,
         )
@@ -233,8 +611,11 @@ def run_pipeline_full():
     session_state = RuntimeSessionState()
     pad_runtime_state = create_pad_runtime_state()
     recognition_runtime_state = create_recognition_runtime_state()
+    pad_display_state = PadDisplayState()
+    recognition_display_state = RecognitionDisplayState()
 
     frame_counter = 0
+    startup_started_at = time.monotonic()
     log_runtime_event(
         f"Recognition runtime threshold: {runtime_threshold:.2f}"
     )
@@ -247,6 +628,15 @@ def run_pipeline_full():
             break
 
         frame_counter += 1
+        now = time.monotonic()
+
+        if (now - startup_started_at) < PAD_STARTUP_DELAY_SECONDS:
+            cv2.imshow("Webcam", frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
+            continue
 
         face_rect, gray_frame, message = get_valid_face(
             frame,
@@ -261,13 +651,36 @@ def run_pipeline_full():
             session_state.store_recognition_result(
                 recognition_runtime_state.update(face_missing=True)
             )
+            pad_display_state.update(
+                face_present=False,
+                pad_state_result={
+                    "final_label": "unknown",
+                    "mean_live_probability": None,
+                },
+                pad_frame_usable=False,
+                now=now,
+                logger=log_runtime_event,
+            )
+            recognition_display_state.update(
+                face_present=False,
+                recognition_result=session_state.last_recognition_result,
+                now=now,
+                logger=log_runtime_event,
+            )
 
-            if session_state.missing_face_counter >= SESSION_RESET_AFTER_MISSES:
+            reset_after_misses = SESSION_RESET_AFTER_MISSES
+            if session_state.current_phase == RuntimeSessionState.RECOGNITION_LOCKED:
+                reset_after_misses = LOCK_RESET_AFTER_MISSING_FACE
+
+            if session_state.missing_face_counter >= reset_after_misses:
                 if session_state.transition_to(RuntimeSessionState.RESET):
                     log_runtime_event("Reset: face lost")
-                pad_runtime_state, recognition_runtime_state = reset_runtime_session(
-                    session_state
-                )
+                (
+                    pad_runtime_state,
+                    recognition_runtime_state,
+                    pad_display_state,
+                    recognition_display_state,
+                ) = reset_runtime_session(session_state)
 
             display_message = (
                 "Searching face" if message == "No face detected" else message
@@ -333,8 +746,18 @@ def run_pipeline_full():
                 )
                 session_state.store_pad_result(pad_state_result)
 
+            pad_display_state.update(
+                face_present=True,
+                pad_state_result=session_state.last_pad_result,
+                pad_frame_usable=pad_frame_usable,
+                now=now,
+                logger=log_runtime_event,
+            )
+
+            if should_run_pad:
                 if (
-                    pad_state_result["final_label"] == "live"
+                    pad_display_state.state == PadDisplayState.SHOW_LIVE
+                    and session_state.last_pad_result["final_label"] == "live"
                     and pad_frame_usable
                     and bbox_stable
                 ):
@@ -345,6 +768,7 @@ def run_pipeline_full():
 
                 if live_count >= PAD_LIVE_LOCK_CONFIRMATIONS:
                     session_state.live_lock_active = True
+                    session_state.live_lock_started_at = now
                     session_state.transition_to(
                         RuntimeSessionState.RECOGNITION_LOCKED
                     )
@@ -355,24 +779,22 @@ def run_pipeline_full():
             mean_live_probability = session_state.last_pad_result[
                 "mean_live_probability"
             ]
-            if mean_live_probability is not None:
-                pad_text = (
-                    f"PAD: {final_pad_label.upper()} | avg_live="
-                    f"{mean_live_probability:.2f}"
-                )
-            else:
-                pad_text = f"PAD: {final_pad_label.upper()}"
+            pad_text = pad_display_state.get_pad_text()
+            if pad_display_state.state in (
+                PadDisplayState.SHOW_LIVE,
+                PadDisplayState.SHOW_SPOOF,
+            ) and mean_live_probability is not None:
+                pad_text = f"{pad_text} | avg_live={mean_live_probability:.2f}"
 
             recognition_text = (
                 "Checking liveness..."
                 f" ({session_state.pad_live_confirmation_count}/"
                 f"{PAD_LIVE_LOCK_CONFIRMATIONS})"
             )
-            box_color = get_box_color(session_state, final_pad_label)
             draw_face_overlay(
                 frame,
                 face_rect,
-                box_color,
+                pad_display_state.get_box_color(),
                 "State: CHECKING LIVENESS",
                 pad_text,
                 recognition_text,
@@ -397,9 +819,12 @@ def run_pipeline_full():
                 log_runtime_event("Reset: face crop lost")
 
             if session_state.current_phase == RuntimeSessionState.RESET:
-                pad_runtime_state, recognition_runtime_state = reset_runtime_session(
-                    session_state
-                )
+                (
+                    pad_runtime_state,
+                    recognition_runtime_state,
+                    pad_display_state,
+                    recognition_display_state,
+                ) = reset_runtime_session(session_state)
                 draw_face_overlay(
                     frame,
                     face_rect,
@@ -409,79 +834,74 @@ def run_pipeline_full():
                     "Resetting session",
                 )
             else:
-                should_run_recognition = (
-                    frame_counter % RECOGNITION_RUN_INTERVAL == 0
+                recognition_delay_active = (
+                    session_state.live_lock_started_at is not None
+                    and (now - session_state.live_lock_started_at)
+                    < RECOGNITION_START_DELAY_AFTER_LIVE_SECONDS
                 )
-                recognition_frame_usable = (
-                    bbox_stable
-                    and quality_result["is_valid_crop"]
-                    and quality_result["is_sharp_enough"]
-                )
-                if should_run_recognition:
-                    face = None
-                    if recognition_frame_usable:
-                        face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
 
-                    if face is None:
-                        recognition_result = recognition_runtime_state.update(
-                            frame_usable=False,
-                            recognition_allowed=True,
-                            face_missing=False,
-                        )
-                    else:
-                        predicted_name, confidence = predict_identity(
-                            face,
-                            recognizer,
-                            label_map,
-                            threshold=runtime_threshold,
-                        )
-                        recognition_result = recognition_runtime_state.update(
-                            predicted_name=predicted_name,
-                            confidence=confidence,
-                            frame_usable=True,
-                            recognition_allowed=True,
-                            face_missing=False,
-                        )
-
-                    current_name = recognition_result["current_name"]
-                    current_confidence = recognition_result["current_confidence"]
-                    final_name = recognition_result["final_name"]
-                    stable_count = recognition_result["stable_count"]
-                    history_size = recognition_result["history_size"]
-                    confidence_text = (
-                        f"{current_confidence:.2f}"
-                        if current_confidence is not None
-                        else "None"
-                    )
-                    log_runtime_verbose(
-                        "Recognition check: "
-                        f"usable={recognition_frame_usable} | "
-                        f"threshold={runtime_threshold:.2f} | "
-                        f"current={current_name} | "
-                        f"confidence={confidence_text} | "
-                        f"final={final_name} | "
-                        f"votes={stable_count}/{history_size}"
-                    )
-
-                    previous_identity = session_state.last_stable_identity
-                    session_state.store_recognition_result(recognition_result)
-                    current_identity = session_state.last_stable_identity
-                    if (
-                        current_identity != "Unknown"
-                        and current_identity != previous_identity
-                    ):
-                        log_runtime_event(
-                            f"Recognition result: {current_identity}"
-                        )
-
-                recognition_result = session_state.last_recognition_result
-                final_identity = recognition_result["final_name"]
-                if final_identity == "Unknown":
-                    identity_text = "Identity: Unknown"
+                if recognition_delay_active:
+                    recognition_text = "Recognition: waiting..."
+                    identity_text = "Identity: pending"
+                    identity_color = (255, 255, 0)
                 else:
-                    identity_text = f"Identity: {final_identity}"
+                    should_run_recognition = (
+                        frame_counter % RECOGNITION_RUN_INTERVAL == 0
+                    )
+                    recognition_frame_usable = (
+                        bbox_stable
+                        and quality_result["is_valid_crop"]
+                        and quality_result["is_sharp_enough"]
+                    )
+                    if should_run_recognition:
+                        face = None
+                        if recognition_frame_usable:
+                            face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
 
-                recognition_text = "Recognition active"
+                        if face is None:
+                            recognition_result = recognition_runtime_state.update(
+                                frame_usable=False,
+                                recognition_allowed=True,
+                                face_missing=False,
+                            )
+                        else:
+                            predicted_name, confidence = predict_identity(
+                                face,
+                                recognizer,
+                                label_map,
+                                threshold=runtime_threshold,
+                            )
+                            recognition_result = recognition_runtime_state.update(
+                                predicted_name=predicted_name,
+                                confidence=confidence,
+                                frame_usable=True,
+                                recognition_allowed=True,
+                                face_missing=False,
+                            )
+
+                        log_runtime_verbose(
+                            "Recognition check: "
+                            f"usable={recognition_frame_usable} | "
+                            f"threshold={runtime_threshold:.2f} | "
+                            f"current={recognition_result['current_name']} | "
+                            f"confidence={recognition_result['current_confidence']} | "
+                            f"final={recognition_result['final_name']} | "
+                            f"votes={recognition_result['stable_count']}/"
+                            f"{recognition_result['history_size']}"
+                        )
+
+                        session_state.store_recognition_result(recognition_result)
+
+                    recognition_result = session_state.last_recognition_result
+                    recognition_display_state.update(
+                        face_present=True,
+                        recognition_result=recognition_result,
+                        now=now,
+                        logger=log_runtime_event,
+                    )
+                    recognition_text = "Recognition active"
+                    identity_text = recognition_display_state.get_identity_text()
+                    identity_color = recognition_display_state.get_identity_color()
 
                 draw_face_overlay(
                     frame,
@@ -491,6 +911,7 @@ def run_pipeline_full():
                     "PAD: LOCKED LIVE",
                     recognition_text,
                     identity_text=identity_text,
+                    identity_color=identity_color,
                 )
 
         cv2.imshow("Webcam", frame)

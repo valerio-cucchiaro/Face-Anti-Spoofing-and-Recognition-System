@@ -113,17 +113,11 @@ def evaluate_folder(folder_path, true_label, scaler, classifier):
             status = "WRONG"
 
         if status == "WRONG":
-            print(f"[{status}] {img_path.name}")
-            print(f"  true label      : {true_label_name}")
-            print(f"  predicted label : {predicted_label}")
-            print(f"  prediction      : {prediction}")
-            print(f"  prob spoof      : {prob_spoof:.4f}")
-            print(f"  prob live       : {prob_live:.4f}")
-            print(f"  predicted score : {predicted_score:.4f}")
-            print(f"  feature shape   : {features.shape}")
-            print(f"  feature mean    : {features.mean():.4f}")
-            print(f"  feature std     : {features.std():.4f}")
-            print()
+            print(
+                f"[WRONG] {img_path.name} | true={true_label_name} | pred={predicted_label} "
+                f"| prob_spoof={prob_spoof:.4f} | prob_live={prob_live:.4f} "
+                f"| feature_mean={features.mean():.4f} | feature_std={features.std():.4f}"
+            )
 
     return total_images, valid_images, correct_predictions
 
@@ -144,14 +138,19 @@ def main():
     pad_config = load_pad_model_config(expected_feature_dim=expected_feature_dim)
     configure_pad_feature_extractor_from_config(pad_config)
 
-    print("=== PAD RUNTIME TEST DATASET EVALUATION ===")
-    print(f"Live folder : {LIVE_PATH}")
-    print(f"Spoof folder: {SPOOF_PATH}")
-    print("PAD debug feature mode:", pad_config["pad_debug_feature_mode"])
-    print("PAD LFT mode:", pad_config["pad_lft_mode"])
-    print("Expected PAD feature dim:", pad_config["feature_dim"])
+    print("PAD runtime evaluation dataset:", TEST_SPLIT_ROOT)
+    print(
+        "PAD runtime feature setup:",
+        (
+            f"debug={pad_config['pad_debug_feature_mode']} | "
+            f"lft={pad_config['pad_lft_mode']} | "
+            f"tgsd_tau={pad_config.get('tgsd_tau')} | "
+            f"tgsd_top_percent={pad_config.get('tgsd_top_percent')} | "
+            f"tgsd_grad={pad_config.get('tgsd_gradient_operator')} | "
+            f"feature_dim={pad_config['feature_dim']}"
+        ),
+    )
 
-    print("=== EVALUATING LIVE IMAGES ===")
     live_total, live_valid, live_correct = evaluate_folder(
         LIVE_PATH,
         true_label=1,
@@ -159,7 +158,6 @@ def main():
         classifier=classifier
     )
 
-    print("=== EVALUATING SPOOF IMAGES ===")
     spoof_total, spoof_valid, spoof_correct = evaluate_folder(
         SPOOF_PATH,
         true_label=0,
@@ -175,15 +173,17 @@ def main():
     if valid_images > 0:
         accuracy = correct_predictions / valid_images
 
-    print("=== SUMMARY ===")
-    print(f"Total images           : {total_images}")
-    print(f"Valid processed images : {valid_images}")
-    print(f"Correct predictions    : {correct_predictions}")
-    print(f"Accuracy               : {accuracy:.4f}")
-    print()
-    print("Per-class summary:")
-    print(f"  LIVE  -> total: {live_total}, valid: {live_valid}, correct: {live_correct}")
-    print(f"  SPOOF -> total: {spoof_total}, valid: {spoof_valid}, correct: {spoof_correct}")
+    print(
+        "PAD runtime summary:",
+        f"total={total_images} | valid={valid_images} | correct={correct_predictions} | accuracy={accuracy:.4f}",
+    )
+    print(
+        "PAD runtime per-class:",
+        (
+            f"live(total={live_total}, valid={live_valid}, correct={live_correct}) | "
+            f"spoof(total={spoof_total}, valid={spoof_valid}, correct={spoof_correct})"
+        ),
+    )
 
 
 if __name__ == "__main__":

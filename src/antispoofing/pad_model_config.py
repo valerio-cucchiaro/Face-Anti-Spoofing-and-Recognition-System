@@ -63,28 +63,12 @@ def infer_pad_feature_config_from_dim(feature_dim):
     """
 
     known_configs = {
-        128: {
-            "pad_debug_feature_mode": "baseline",
-            "pad_lft_mode": "summary",
-        },
         124: {
             "pad_debug_feature_mode": "baseline",
             "pad_lft_mode": "ggd_light",
         },
-        130: {
-            "pad_debug_feature_mode": "tgsd",
-            "pad_lft_mode": "summary",
-        },
         126: {
             "pad_debug_feature_mode": "tgsd",
-            "pad_lft_mode": "ggd_light",
-        },
-        642: {
-            "pad_debug_feature_mode": "full",
-            "pad_lft_mode": "summary",
-        },
-        638: {
-            "pad_debug_feature_mode": "full",
             "pad_lft_mode": "ggd_light",
         },
     }
@@ -98,10 +82,20 @@ def infer_pad_feature_config_from_dim(feature_dim):
     inferred_config = known_configs[feature_dim].copy()
     inferred_config["feature_dim"] = int(feature_dim)
     inferred_config["config_source"] = "inferred_from_feature_dim"
+    inferred_config["tgsd_tau"] = 170.0
+    inferred_config["tgsd_top_percent"] = 0.05
+    inferred_config["tgsd_gradient_operator"] = "sobel"
     return inferred_config
 
 
-def build_pad_model_config(debug_feature_mode, lft_mode, feature_dim):
+def build_pad_model_config(
+    debug_feature_mode,
+    lft_mode,
+    feature_dim,
+    tgsd_tau=None,
+    tgsd_top_percent=None,
+    tgsd_gradient_operator=None,
+):
     """
     Build the PAD configuration dictionary saved next to the model.
     """
@@ -110,6 +104,13 @@ def build_pad_model_config(debug_feature_mode, lft_mode, feature_dim):
         "pad_debug_feature_mode": debug_feature_mode,
         "pad_lft_mode": lft_mode,
         "feature_dim": int(feature_dim),
+        "tgsd_tau": float(tgsd_tau) if tgsd_tau is not None else 170.0,
+        "tgsd_top_percent": (
+            float(tgsd_top_percent) if tgsd_top_percent is not None else 0.05
+        ),
+        "tgsd_gradient_operator": (
+            tgsd_gradient_operator if tgsd_gradient_operator is not None else "sobel"
+        ),
         "config_source": "saved_by_trainer",
     }
 
@@ -156,6 +157,24 @@ def load_pad_model_config(expected_feature_dim=None, config_path=None):
             f"{sorted(missing_keys)}"
         )
 
+    config.setdefault("tgsd_tau", 170.0)
+    config.setdefault("tgsd_top_percent", 0.05)
+    config.setdefault("tgsd_gradient_operator", "sobel")
+
+    config_feature_dim = int(config["feature_dim"])
+    if expected_feature_dim is not None and config_feature_dim != int(expected_feature_dim):
+        inferred_config = infer_pad_feature_config_from_dim(expected_feature_dim)
+        raise ValueError(
+            "PAD configuration mismatch: config declares "
+            f"{config['pad_debug_feature_mode']} + {config['pad_lft_mode']} "
+            f"with feature_dim={config_feature_dim}, but the loaded artifact "
+            f"expects feature_dim={int(expected_feature_dim)}. "
+            "The artifact is more likely aligned with "
+            f"{inferred_config['pad_debug_feature_mode']} + "
+            f"{inferred_config['pad_lft_mode']}. "
+            "Realign the saved config or promote a coherent artifact set."
+        )
+
     return config
 
 
@@ -167,6 +186,9 @@ def configure_pad_feature_extractor_from_config(config):
     configure_pad_feature_modes(
         debug_mode=config["pad_debug_feature_mode"],
         lft_mode=config["pad_lft_mode"],
+        tgsd_tau=config.get("tgsd_tau"),
+        tgsd_top_percent=config.get("tgsd_top_percent"),
+        tgsd_gradient_operator=config.get("tgsd_gradient_operator"),
     )
 
 

@@ -10,6 +10,8 @@ $logDir = Join-Path $repoRoot "logs"
 $recognitionLog = Join-Path $logDir "recognition_runs.txt"
 $padLog = Join-Path $logDir "pad_runs.txt"
 $shutdownDelaySeconds = 60 *3 # 3 minutes
+$maxRunAttempts = 2
+$retryDelaySeconds = 10
 
 if (-not (Test-Path $pythonExe)) {
     throw "Python executable not found at: $pythonExe"
@@ -55,30 +57,47 @@ function Invoke-LoggedPythonRun {
         [string[]]$Arguments
     )
 
-    $startTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-LogLines -LogPath $LogPath -Lines @(
-        "",
-        ">>> $Label",
-        ">>> STATUS: STARTED at $startTimestamp",
-        ">>> COMMAND: $pythonExe $($Arguments -join ' ')",
-        ""
-    )
+    for ($attempt = 1; $attempt -le $maxRunAttempts; $attempt++) {
+        $startTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Write-LogLines -LogPath $LogPath -Lines @(
+            "",
+            ">>> $Label",
+            ">>> STATUS: STARTED at $startTimestamp (attempt $attempt/$maxRunAttempts)",
+            ">>> COMMAND: $pythonExe $($Arguments -join ' ')",
+            ""
+        )
 
-    & $pythonExe @Arguments 2>&1 | ForEach-Object {
-        $line = $_.ToString()
-        Write-Output $line
-        $line | Out-File -FilePath $LogPath -Append -Encoding utf8
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+
+        & $pythonExe @Arguments 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            Write-Output $line
+            $line | Out-File -FilePath $LogPath -Append -Encoding utf8
+        }
+
+        $commandExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $previousErrorActionPreference
+
+        $endTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Write-LogLines -LogPath $LogPath -Lines @(
+            "",
+            ">>> STATUS: FINISHED at $endTimestamp with exit code $commandExitCode (attempt $attempt/$maxRunAttempts)"
+        )
+
+        if ($commandExitCode -eq 0) {
+            return
+        }
+
+        if ($attempt -lt $maxRunAttempts) {
+            $retryMessage = ">>> RETRY: waiting $retryDelaySeconds seconds before retrying $Label"
+            Write-Output $retryMessage
+            Write-LogLines -LogPath $LogPath -Lines @("", $retryMessage)
+            Start-Sleep -Seconds $retryDelaySeconds
+        }
     }
 
-    $endTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-LogLines -LogPath $LogPath -Lines @(
-        "",
-        ">>> STATUS: FINISHED at $endTimestamp with exit code $LASTEXITCODE"
-    )
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed for run: $Label"
-    }
+    throw "Command failed for run after $maxRunAttempts attempts: $Label"
 }
 
 Add-LogHeader -LogPath $recognitionLog -Title "RECOGNITION BATCH"
@@ -92,30 +111,21 @@ foreach ($run in $recognitionRuns) {
 
 $padRuns = @(
     @{
-        Label = "pad | full | baseline+ggd"
+        Label = "pad | fast | runtime-live-photo-aug-mix | baseline+tgsd+ggd | tau170 | sobel | top5"
         Args = @(
             "-m", "src.antispoofing.training.pad_experiment_runner",
-            "--experiment-speed", "full",
-            "--pad-debug-feature-mode", "baseline",
-            "--pad-lft-mode", "ggd_light"
-        )
-    },
-    @{
-        Label = "pad | full | baseline+tgsd"
-        Args = @(
-            "-m", "src.antispoofing.training.pad_experiment_runner",
-            "--experiment-speed", "full",
+            "--experiment-speed", "fast",
+            "--eval-mode", "runtime",
             "--pad-debug-feature-mode", "tgsd",
-            "--pad-lft-mode", "summary"
-        )
-    },
-    @{
-        Label = "pad | full | baseline+tgsd+ggd"
-        Args = @(
-            "-m", "src.antispoofing.training.pad_experiment_runner",
-            "--experiment-speed", "full",
-            "--pad-debug-feature-mode", "tgsd",
-            "--pad-lft-mode", "ggd_light"
+            "--pad-lft-mode", "ggd_light",
+            "--tgsd-tau", "170",
+            "--tgsd-top-percent", "0.05",
+            "--tgsd-gradient-operator", "sobel",
+            "--augment-live-photometric",
+            "--augment-live-photometric-mode", "mix",
+            "--augment-live-photometric-scope", "runtime_only",
+            "--log-live-false-negatives",
+            "--live-false-negative-limit", "20"
         )
     }
 )
