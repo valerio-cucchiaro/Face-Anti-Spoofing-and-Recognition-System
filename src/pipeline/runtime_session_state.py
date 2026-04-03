@@ -38,7 +38,7 @@ class RuntimeSessionState:
         self.pad_live_confirmation_count = 0
         self.live_lock_active = False
         self.missing_face_counter = 0
-        self.locked_unstable_counter = 0
+        self.locked_movement_counter = 0
         self.locked_invalid_crop_counter = 0
         self.live_lock_started_at = None
         self.last_stable_identity = "Unknown"
@@ -111,17 +111,17 @@ class RuntimeSessionState:
 
         self.pad_live_confirmation_count = 0
 
-    def register_locked_bbox_stability(self, is_stable):
+    def register_locked_movement(self, is_moving):
         """
-        Update the counter used to detect instability during lock.
+        Update the counter used to detect persistent movement during lock.
         """
 
-        if is_stable:
-            self.locked_unstable_counter = 0
+        if is_moving:
+            self.locked_movement_counter += 1
         else:
-            self.locked_unstable_counter += 1
+            self.locked_movement_counter = 0
 
-        return self.locked_unstable_counter
+        return self.locked_movement_counter
 
     def register_locked_crop_validity(self, is_valid_crop):
         """
@@ -165,7 +165,7 @@ class RuntimeSessionState:
         self.pad_live_confirmation_count = 0
         self.live_lock_active = False
         self.missing_face_counter = 0
-        self.locked_unstable_counter = 0
+        self.locked_movement_counter = 0
         self.locked_invalid_crop_counter = 0
         self.live_lock_started_at = None
         self.last_stable_identity = "Unknown"

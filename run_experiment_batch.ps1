@@ -103,19 +103,29 @@ function Invoke-LoggedPythonRun {
 Add-LogHeader -LogPath $recognitionLog -Title "RECOGNITION BATCH"
 Add-LogHeader -LogPath $padLog -Title "PAD BATCH"
 
-$recognitionRuns = @()
+#$recognitionRuns = @(
+#    @{
+#        Label = "recognition | custom_orl -> custom"
+#        Args = @(
+#            "-m", "src.recognition.recognition_experiment_runner",
+#            "--train-mode", "custom_orl",
+#            "--eval-mode", "custom"
+#        )
+#    }
+#)
 
-foreach ($run in $recognitionRuns) {
-    Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
-}
+#oreach ($run in $recognitionRuns) {
+#    Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
+#}
 
 $padRuns = @(
     @{
-        Label = "pad | fast | runtime-live-photo-aug-mix | baseline+tgsd+ggd | tau170 | sobel | top5"
+        Label = "pad | full | all-live-photo-aug-mix | baseline+tgsd+ggd | tau170 | sobel | top5"
         Args = @(
             "-m", "src.antispoofing.training.pad_experiment_runner",
-            "--experiment-speed", "fast",
-            "--eval-mode", "runtime",
+            "--experiment-speed", "full",
+            "--train-mode", "combined_runtime",
+            "--eval-mode", "all",
             "--pad-debug-feature-mode", "tgsd",
             "--pad-lft-mode", "ggd_light",
             "--tgsd-tau", "170",
@@ -123,7 +133,7 @@ $padRuns = @(
             "--tgsd-gradient-operator", "sobel",
             "--augment-live-photometric",
             "--augment-live-photometric-mode", "mix",
-            "--augment-live-photometric-scope", "runtime_only",
+            "--augment-live-photometric-scope", "all",
             "--log-live-false-negatives",
             "--live-false-negative-limit", "20"
         )

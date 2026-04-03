@@ -220,6 +220,9 @@ def extract_pad_features_from_final_crop(
     This branch must not run face detection or re-crop the image again.
     It optionally applies the shared crop-quality gate and then
     delegates the post-crop path to the canonical inference helper.
+    The gate currently filters geometric crop validity; the runtime
+    pipelines may still use the richer quality result for their own
+    temporal state logic.
     """
 
     return extract_pad_features_from_crop(
@@ -541,6 +544,10 @@ def load_pad_split_dataset(
     extraction to match the smaller one. After detection, quality
     filtering, and feature extraction the final valid sample counts
     can still become unbalanced.
+
+    The shared quality gate applies only to the crop loading path
+    selected by ``apply_quality_gate``; it does not duplicate the
+    runtime pipeline history gate.
     """
 
     features = []

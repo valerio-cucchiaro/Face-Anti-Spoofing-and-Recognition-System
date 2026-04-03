@@ -44,6 +44,10 @@ def evaluate_pad_crop_quality(
     """
     Evaluate whether the PAD crop is structurally valid and sharp enough
     to be used by the PAD pipeline.
+
+    The returned ``is_frame_usable_for_history`` flag combines the
+    geometric checks and the sharpness check; callers can use the
+    individual fields if they need a weaker or stricter policy.
     """
 
     if pad_face_crop is None or pad_face_crop.size == 0:

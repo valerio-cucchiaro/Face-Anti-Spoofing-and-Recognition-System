@@ -1138,4 +1138,29 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 - next real integration step:
   - final `full` PAD run with the promoted `runtime-only mix` setup
 
+**PAD Quality Gate and Contract Tests**:
+
+- clarified that the shared PAD quality gate is a loader-side geometric filter and a runtime-history signal, not a duplicated detector-side check
+- aligned the PAD contract tests to the actual current behavior of the post-crop path
+- added the missing contract checks for raw-frame loading, final-crop loading, detector wiring, and runtime/loader consistency
+- confirmed the new PAD contract test block passes cleanly
+- updated the PAD roadmap to reflect the current quality-gate role and the current `full` reference as `mix` over all live samples
+
+**PAD Runtime Tuning and Diagnostics**:
+
+- tightened the PAD runtime so the temporal decision now waits for a full window of `5` valid samples before promoting `live` or `spoof`
+- tuned the PAD runtime threshold to `enter_live = 0.65` while keeping the spoof boundary strict
+- aligned `run_pipeline_full.py` and `run_pipeline_cv.py` on the PAD update cadence (`PAD_RUN_INTERVAL = 2`)
+- simplified the `full` runtime logs back to the phase-flow view after the temporary PAD debug pass
+- kept `cv` as the diagnostic runtime and added distance-band, spatial and lighting summaries for live PAD inspection
+- confirmed in runtime tests that:
+  - control light behind the face remains a hard failure mode
+  - distance too close to the webcam can still collapse into `face_missing`
+  - cropped faces can now unlock `LOCKED` through the crop-validity path
+  - motion-triggered unlock now behaves more predictably than the old bbox-only check
+- kept the final `full` lock behavior conservative but readable:
+  - `face_missing = 2`
+  - `movement = 1`
+  - `crop = 1`
+
 ---

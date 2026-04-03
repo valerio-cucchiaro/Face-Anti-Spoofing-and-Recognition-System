@@ -41,11 +41,11 @@ THRESHOLD_AREA = 8000
 
 # ----- PAD TEMPORAL SMOOTHING ----- #
 PAD_WINDOW_SIZE = 5
-PAD_RUN_INTERVAL = 3
+PAD_RUN_INTERVAL = 2
 PAD_LIVE_LOCK_CONFIRMATIONS = 3
 
 # ----- PAD HYSTERESIS THRESHOLDS ----- #
-PAD_ENTER_LIVE_THRESHOLD = 0.70
+PAD_ENTER_LIVE_THRESHOLD = 0.65
 PAD_EXIT_LIVE_THRESHOLD = 0.55
 PAD_ENTER_SPOOF_THRESHOLD = 0.30
 PAD_EXIT_SPOOF_THRESHOLD = 0.45
@@ -80,8 +80,12 @@ RUNTIME_RECOGNITION_THRESHOLD = 45.0
 # ----- SESSION RESET RULES ----- #
 SESSION_RESET_AFTER_MISSES = 10
 LOCK_RESET_AFTER_MISSING_FACE = 2
-LOCK_RESET_AFTER_UNSTABLE_BBOX = 3
-LOCK_RESET_AFTER_INVALID_CROP = 3
+LOCK_RESET_AFTER_MOVEMENT = 1
+LOCK_RESET_AFTER_INVALID_CROP = 1
+LOCK_MOVEMENT_MAX_DELTA_X = 18
+LOCK_MOVEMENT_MAX_DELTA_Y = 18
+LOCK_MOVEMENT_MAX_DELTA_W = 24
+LOCK_MOVEMENT_MAX_DELTA_H = 24
 
 # ----- RUNTIME DEBUG ----- #
 FULL_RUNTIME_VERBOSE_LOGS = False
@@ -711,6 +715,15 @@ def run_pipeline_full():
             session_state.previous_face_rect,
         )
         bbox_stable = stability_result["is_stable"]
+        movement_result = evaluate_bbox_stability(
+            current_face_rect,
+            session_state.previous_face_rect,
+            max_delta_x=LOCK_MOVEMENT_MAX_DELTA_X,
+            max_delta_y=LOCK_MOVEMENT_MAX_DELTA_Y,
+            max_delta_w=LOCK_MOVEMENT_MAX_DELTA_W,
+            max_delta_h=LOCK_MOVEMENT_MAX_DELTA_H,
+        )
+        movement_detected = not movement_result["is_stable"]
         session_state.store_face_rect(current_face_rect)
 
         if session_state.current_phase == RuntimeSessionState.DETECT:
@@ -738,13 +751,18 @@ def run_pipeline_full():
                         "label": None,
                         "score": None,
                     }
+            else:
+                pad_result = None
 
+            if should_run_pad:
                 pad_state_result = pad_runtime_state.update(
                     pad_result=pad_result,
                     frame_usable=pad_frame_usable,
                     face_missing=False,
                 )
                 session_state.store_pad_result(pad_state_result)
+            else:
+                pad_state_result = session_state.last_pad_result
 
             pad_display_state.update(
                 face_present=True,
@@ -801,22 +819,19 @@ def run_pipeline_full():
             )
 
         elif session_state.current_phase == RuntimeSessionState.RECOGNITION_LOCKED:
-            session_state.register_locked_bbox_stability(bbox_stable)
-            session_state.register_locked_crop_validity(
-                quality_result["is_valid_crop"]
-            )
+            session_state.register_locked_movement(movement_detected)
+            session_state.register_locked_crop_validity(quality_result["is_valid_crop"])
 
             if (
-                session_state.locked_unstable_counter >= LOCK_RESET_AFTER_UNSTABLE_BBOX
+                session_state.locked_movement_counter
+                >= LOCK_RESET_AFTER_MOVEMENT
             ):
                 session_state.transition_to(RuntimeSessionState.RESET)
-                log_runtime_event("Reset: abrupt movement")
             elif (
                 session_state.locked_invalid_crop_counter
                 >= LOCK_RESET_AFTER_INVALID_CROP
             ):
                 session_state.transition_to(RuntimeSessionState.RESET)
-                log_runtime_event("Reset: face crop lost")
 
             if session_state.current_phase == RuntimeSessionState.RESET:
                 (

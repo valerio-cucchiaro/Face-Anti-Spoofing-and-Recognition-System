@@ -34,6 +34,7 @@
   - source: `custom_orl_to_orl`
 
 Nota:
+
 - la soglia offline e la soglia runtime non coincidono volutamente
 - la prima e` una reference evaluator-side
 - la seconda e` la soglia live stabilizzata nei test webcam
@@ -51,7 +52,7 @@ Nota:
 | Run | Gallery / identities | Probe | Accuracy | Genuine | Impostor | Threshold suggerita | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `custom -> custom` | `60 / 2` | `20` | `1.0000` | `20` | `0` | `104.4171` fallback | sanity check custom |
-| `custom_orl -> custom` | `260 / 42` | `20` | `1.0000` | `20` | `0` | `104.4171` fallback | mix realistico, perfetto su custom |
+| `custom_orl -> custom` | `260 / 42` | `20` | `1.0000` | `20` | `0` | `45.4040` fallback | mix realistico, perfetto su custom |
 | `orl -> orl` | `200 / 40` | `200` | `0.9200` | `184` | `16` | `89.9169` midpoint | run valido per threshold offline |
 | `custom_orl -> orl` | `260 / 42` | `200` | `0.9200` | `184` | `16` | `89.9169` midpoint | run valido per threshold offline |
 | `all -> custom` | `3788 / 943` | `20` | `0.8500` | `17` | `3` | `88.9671` midpoint | confronto completo con LFW |
@@ -62,7 +63,7 @@ Nota:
 
 | Run | Gallery / identities | Probe | Accuracy | Genuine | Impostor | Threshold suggerita | Tempo totale |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `all -> custom` | `3788 / 943` | `20` | `0.8500` | `17` | `3` | `94.7661` | `42.25s` |
+| `custom_orl -> custom` | `260 / 42` | `20` | `1.0000` | `20` | `0` | `45.4040` | `1.35s` |
 
 ### Run storico `all -> all`
 

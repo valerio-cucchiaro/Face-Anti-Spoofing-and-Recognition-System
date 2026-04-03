@@ -49,6 +49,9 @@ def extract_pad_features_from_crop(
 
     This is the canonical post-crop path shared by runtime inference
     helpers and by training loaders that operate on saved PAD crops.
+    When enabled, the shared quality gate rejects only geometrically
+    invalid crops before preprocessing; callers that want stricter
+    blur rejection should inspect the quality result explicitly.
     """
 
     gray_face = convert_pad_crop_to_grayscale(face_crop)
@@ -87,6 +90,9 @@ def extract_pad_features_from_crop_with_timing(
     """
     Extract PAD features from an already built PAD crop together with
     timing information for preprocessing and feature blocks.
+
+    This helper mirrors the canonical post-crop path and exposes the
+    same optional quality gate used by offline loaders.
     """
 
     timings_ms = {}

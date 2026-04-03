@@ -23,6 +23,7 @@ model to distinguish between live faces and spoof attacks.
 import joblib
 import time
 import numpy as np
+import cv2
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
 from src.antispoofing.pad_model_config import (
@@ -100,6 +101,58 @@ def get_live_score_details(classifier, X_test_scaled):
     return None, None
 
 
+def compute_runtime_crop_diagnostics(sample_path):
+    """
+    Compute simple image diagnostics for a PAD crop.
+
+    These are lightweight proxies for lighting, contrast, blur, and
+    coarse asymmetry so runtime false results can be inspected more
+    usefully from the batch logs.
+    """
+
+    if sample_path is None:
+        return None
+
+    image = cv2.imread(str(sample_path), cv2.IMREAD_GRAYSCALE)
+    if image is None or image.size == 0:
+        return {
+            "mean": float("nan"),
+            "std": float("nan"),
+            "lap_var": float("nan"),
+            "dark_ratio": float("nan"),
+            "bright_ratio": float("nan"),
+            "lr_delta": float("nan"),
+            "tb_delta": float("nan"),
+        }
+
+    image_f = image.astype(np.float32)
+    height, width = image.shape[:2]
+    half_w = max(width // 2, 1)
+    half_h = max(height // 2, 1)
+    left = image_f[:, :half_w]
+    right = image_f[:, half_w:]
+    top = image_f[:half_h, :]
+    bottom = image_f[half_h:, :]
+
+    mean_value = float(image_f.mean())
+    std_value = float(image_f.std())
+    lap_var = float(cv2.Laplacian(image, cv2.CV_64F).var())
+    dark_ratio = float((image_f < 80.0).mean())
+    bright_ratio = float((image_f > 200.0).mean())
+    lr_delta = float(abs(left.mean() - right.mean())) if right.size > 0 else 0.0
+    tb_delta = float(abs(top.mean() - bottom.mean())) if bottom.size > 0 else 0.0
+
+    return {
+        "mean": mean_value,
+        "std": std_value,
+        "lap_var": lap_var,
+        "dark_ratio": dark_ratio,
+        "bright_ratio": bright_ratio,
+        "lr_delta": lr_delta,
+        "tb_delta": tb_delta,
+    }
+
+
 def print_live_false_negative_analysis(dataset_name, y_test, y_pred, sample_paths, score_values, score_label, limit):
     """
     Print the live samples predicted as spoof so they can be inspected later.
@@ -123,11 +176,73 @@ def print_live_false_negative_analysis(dataset_name, y_test, y_pred, sample_path
         line = f"[LIVE_FN {rank:02d}] path={sample_paths[index]}"
         if score_values is not None:
             line += f" | {score_label}={score_values[index]:.4f}"
+        diagnostics = compute_runtime_crop_diagnostics(sample_paths[index])
+        if diagnostics is not None:
+            line += (
+                f" | mean={diagnostics['mean']:.1f}"
+                f" | std={diagnostics['std']:.1f}"
+                f" | lap={diagnostics['lap_var']:.1f}"
+                f" | dark={diagnostics['dark_ratio']:.2f}"
+                f" | bright={diagnostics['bright_ratio']:.2f}"
+                f" | lr={diagnostics['lr_delta']:.1f}"
+                f" | tb={diagnostics['tb_delta']:.1f}"
+            )
         print(line)
 
     if limit is not None and len(false_negative_indices) > limit:
         print(
             f"... truncated {len(false_negative_indices) - limit} additional live false negatives "
+            f"(limit={limit})"
+        )
+
+
+def print_spoof_false_positive_analysis(
+    dataset_name,
+    y_test,
+    y_pred,
+    sample_paths,
+    score_values,
+    score_label,
+    limit,
+):
+    """
+    Print the spoof samples predicted as live so they can be inspected later.
+    """
+
+    if not sample_paths:
+        return
+
+    false_positive_indices = np.where((y_test == 0) & (y_pred == 1))[0]
+    print(f"Spoof false positives ({dataset_name}): {len(false_positive_indices)}")
+
+    if len(false_positive_indices) == 0:
+        return
+
+    if score_values is not None:
+        false_positive_indices = sorted(false_positive_indices, key=lambda idx: score_values[idx], reverse=True)
+
+    selected_indices = false_positive_indices if limit is None else false_positive_indices[:limit]
+
+    for rank, index in enumerate(selected_indices, start=1):
+        line = f"[SPOOF_FP {rank:02d}] path={sample_paths[index]}"
+        if score_values is not None:
+            line += f" | {score_label}={score_values[index]:.4f}"
+        diagnostics = compute_runtime_crop_diagnostics(sample_paths[index])
+        if diagnostics is not None:
+            line += (
+                f" | mean={diagnostics['mean']:.1f}"
+                f" | std={diagnostics['std']:.1f}"
+                f" | lap={diagnostics['lap_var']:.1f}"
+                f" | dark={diagnostics['dark_ratio']:.2f}"
+                f" | bright={diagnostics['bright_ratio']:.2f}"
+                f" | lr={diagnostics['lr_delta']:.1f}"
+                f" | tb={diagnostics['tb_delta']:.1f}"
+            )
+        print(line)
+
+    if limit is not None and len(false_positive_indices) > limit:
+        print(
+            f"... truncated {len(false_positive_indices) - limit} additional spoof false positives "
             f"(limit={limit})"
         )
 
@@ -190,6 +305,15 @@ def evaluate_single_pad_dataset(
 
     if log_live_false_negatives and eval_mode == "runtime":
         print_live_false_negative_analysis(
+            dataset_name,
+            y_test,
+            y_pred,
+            sample_paths,
+            score_values,
+            score_label,
+            live_false_negative_limit,
+        )
+        print_spoof_false_positive_analysis(
             dataset_name,
             y_test,
             y_pred,

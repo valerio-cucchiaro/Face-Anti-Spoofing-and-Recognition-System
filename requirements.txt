@@ -5,3 +5,4 @@ scikit-learn==1.8.0
 scikit-image==0.26.0
 joblib==1.5.3
 mediapipe==0.10.21
+pytest==9.0.2

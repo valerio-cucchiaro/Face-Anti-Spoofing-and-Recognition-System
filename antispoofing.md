@@ -14,17 +14,20 @@
 ### Training augmentation promossa
 
 - augmentation live fotometrica: `mix`
-- augmentation scope promossa: `runtime_only`
+- augmentation scope promossa in `fast`: `runtime_only`
 - stato:
   - validata in `fast`
-  - da verificare ancora in `full`
+  - `full` migliore ora: `mix` su tutti i live
 
 ### Configurazione in uso adesso
 
 - feature set: `baseline + TGSD + GGD(LFT)_light`
 - TGSD: `tau170 | sobel | top5`
-- augmentation training: `runtime-only mix`
-- questa e` la configurazione corrente da considerare riferimento operativo
+- augmentation training di riferimento `fast`: `runtime-only mix`
+- PAD runtime: finestra `5` piena prima della decisione
+- PAD runtime: `enter_live = 0.65`, `enter_spoof = 0.30`
+- PAD runtime: `PAD_RUN_INTERVAL = 2` in `fast` e `full`
+- prossimo test `full` da provare: `mix` su tutti i live
 
 ## Test Fast
 
@@ -65,7 +68,9 @@
 | Run | Configurazione | CASIA | Replay | Runtime | Note |
 | --- | --- | --- | --- | --- | --- |
 | `full` feature validation | `baseline + TGSD + GGD(LFT)_light` con `tau170 | sobel | top5` | `0.9453 / 0.7699 / 0.7898 / 0.7797` | `0.9541 / 0.9462 / 0.8347 / 0.8870` | `0.8400 / 1.0000 / 0.5000 / 0.6667` | conferma del feature set promosso |
-| `full` current setup | `baseline + TGSD + GGD(LFT)_light` + `runtime-only mix` | `TBD` | `TBD` | `TBD` | **da lanciare e compilare** |
+| `full` runtime-only mix | `baseline + TGSD + GGD(LFT)_light` + `runtime-only mix` | `0.9451 / 0.7693 / 0.7894 / 0.7792` | `0.9542 / 0.9466 / 0.8347 / 0.8871` | `0.8240 / 1.0000 / 0.4500 / 0.6207` | runtime-only non confermata |
+| `full` all-live mix | `baseline + TGSD + GGD(LFT)_light` + `mix` su tutti i live | `0.9451 / 0.7693 / 0.7894 / 0.7792` | `0.9577 / 0.9319 / 0.8674 / 0.8985` | `0.8560 / 1.0000 / 0.5500 / 0.7097` | riferimento precedente |
+| `full` all-live mix + nuovi live | `baseline + TGSD + GGD(LFT)_light` + `mix` su tutti i live | `0.9447 / 0.7538 / 0.8154 / 0.7834` | `0.9601 / 0.9363 / 0.8744 / 0.9043` | `0.8960 / 0.9355 / 0.7250 / 0.8169` | **miglior full attuale** |
 
 Legenda metrica nelle celle:
 - `accuracy / precision / recall / f1`
@@ -80,12 +85,15 @@ Legenda metrica nelle celle:
 - `tgsd_gradient_operator = sobel`
 - `tgsd_top_percent = 0.05`
 - augmentation mode: `mix`
-- augmentation scope: `runtime_only`
+- augmentation scope: `all`
 
 ### Nota
 
 - il `full` attualmente documentato conferma bene il feature set
-- il vero `full` coerente con la configurazione corrente deve ancora essere eseguito con `runtime-only mix`
+- `runtime-only mix` migliora il `fast` ma non e` stata confermata nel `full`
+- il `full` migliore attuale e` `mix` su tutti i live, con i nuovi live aggiunti
+- il runtime `full` ora usa lock piu` leggibile: `face_missing=2`, `movement=1`, `crop=1`
+- `cv` e` allineato al `full` su PAD interval e soglia `enter_live`, ma mantiene i log diagnostici su distanza e luce
 
 ## Test Archiviati
 
@@ -139,10 +147,13 @@ Legenda metrica nelle celle:
 
 - augmentation promossa:
   - `mix`
-  - scope `runtime_only`
+  - scope `runtime_only` in `fast`
 - miglior risultato `fast` attuale:
   - `0.880 / 1.0000 / 0.625 / 0.7692`
   - confusion matrix `[[85, 0], [15, 25]]`
+- migliore `full` attuale:
+  - `0.8560 / 1.0000 / 0.5500 / 0.7097`
+  - confusion matrix `[[85, 0], [18, 22]]`
 
 ## Roadmap Operativa
 
@@ -153,18 +164,16 @@ Legenda metrica nelle celle:
 - spoof: forte
 - live: ancora il problema aperto
 - setup `fast` attuale: definito
-- setup `full` con configurazione attuale completa: ancora da verificare
+- `full` migliore attuale: `mix` su tutti i live
+- runtime `full`: pulito dai log di debug, resta solo il flusso di fase
+- runtime `cv`: usato come banco diagnostico per distanza, controluce e reattivita` del PAD
 
 ### Prossimi passi
 
-1. eseguire il `full` con:
-   - `baseline + TGSD + GGD(LFT)_light`
-   - `tau170 | sobel | top5`
-   - `runtime-only mix`
-2. aggiornare la tabella `full` con i risultati reali
-3. dopo il `full`, decidere se il problema residuo richiede:
-   - analisi piu` profonda dei `live` falsi negativi
-   - oppure lavoro mirato sui dati runtime/live
+1. tenere il `full` attuale come baseline operativa.
+2. usare `cv` per verificare se il limite residuo e` davvero controluce/distanza o solo soglia.
+3. raccogliere altri live mirati solo se i casi difficili restano riproducibili.
+4. pulire i log debug quando il comportamento del runtime e` definitivamente confermato.
 
 ### Cose da non riaprire adesso
 
@@ -180,9 +189,41 @@ Legenda metrica nelle celle:
 - configurazione attuale in uso:
   - `baseline + TGSD + GGD(LFT)_light`
   - `tau170 | sobel | top5`
-  - `runtime-only mix`
+  - `runtime-only mix` come riferimento `fast`
 - stato validazione:
-  - `fast`: validato
-  - `full`: da completare con la stessa configurazione
+  - `fast`: validato con `runtime-only mix`
+  - `full`: migliore `mix` su tutti i live, con i nuovi live aggiunti
 - problema aperto reale:
   - robustezza dei `live`
+  - controluce e distanza troppo corta
+
+### Runtime PAD
+
+- PAD window: `5`
+- decisione solo a finestra piena
+- soglie attuali:
+  - `enter_live = 0.65`
+  - `exit_live = 0.55`
+  - `enter_spoof = 0.30`
+  - `exit_spoof = 0.45`
+- lock runtime:
+  - `face_missing = 2`
+  - `movement = 1`
+  - `crop = 1`
+- lettura pratica:
+  - `live` entra piu` facilmente del vecchio `0.70`
+  - `spoof` resta severo
+  - controluce e foto da telefono sono gestiti bene, ma la webcam puo` ancora restare conservativa nei casi sporchi
+
+## Osservazioni Runtime Live
+
+| Scenario | Esito | Nota |
+| --- | --- | --- |
+| `no light` | migliore | quasi sempre `live` |
+| `luce laterale` | borderline | ogni tanto fatica e oscilla |
+| `luce dietro` | peggiore | va quasi sempre in `spoof` |
+| `vicino alla webcam` | fragile | la distanza pesa molto |
+| `tablet/foto` | corretto | spoof forte, recupero lento ma coerente |
+
+- lettura attuale: il PAD e` robusto nel caso pulito, ma diventa conservativo con controluce e distanza ridotta
+- prossima verifica: capire se il margine residuo su live va ancora corretto con nuovi dati o e` ormai accettabile per la demo

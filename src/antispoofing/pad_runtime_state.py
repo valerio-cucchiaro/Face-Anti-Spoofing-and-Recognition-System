@@ -32,6 +32,7 @@ class PadRuntimeState:
         Initialize the runtime PAD state and its temporal thresholds.
         """
 
+        self.window_size = window_size
         self.pad_history = deque(maxlen=window_size)
         self.pad_state = "unknown"
         self.missing_face_counter = 0
@@ -92,6 +93,9 @@ class PadRuntimeState:
         if mean_live_probability is None:
             self.pad_state = "unknown"
 
+        elif len(self.pad_history) < self.window_size:
+            self.pad_state = "unknown"
+
         elif self.pad_state == "unknown":
             if mean_live_probability >= self.enter_live_threshold:
                 self.pad_state = "live"
@@ -124,3 +128,10 @@ class PadRuntimeState:
             "current_score": current_score,
             "missing_face_counter": self.missing_face_counter,
         }
+
+    def get_history_snapshot(self):
+        """
+        Return a compact snapshot of the current temporal PAD window.
+        """
+
+        return [round(value, 3) for value in self.pad_history]

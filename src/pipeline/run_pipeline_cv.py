@@ -32,10 +32,10 @@ THRESHOLD_AREA = 8000
 
 # ----- PAD TEMPORAL SMOOTHING ----- #
 PAD_WINDOW_SIZE = 5
-PAD_RUN_INTERVAL = 3
+PAD_RUN_INTERVAL = 2
 
 # ----- PAD HYSTERESIS THRESHOLDS ----- #
-PAD_ENTER_LIVE_THRESHOLD = 0.70
+PAD_ENTER_LIVE_THRESHOLD = 0.65
 PAD_EXIT_LIVE_THRESHOLD = 0.55
 PAD_ENTER_SPOOF_THRESHOLD = 0.30
 PAD_EXIT_SPOOF_THRESHOLD = 0.45
@@ -49,6 +49,10 @@ DISPLAY_LIVE_EXIT_INCOHERENT = 3
 DISPLAY_SPOOF_EXIT_INCOHERENT = 2
 DISPLAY_HOLD_SECONDS = 1.0
 DISPLAY_PAD_MIN_ANALYZING_SECONDS = 1.0
+
+# ----- DISTANCE BANDS (FACE AREA RATIO) ----- #
+PAD_DISTANCE_FAR_MAX_AREA_RATIO = 0.08
+PAD_DISTANCE_MID_MAX_AREA_RATIO = 0.16
 
 
 def log_cv_event(message):
@@ -326,6 +330,93 @@ def build_pad_timing_summary(pad_timings):
     return " | ".join(timing_parts)
 
 
+def format_optional_float(value, digits=2):
+    """
+    Format an optional float for compact PAD diagnostics.
+    """
+
+    if value is None:
+        return "None"
+    return f"{value:.{digits}f}"
+
+
+def build_pad_spatial_summary(frame_shape, face_rect):
+    """
+    Summarize face position and size to help reason about distance and pose.
+    """
+
+    frame_h, frame_w = frame_shape[:2]
+    x, y, w, h = face_rect
+    frame_area = float(frame_w * frame_h) if frame_w and frame_h else 0.0
+    face_area = float(w * h)
+    face_area_ratio = face_area / frame_area if frame_area > 0 else 0.0
+
+    face_center_x = x + (w / 2.0)
+    face_center_y = y + (h / 2.0)
+    frame_center_x = frame_w / 2.0 if frame_w else 0.0
+    frame_center_y = frame_h / 2.0 if frame_h else 0.0
+
+    offset_x = (
+        (face_center_x - frame_center_x) / frame_center_x if frame_center_x else 0.0
+    )
+    offset_y = (
+        (face_center_y - frame_center_y) / frame_center_y if frame_center_y else 0.0
+    )
+
+    return (
+        f"bbox_area={face_area_ratio:.3f} | "
+        f"center_offset_x={offset_x:.3f} | "
+        f"center_offset_y={offset_y:.3f}"
+    )
+
+
+def build_pad_light_summary(gray_crop):
+    """
+    Summarize crop brightness, contrast and simple asymmetry proxies.
+    """
+
+    if gray_crop is None or gray_crop.size == 0:
+        return "crop_light=None"
+
+    crop_mean = float(gray_crop.mean())
+    crop_std = float(gray_crop.std())
+    crop_lap = float(cv2.Laplacian(gray_crop, cv2.CV_64F).var())
+    dark_ratio = float((gray_crop < 80).mean())
+    bright_ratio = float((gray_crop > 200).mean())
+
+    mid_x = gray_crop.shape[1] // 2
+    mid_y = gray_crop.shape[0] // 2
+    left_mean = float(gray_crop[:, :mid_x].mean()) if mid_x > 0 else crop_mean
+    right_mean = float(gray_crop[:, mid_x:].mean()) if mid_x > 0 else crop_mean
+    top_mean = float(gray_crop[:mid_y, :].mean()) if mid_y > 0 else crop_mean
+    bottom_mean = float(gray_crop[mid_y:, :].mean()) if mid_y > 0 else crop_mean
+
+    lr_delta = right_mean - left_mean
+    tb_delta = bottom_mean - top_mean
+
+    return (
+        f"mean={crop_mean:.1f} | "
+        f"std={crop_std:.1f} | "
+        f"lap={crop_lap:.1f} | "
+        f"dark={dark_ratio:.2f} | "
+        f"bright={bright_ratio:.2f} | "
+        f"lr={lr_delta:.1f} | "
+        f"tb={tb_delta:.1f}"
+    )
+
+
+def classify_pad_distance_band(face_area_ratio):
+    """
+    Classify a face crop into a coarse distance band.
+    """
+
+    if face_area_ratio >= PAD_DISTANCE_MID_MAX_AREA_RATIO:
+        return "near"
+    if face_area_ratio >= PAD_DISTANCE_FAR_MAX_AREA_RATIO:
+        return "mid"
+    return "far"
+
+
 def build_pad_log_signature(pad_state_result, pad_frame_usable, pad_timings):
     """
     Build a compact signature used to suppress repeated PAD log lines.
@@ -366,7 +457,6 @@ def run_pipeline_cv():
     frame_counter = 0
     previous_face_rect = None
     last_timing_text = "features: waiting"
-    last_logged_signature = None
     last_pad_state_result = {
         "final_label": "unknown",
         "mean_live_probability": None,
@@ -375,6 +465,13 @@ def run_pipeline_cv():
         "current_score": None,
         "missing_face_counter": 0,
     }
+    distance_band_counts = {
+        "near": {"live": 0, "spoof": 0, "unknown": 0},
+        "mid": {"live": 0, "spoof": 0, "unknown": 0},
+        "far": {"live": 0, "spoof": 0, "unknown": 0},
+    }
+    last_logged_distance_band = None
+    last_logged_final_label = None
     startup_started_at = time.monotonic()
     log_cv_event(f"PAD run interval: {PAD_RUN_INTERVAL}")
     log_cv_event(
@@ -449,6 +546,9 @@ def run_pipeline_cv():
 
         x, y, w, h = face_rect
         current_face_rect = (x, y, w, h)
+        frame_area = float(frame.shape[0] * frame.shape[1])
+        face_area_ratio = (float(w * h) / frame_area) if frame_area > 0 else 0.0
+        distance_band = classify_pad_distance_band(face_area_ratio)
         stability_result = evaluate_bbox_stability(
             current_face_rect,
             previous_face_rect,
@@ -460,6 +560,8 @@ def run_pipeline_cv():
             pad_face_crop,
             PAD_MIN_VARIANCE_LAPLACIAN,
         )
+        spatial_text = build_pad_spatial_summary(frame.shape, face_rect)
+        light_text = build_pad_light_summary(pad_face_crop)
         pad_frame_usable = (
             quality_result["is_frame_usable_for_history"]
             and stability_result["is_stable"]
@@ -494,27 +596,37 @@ def run_pipeline_cv():
             )
             pad_timings = pad_result.get("timings_ms", {})
             last_timing_text = build_pad_timing_summary(pad_timings)
-            current_signature = build_pad_log_signature(
-                pad_state_result,
-                pad_frame_usable,
-                pad_timings,
+            final_label = pad_state_result["final_label"]
+            if final_label not in distance_band_counts[distance_band]:
+                final_label = "unknown"
+            distance_band_counts[distance_band][final_label] += 1
+            should_log_details = (
+                distance_band != last_logged_distance_band
+                or (
+                    final_label in ("live", "spoof")
+                    and final_label != last_logged_final_label
+                )
             )
-            if current_signature != last_logged_signature:
+            if should_log_details:
                 log_cv_event(
                     "PAD check: "
                     f"feature_set={active_feature_set} | "
+                    f"distance_band={distance_band} | "
                     f"usable={pad_frame_usable} | "
                     f"current={pad_state_result['current_label']} | "
                     f"score={score_text} | "
                     f"final={pad_state_result['final_label']} | "
                     f"avg_live={avg_live_text} | "
+                    f"{spatial_text} | "
+                    f"{light_text} | "
                     f"{last_timing_text}"
                 )
-                last_logged_signature = current_signature
+                last_logged_distance_band = distance_band
+                if final_label in ("live", "spoof"):
+                    last_logged_final_label = final_label
         else:
             pad_state_result = last_pad_state_result
 
-        final_pad_label = pad_state_result["final_label"]
         mean_live_probability = pad_state_result["mean_live_probability"]
         display_state.update(
             face_present=True,
@@ -551,3 +663,14 @@ def run_pipeline_cv():
 
     cap.release()
     cv2.destroyAllWindows()
+
+    log_cv_event("Distance band summary (PAD checks):")
+    for band in ("near", "mid", "far"):
+        band_counts = distance_band_counts[band]
+        total = band_counts["live"] + band_counts["spoof"] + band_counts["unknown"]
+        log_cv_event(
+            f"{band}: total={total} | "
+            f"live={band_counts['live']} | "
+            f"spoof={band_counts['spoof']} | "
+            f"unknown={band_counts['unknown']}"
+        )

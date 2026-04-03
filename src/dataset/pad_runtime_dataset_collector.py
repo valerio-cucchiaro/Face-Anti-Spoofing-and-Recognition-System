@@ -40,7 +40,7 @@ THRESHOLD_AREA = 8000
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 RUNTIME_DATASET_ROOT = PROJECT_ROOT / "data" / "pad_runtime_dataset"
-DATASET_SPLIT = "test"     # train or test
+DATASET_SPLIT = "train"     # train or test
 
 MAX_IMAGES_LIVE = 80
 MAX_IMAGES_SPOOF = 100
@@ -178,7 +178,7 @@ def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
             # Show crop preview
-            cv2.imshow("PAD Face Crop", pad_face_crop)
+            # cv2.imshow("PAD Face Crop", pad_face_crop)
 
             if not quality_result["is_valid_crop"]:
                 if not quality_result["is_large_enough"]:
