@@ -19,7 +19,7 @@ from pathlib import Path
 # ----- CONSTANTS ----- #
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
 LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
-DEFAULT_PREDICTION_THRESHOLD = 45.0
+DEFAULT_PREDICTION_THRESHOLD = 44.0
 
 
 def load_recognizer():

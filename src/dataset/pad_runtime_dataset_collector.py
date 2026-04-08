@@ -42,8 +42,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 RUNTIME_DATASET_ROOT = PROJECT_ROOT / "data" / "pad_runtime_dataset"
 DATASET_SPLIT = "train"     # train or test
 
-MAX_IMAGES_LIVE = 80
-MAX_IMAGES_SPOOF = 100
+MAX_IMAGES_LIVE = 120
+MAX_IMAGES_SPOOF = 120
 
 
 def get_next_image_index(folder_path):

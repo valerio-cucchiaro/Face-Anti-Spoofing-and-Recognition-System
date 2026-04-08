@@ -1164,3 +1164,49 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
   - `crop = 1`
 
 ---
+
+## 2026/04/07
+
+**Recognition Runtime Diagnostics and Light Robustness Tests**:
+
+- extended the recognition-only runtime `src/pipeline/run_pipeline_bs.py` with structured diagnostics for:
+  - face bbox geometry
+  - bbox delta against the previous frame
+  - crop quality gate reasons
+  - compact light bands (`good_light`, `mid_light`, `bad_light`)
+- kept the recognition runtime separate from PAD while reusing the shared recognition preprocessing pipeline
+- added periodic and final runtime summaries to track:
+  - accepted / rejected checks
+  - confidence statistics
+  - light-band counts
+  - overlay transitions
+
+**Runtime Threshold Sweep on `valerio`**:
+
+- ran controlled live recognition tests on the custom runtime with different thresholds:
+  - `44.0` without strong side light: stable and permissive
+  - `40.0` without strong side light: too strict
+  - `41.0` without strong side light: best compromise
+  - `44.0` with strong side light: strongly unstable and biased toward `Unknown`
+- concluded that the live runtime threshold around `41.0` is the best compromise for the normal webcam setup
+
+**Lighting Corruption Experiments**:
+
+- added temporary runtime-only light compensation experiments to understand whether photometric fixes could stabilize LBPH under uneven lighting
+- tested `CLAHE` on the runtime crop:
+  - the logs showed that it often worsened recognition confidence
+  - the experiment was discarded
+- tested a light `gamma` correction on the runtime crop:
+  - added per-frame diagnostics to compare `raw_confidence` vs `gamma_confidence`
+  - the logs showed that gamma helped only occasionally and worsened the result more often than it improved it
+  - the experiment was also discarded
+- reverted the runtime back to the base recognition preprocessing plus light diagnostics only
+
+**Recognition Reporting Update**:
+
+- updated `recognition.md` with:
+  - the live runtime threshold sweep
+  - the `CLAHE` runtime comparison
+  - the `gamma` runtime comparison
+  - a runtime-only roadmap separated from the dataset-related work
+- clarified that the remaining problem is not just brightness, but the combination of light asymmetry and crop consistency with LBPH

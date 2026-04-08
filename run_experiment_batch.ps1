@@ -103,46 +103,46 @@ function Invoke-LoggedPythonRun {
 Add-LogHeader -LogPath $recognitionLog -Title "RECOGNITION BATCH"
 Add-LogHeader -LogPath $padLog -Title "PAD BATCH"
 
-#$recognitionRuns = @(
-#    @{
-#        Label = "recognition | custom_orl -> custom"
-#        Args = @(
-#            "-m", "src.recognition.recognition_experiment_runner",
-#            "--train-mode", "custom_orl",
-#            "--eval-mode", "custom"
-#        )
-#    }
-#)
-
-#oreach ($run in $recognitionRuns) {
-#    Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
-#}
-
-$padRuns = @(
+$recognitionRuns = @(
     @{
-        Label = "pad | full | all-live-photo-aug-mix | baseline+tgsd+ggd | tau170 | sobel | top5"
+        Label = "recognition | custom -> custom"
         Args = @(
-            "-m", "src.antispoofing.training.pad_experiment_runner",
-            "--experiment-speed", "full",
-            "--train-mode", "combined_runtime",
-            "--eval-mode", "all",
-            "--pad-debug-feature-mode", "tgsd",
-            "--pad-lft-mode", "ggd_light",
-            "--tgsd-tau", "170",
-            "--tgsd-top-percent", "0.05",
-            "--tgsd-gradient-operator", "sobel",
-            "--augment-live-photometric",
-            "--augment-live-photometric-mode", "mix",
-            "--augment-live-photometric-scope", "all",
-            "--log-live-false-negatives",
-            "--live-false-negative-limit", "20"
+            "-m", "src.recognition.recognition_experiment_runner",
+            "--train-mode", "custom",
+            "--eval-mode", "custom"
         )
     }
 )
 
-foreach ($run in $padRuns) {
-    Invoke-LoggedPythonRun -LogPath $padLog -Label $run.Label -Arguments $run.Args
+foreach ($run in $recognitionRuns) {
+    Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
 }
+
+#$padRuns = @(
+#    @{
+#        Label = "pad | full | all-live-photo-aug-mix | baseline+tgsd+ggd | tau170 | sobel | top5"
+#        Args = @(
+#            "-m", "src.antispoofing.training.pad_experiment_runner",
+#            "--experiment-speed", "full",
+#            "--train-mode", "combined_runtime",
+#            "--eval-mode", "all",
+#            "--pad-debug-feature-mode", "tgsd",
+#            "--pad-lft-mode", "ggd_light",
+#            "--tgsd-tau", "170",
+#            "--tgsd-top-percent", "0.05",
+#            "--tgsd-gradient-operator", "sobel",
+#            "--augment-live-photometric",
+#            "--augment-live-photometric-mode", "mix",
+#            "--augment-live-photometric-scope", "all",
+#            "--log-live-false-negatives",
+#            "--live-false-negative-limit", "20"
+#        )
+#    }
+#)
+#
+#foreach ($run in $padRuns) {
+#    Invoke-LoggedPythonRun -LogPath $padLog -Label $run.Label -Arguments $run.Args
+#}
 
 if ($ShutdownWhenDone) {
     $shutdownDelayMinutes = [int]($shutdownDelaySeconds / 60)

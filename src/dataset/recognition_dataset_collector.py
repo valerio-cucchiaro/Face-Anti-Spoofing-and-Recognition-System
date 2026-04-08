@@ -27,7 +27,7 @@ from src.preprocessing.frame_preprocessing import get_valid_face
 
 # ----- CONSTANTS ----- #
 THRESHOLD_AREA = 8000
-PERSON = "francesca"
+PERSON = "carlo"
 MODE = "probe"      # gallery or probe
 MAX_IMAGES_GALLERY = 30
 MAX_IMAGES_PROBE = 10

@@ -65,6 +65,29 @@ Nota:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `custom_orl -> custom` | `260 / 42` | `20` | `1.0000` | `20` | `0` | `45.4040` | `1.35s` |
 
+### Test runtime BS live
+
+| Scenario | Threshold | Lettura sintetica | Nota |
+| --- | --- | --- | --- |
+| `valerio` senza luce laterale | `44.0` | `accepted=67`, `rejected=0`, `accepted_confidence=mean=40.52`, `min=38.95`, `max=42.28` | molto stabile, known sempre confermato |
+| `valerio` senza luce laterale | `40.0` | `accepted=72`, `rejected=84`, `accepted_confidence=mean=38.86`, `rejected_confidence=mean=40.84` | troppo severa, taglia parte del known |
+| `valerio` senza luce laterale | `41.0` | `accepted=94`, `rejected=16`, `accepted_confidence=mean=39.10`, `rejected_confidence=mean=42.15` | compromesso migliore, match pulito |
+| `valerio` con forte luce laterale | `44.0` | `accepted=4`, `rejected=241`, `rejected_confidence=mean=46.96` | condizione molto più instabile, tende a `Unknown` |
+
+### Confronto CLAHE runtime
+
+| Scenario | Threshold | Lettura sintetica | Nota |
+| --- | --- | --- | --- |
+| `valerio` con luce media, CLAHE attivo | `43.0` | `accepted=0`, `rejected=61`, `rejected_confidence=mean=45.83` | CLAHE runtime peggiora la recognition, da scartare |
+| `valerio` con luce media, CLAHE disattivo | `43.0` | `accepted=53`, `rejected=17`, `accepted_confidence=mean=41.83`, `rejected_confidence=mean=43.95` | base senza CLAHE molto piu` sana |
+
+### Confronto gamma runtime
+
+| Scenario | Threshold | Lettura sintetica | Nota |
+| --- | --- | --- | --- |
+| `valerio` con luce media, gamma runtime attiva | `43.0` | `accepted=0`, `rejected=33`, `rejected_confidence=mean=45.59`, `light_gamma_outcome=better=8`, `worse=21`, `equal=4` | la correzione gamma non porta un guadagno medio, da scartare |
+| `valerio` con luce media, base senza correzioni runtime | `43.0` | `accepted=53`, `rejected=17`, `accepted_confidence=mean=41.83`, `rejected_confidence=mean=43.95` | base migliore della gamma runtime |
+
 ### Run storico `all -> all`
 
 | Eval subset | Probe | Accuracy | Genuine | Impostor | Threshold suggerita | Note |
@@ -89,7 +112,7 @@ Nota:
 | Test | Config | `custom_orl -> custom` | `custom_orl -> orl` | Esito |
 | --- | --- | --- | --- | --- |
 | normalizzazione | `equalize` | `0.95` | `0.97` | scelta finale |
-| normalizzazione | `CLAHE` | `0.95` | `0.95` | non conviene |
+| normalizzazione | `CLAHE` | `0.95` | `0.95` | provato sul runtime, peggiora e non conviene |
 | normalizzazione | `none` | `1.00` | `0.965` | buono su custom, meno difendibile su ORL |
 | padding | `0.00` | `0.95` | `0.97` | buono ma inferiore |
 | padding | `0.05` | `0.90` | `0.96` | bocciato |
@@ -136,6 +159,7 @@ Nota:
 
 ### Cose ancora aperte
 
+- stabilita` del crop del volto e dell'estrazione dei dettagli prima della recognition
 - confidence piu` robusta oltre `threshold + voti temporali`
 - semantica piu` esplicita di `Unknown` vs stato incerto
 - logging runtime piu` strutturato nella pipeline `full`
@@ -143,11 +167,31 @@ Nota:
 
 ## Roadmap operativa
 
-1. controllare coerenza tra `run_pipeline_bs.py` e `run_pipeline_full.py` lato recognition
-2. verificare che runtime state, threshold e overlay siano davvero allineati
-3. ripulire eventuali residui di vecchie configurazioni o test nel ramo recognition
-4. verificare file/funzioni legacy non piu` usati
-5. solo dopo, riallineare commenti e docstring
+1. migliorare la stabilita` del crop e dell'estrazione del volto prima della recognition
+2. separare in modo piu` esplicito `candidate` e `final_name` nella pipeline runtime
+3. aggiungere o rafforzare una logica di lock temporaneo con isteresi
+4. raccogliere e ricalibrare la threshold runtime sui valori reali del runtime live
+5. ripulire la gallery e verificare la qualita` delle immagini per identita`
+6. controllare coerenza tra `run_pipeline_bs.py` e `run_pipeline_full.py` lato recognition
+7. verificare che runtime state, threshold e overlay siano davvero allineati
+8. ripulire eventuali residui di vecchie configurazioni o test nel ramo recognition
+9. verificare file/funzioni legacy non piu` usati
+10. solo dopo, riallineare commenti e docstring
+
+## Roadmap runtime-only
+
+Questa sotto-roadmap raccoglie i passi che migliorano la recognition in
+runtime senza toccare il preprocessing salvato nel dataset e senza
+richiedere una rigenerazione dei sample recognition.
+
+1. usare solo il modello `custom` come baseline runtime di confronto
+2. fare uno sweep delle soglie runtime live e confrontare i risultati
+3. introdurre un filtro piu` severo sui frame borderline prima della prediction
+4. alzare la severita` del filtro temporale prima del `final_name`
+5. rafforzare la logica di lock / isteresi per il nome mostrato in webcam
+6. aggiungere log runtime piu` strutturati su decisione, candidato, final e stabilita`
+7. confrontare i log di `bs` e `full` per verificare che il comportamento sia coerente
+8. solo dopo, decidere se il problema residuo e` davvero di preprocessing o di dataset
 
 ## Nota metodologica
 

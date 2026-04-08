@@ -32,7 +32,12 @@ import statistics
 import time
 
 from src.preprocessing.face_preprocessing import get_recognition_preprocessing_config
-from src.recognition.recognition_dataset_loader import load_probe_dataset, should_namespace_identities
+from src.recognition.face_recognizer import DEFAULT_PREDICTION_THRESHOLD
+from src.recognition.recognition_dataset_loader import (
+    load_probe_dataset,
+    normalize_identity_name,
+    should_namespace_identities,
+)
 
 
 # ----- CONSTANTS ----- #
@@ -41,6 +46,8 @@ LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lab
 RECOGNITION_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "recognition_config.json"
 EVAL_MODE = "orl"
 PROBE_PROGRESS_STEP = 100
+DEBUG_LABEL_MAP_PREVIEW_LIMIT = 10
+DEBUG_SAMPLE_PREVIEW_LIMIT = 10
 
 
 def load_trained_recognition_model():
@@ -146,6 +153,26 @@ def compute_suggested_threshold(genuine_scores, impostor_scores):
     return max_genuine + 5, "max_genuine_plus_5_fallback"
 
 
+def compute_open_set_threshold(known_scores, unknown_scores):
+    """
+    Compute a threshold suggestion for an open-set evaluation.
+
+    The goal is to separate accepted known identities from rejected
+    unknown identities using the LBPH confidence score, where lower is
+    better.
+    """
+    if not known_scores:
+        return None, "unavailable"
+
+    max_known = max(known_scores)
+
+    if unknown_scores:
+        min_unknown = min(unknown_scores)
+        return (max_known + min_unknown) / 2, "midpoint_max_known_min_unknown"
+
+    return max_known + 5, "max_known_plus_5_fallback"
+
+
 def compute_identity_accuracy(records):
     """
     Aggregate probe outcomes by true identity.
@@ -219,6 +246,66 @@ def evaluate_threshold_candidates(records, candidates):
     return threshold_results
 
 
+def evaluate_open_set_threshold_candidates(records, candidates):
+    """
+    Evaluate a few thresholds on an open-set probe collection.
+
+    The records are expected to include:
+    - ``split``: ``probe_known`` or ``probe_unknown`` for the custom dataset
+      (other probe splits are treated as known)
+    - ``identity``: ground-truth identity
+    - ``predicted_identity``: best-match identity produced by LBPH
+    - ``confidence``: LBPH confidence score
+    """
+    threshold_results = []
+
+    for candidate in candidates:
+        threshold = candidate["threshold"]
+
+        if threshold is None:
+            continue
+
+        known_accepted_correctly = 0
+        known_rejected_as_unknown = 0
+        known_accepted_wrongly_as_other_known = 0
+        unknown_rejected_correctly = 0
+        unknown_accepted_wrongly_as_known = 0
+
+        for record in records:
+            is_accepted = record["confidence"] < threshold
+            final_identity = (
+                record["predicted_identity"] if is_accepted else "Unknown"
+            )
+            is_unknown_split = record["split"] == "probe_unknown"
+
+            if is_unknown_split:
+                if final_identity == "Unknown":
+                    unknown_rejected_correctly += 1
+                else:
+                    unknown_accepted_wrongly_as_known += 1
+            else:
+                if final_identity == record["identity"]:
+                    known_accepted_correctly += 1
+                elif final_identity == "Unknown":
+                    known_rejected_as_unknown += 1
+                else:
+                    known_accepted_wrongly_as_other_known += 1
+
+        threshold_results.append(
+            {
+                "label": candidate["label"],
+                "threshold": threshold,
+                "known_accepted_correctly": known_accepted_correctly,
+                "known_rejected_as_unknown": known_rejected_as_unknown,
+                "known_accepted_wrongly_as_other_known": known_accepted_wrongly_as_other_known,
+                "unknown_rejected_correctly": unknown_rejected_correctly,
+                "unknown_accepted_wrongly_as_known": unknown_accepted_wrongly_as_known,
+            }
+        )
+
+    return threshold_results
+
+
 def print_score_statistics(name, stats):
     """
     Print a compact score-statistics block.
@@ -281,6 +368,217 @@ def print_threshold_analysis(threshold_results):
         )
 
 
+def print_open_set_threshold_analysis(threshold_results):
+    """
+    Print a compact open-set accept/reject analysis for candidate thresholds.
+    """
+    if not threshold_results:
+        print("Open-set threshold analysis: unavailable")
+        return
+
+    print("Open-set threshold analysis:")
+
+    for result in threshold_results:
+        print(
+            f"- {result['label']}: "
+            f"threshold={result['threshold']:.4f} | "
+            f"known_ok={result['known_accepted_correctly']} | "
+            f"known_reject={result['known_rejected_as_unknown']} | "
+            f"known_wrong_accept={result['known_accepted_wrongly_as_other_known']} | "
+            f"unknown_ok={result['unknown_rejected_correctly']} | "
+            f"unknown_wrong_accept={result['unknown_accepted_wrongly_as_known']}"
+        )
+
+
+def evaluate_custom_open_set_dataset(
+    train_mode,
+    recognizer,
+    label_map,
+    allow_config_update=False,
+):
+    """
+    Evaluate the custom recognition dataset as an open-set problem.
+
+    The custom gallery/probe layout is now split into ``probe_known`` and
+    ``probe_unknown`` so the evaluation can report acceptance and rejection
+    behavior separately for known and unknown identities.
+    """
+    print("=== RECOGNITION EVALUATION MODE: CUSTOM OPEN SET ===")
+    preprocessing_config = get_recognition_preprocessing_config()
+    print(
+        "Recognition preprocessing:",
+        f"normalization={preprocessing_config['normalization_mode']},",
+        f"padding_ratio={preprocessing_config['crop_padding_ratio']:.3f}",
+    )
+
+    load_start_time = time.perf_counter()
+    known_records, known_dataset_counts = load_probe_dataset(
+        "custom",
+        split="probe_known",
+        namespace_identities=False,
+    )
+    unknown_records, unknown_dataset_counts = load_probe_dataset(
+        "custom",
+        split="probe_unknown",
+        namespace_identities=False,
+    )
+    load_elapsed = time.perf_counter() - load_start_time
+
+    probe_records = known_records + unknown_records
+    if not probe_records:
+        print("No valid probe images found for evaluation.")
+        print()
+        return
+
+    print("Label map preview:")
+    for label_index, identity_name in sorted(label_map.items())[:DEBUG_LABEL_MAP_PREVIEW_LIMIT]:
+        print(f"- {label_index} -> {identity_name}")
+
+    known_scores = []
+    unknown_scores = []
+    evaluation_records = []
+
+    for index, record in enumerate(probe_records, start=1):
+        label, confidence = recognizer.predict(record["image"])
+        predicted_name = normalize_identity_name(label_map[label])
+        true_name = normalize_identity_name(record["identity"])
+        is_known_split = record["split"] == "probe_known"
+
+        if is_known_split:
+            known_scores.append(confidence)
+        else:
+            unknown_scores.append(confidence)
+
+        evaluation_records.append(
+            {
+                "split": record["split"],
+                "identity": true_name,
+                "predicted_label": label,
+                "predicted_identity": predicted_name,
+                "confidence": confidence,
+                "is_known_split": is_known_split,
+            }
+        )
+
+        if index <= DEBUG_SAMPLE_PREVIEW_LIMIT:
+            print(
+                "Sample preview:",
+                f"split={record['split']}",
+                f"true_raw={record['identity']}",
+                f"true_norm={true_name}",
+                f"label={label}",
+                f"predicted_norm={predicted_name}",
+                f"confidence={confidence:.4f}",
+            )
+
+        if index % PROBE_PROGRESS_STEP == 0:
+            print(f"Evaluated {index}/{len(probe_records)} probe images")
+
+    evaluation_threshold = DEFAULT_PREDICTION_THRESHOLD
+    accepted_known_correctly = 0
+    known_rejected_as_unknown = 0
+    known_accepted_wrongly_as_other_known = 0
+    unknown_rejected_correctly = 0
+    unknown_accepted_wrongly_as_known = 0
+
+    for record in evaluation_records:
+        is_accepted = record["confidence"] < evaluation_threshold
+        final_identity = record["predicted_identity"] if is_accepted else "Unknown"
+
+        if record["is_known_split"]:
+            if final_identity == record["identity"]:
+                accepted_known_correctly += 1
+            elif final_identity == "Unknown":
+                known_rejected_as_unknown += 1
+            else:
+                known_accepted_wrongly_as_other_known += 1
+        else:
+            if final_identity == "Unknown":
+                unknown_rejected_correctly += 1
+            else:
+                unknown_accepted_wrongly_as_known += 1
+
+    print("Probe samples:", len(probe_records))
+    print(f"Probe loading completed in {load_elapsed:.2f}s")
+    print(
+        "probe_known samples:",
+        sum(known_dataset_counts.values()),
+    )
+    print(
+        "probe_unknown samples:",
+        sum(unknown_dataset_counts.values()),
+    )
+    print(f"Using runtime threshold: {evaluation_threshold:.2f}")
+    print("Known accepted correctly:", accepted_known_correctly)
+    print("Known rejected as unknown:", known_rejected_as_unknown)
+    print("Known accepted wrongly as other known:", known_accepted_wrongly_as_other_known)
+    print("Unknown rejected correctly:", unknown_rejected_correctly)
+    print("Unknown accepted wrongly as known:", unknown_accepted_wrongly_as_known)
+
+    known_stats = compute_score_statistics(known_scores)
+    unknown_stats = compute_score_statistics(unknown_scores)
+
+    if known_stats is not None:
+        print("Mean known confidence:", known_stats["mean"])
+
+    if unknown_stats is not None:
+        print("Mean unknown confidence:", unknown_stats["mean"])
+
+    open_set_threshold, open_set_threshold_rule = compute_open_set_threshold(
+        known_scores,
+        unknown_scores,
+    )
+
+    if open_set_threshold is not None:
+        print("Suggested open-set threshold:", open_set_threshold)
+        print("Suggested open-set threshold rule:", open_set_threshold_rule)
+
+    current_evaluation_config = load_evaluation_threshold_config()
+    saved_evaluation_threshold = None
+    saved_evaluation_threshold_source = None
+    if current_evaluation_config is not None:
+        saved_evaluation_threshold = current_evaluation_config.get("unknown_threshold")
+        saved_evaluation_threshold_source = current_evaluation_config.get("threshold_source")
+        print(
+            "Saved evaluation threshold source:",
+            saved_evaluation_threshold_source or "unknown",
+        )
+
+    conservative_threshold = None
+    if open_set_threshold is not None and unknown_scores:
+        conservative_threshold = max(0.0, open_set_threshold - 5.0)
+
+    threshold_candidates = [
+        {
+            "label": "runtime_threshold",
+            "threshold": evaluation_threshold,
+        },
+        {
+            "label": "saved_evaluation_threshold",
+            "threshold": saved_evaluation_threshold,
+        },
+        {
+            "label": "suggested_open_set_threshold",
+            "threshold": open_set_threshold,
+        },
+        {
+            "label": "conservative_threshold",
+            "threshold": conservative_threshold,
+        },
+    ]
+    threshold_results = evaluate_open_set_threshold_candidates(
+        evaluation_records,
+        threshold_candidates,
+    )
+
+    print_score_statistics("Known", known_stats)
+    print_score_statistics("Unknown", unknown_stats)
+    print_open_set_threshold_analysis(threshold_results)
+
+    print(f"Evaluation completed in {time.perf_counter() - load_start_time:.2f}s")
+    print()
+
+
 def evaluate_single_recognition_dataset(
     train_mode,
     eval_mode,
@@ -296,6 +594,15 @@ def evaluate_single_recognition_dataset(
     a per-identity breakdown, a small threshold analysis, and optionally
     updates the stored offline threshold reference on disk.
     """
+    if eval_mode == "custom":
+        evaluate_custom_open_set_dataset(
+            train_mode,
+            recognizer,
+            label_map,
+            allow_config_update=allow_config_update,
+        )
+        return
+
     print(f"=== RECOGNITION EVALUATION MODE: {eval_mode.upper()} ===")
     preprocessing_config = get_recognition_preprocessing_config()
     print(
@@ -325,8 +632,8 @@ def evaluate_single_recognition_dataset(
 
     for index, record in enumerate(probe_records, start=1):
         label, confidence = recognizer.predict(record["image"])
-        predicted_name = label_map[label]
-        true_name = record["identity"]
+        predicted_name = normalize_identity_name(label_map[label])
+        true_name = normalize_identity_name(record["identity"])
 
         if predicted_name == true_name:
             genuine_scores.append(confidence)
