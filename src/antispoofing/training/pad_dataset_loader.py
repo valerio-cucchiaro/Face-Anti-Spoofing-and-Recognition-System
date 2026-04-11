@@ -8,12 +8,10 @@ attack detection (PAD) training pipeline.
 The loader supports both training and evaluation dataset loading,
 including single-dataset and combined-dataset variants.
 
-Depending on the declared dataset type, each image is processed as:
-- ``raw_frame``: detect face -> build shared PAD crop -> shared post-crop path
-- ``final_pad_crop``: shared post-crop path directly
-
-This keeps runtime PAD crops and raw public datasets aligned while
-making the input contract explicit.
+The active dataset contract is ``raw_frame``: images are treated as
+raw frames that still need detection, crop construction, and PAD
+feature extraction. ``final_pad_crop`` is retained only as a legacy
+compatibility path.
 
 The resulting dataset is returned as a pair of NumPy arrays:
 one for the extracted feature vectors and one for the class labels.
@@ -47,13 +45,21 @@ REPLAY_TRAIN_SPOOF_PATH = REPLAY_ROOT / "train" / "spoof"
 REPLAY_TEST_LIVE_PATH = REPLAY_ROOT / "test" / "live"
 REPLAY_TEST_SPOOF_PATH = REPLAY_ROOT / "test" / "spoof"
 
-# ----- RUNTIME PAD DATASET ----- #
-RUNTIME_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_runtime_dataset"
+# ----- CUSTOM PAD DATASET ----- #
+PAD_CUSTOM_RAW_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_custom_raw"
 
-RUNTIME_TRAIN_LIVE_PATH = RUNTIME_ROOT / "train" / "live"
-RUNTIME_TRAIN_SPOOF_PATH = RUNTIME_ROOT / "train" / "spoof"
-RUNTIME_TEST_LIVE_PATH = RUNTIME_ROOT / "test" / "live"
-RUNTIME_TEST_SPOOF_PATH = RUNTIME_ROOT / "test" / "spoof"
+CUSTOM_TRAIN_LIVE_PATH = PAD_CUSTOM_RAW_ROOT / "train" / "live"
+CUSTOM_TRAIN_SPOOF_PATH = PAD_CUSTOM_RAW_ROOT / "train" / "spoof"
+CUSTOM_TEST_LIVE_PATH = PAD_CUSTOM_RAW_ROOT / "test" / "live"
+CUSTOM_TEST_SPOOF_PATH = PAD_CUSTOM_RAW_ROOT / "test" / "spoof"
+
+# Legacy aliases kept for compatibility while the rest of the project is
+# being migrated away from the old runtime naming.
+RUNTIME_ROOT = PAD_CUSTOM_RAW_ROOT
+RUNTIME_TRAIN_LIVE_PATH = CUSTOM_TRAIN_LIVE_PATH
+RUNTIME_TRAIN_SPOOF_PATH = CUSTOM_TRAIN_SPOOF_PATH
+RUNTIME_TEST_LIVE_PATH = CUSTOM_TEST_LIVE_PATH
+RUNTIME_TEST_SPOOF_PATH = CUSTOM_TEST_SPOOF_PATH
 
 # ----- CONSTANTS ----- #
 THRESHOLD_AREA = 8000
@@ -214,15 +220,11 @@ def extract_pad_features_from_final_crop(
     apply_quality_gate=True,
 ):
     """
-    Extract PAD features from a final PAD crop already produced by the
-    shared collector/runtime crop path.
+    Legacy helper for PAD crops that were already preprocessed before
+    being stored on disk.
 
-    This branch must not run face detection or re-crop the image again.
-    It optionally applies the shared crop-quality gate and then
-    delegates the post-crop path to the canonical inference helper.
-    The gate currently filters geometric crop validity; the runtime
-    pipelines may still use the richer quality result for their own
-    temporal state logic.
+    New dataset flows should use ``raw_frame`` and let the loader run
+    face detection and crop construction itself.
     """
 
     return extract_pad_features_from_crop(
@@ -244,7 +246,7 @@ def extract_pad_features_from_dataset_image(
 
     Supported dataset types:
     - ``raw_frame``: original image that still needs detection/cropping
-    - ``final_pad_crop``: crop already produced by the shared PAD crop path
+    - ``final_pad_crop``: legacy compatibility crop already produced on disk
     """
 
     if dataset_type == "raw_frame":
@@ -365,20 +367,45 @@ def load_replay_pad_training_dataset(
     )
 
 
+def load_custom_pad_training_dataset(
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+):
+    """
+    Load the custom PAD training dataset from pad_custom_raw.
+    """
+    return load_pad_split_dataset(
+        CUSTOM_TRAIN_LIVE_PATH,
+        CUSTOM_TRAIN_SPOOF_PATH,
+        balance=False,
+        dataset_type="raw_frame",
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
+    )
+
+
 def load_runtime_pad_training_dataset(
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
 ):
     """
-    Load the custom runtime PAD training dataset only.
+    Legacy alias for the custom PAD training dataset.
     """
-    return load_pad_split_dataset(
-        RUNTIME_TRAIN_LIVE_PATH,
-        RUNTIME_TRAIN_SPOOF_PATH,
-        balance=False,
-        dataset_type="final_pad_crop",
+    return load_custom_pad_training_dataset(
         augment_live_photometric=augment_live_photometric,
         augment_live_photometric_mode=augment_live_photometric_mode,
+    )
+
+
+def load_custom_pad_test_dataset(return_image_paths=False):
+    """
+    Load the custom PAD test dataset from pad_custom_raw.
+    """
+    return load_pad_split_dataset(
+        CUSTOM_TEST_LIVE_PATH,
+        CUSTOM_TEST_SPOOF_PATH,
+        dataset_type="raw_frame",
+        return_image_paths=return_image_paths,
     )
 
 
@@ -431,6 +458,34 @@ def load_pad_test_dataset_combined():
     y = np.concatenate([y1, y2], axis=0)
 
     return X, y
+
+
+def load_combined_with_custom_pad_training_dataset(
+    runtime_repeat=5,
+    casia_sample_ratio=CASIA_SAMPLE_RATIO,
+    replay_sample_ratio=REPLAY_SAMPLE_RATIO,
+    sample_seed=TRAIN_SAMPLING_SEED,
+    casia_balance=False,
+    replay_balance=True,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+    augment_live_photometric_scope="all",
+):
+    """
+    Legacy combined training helper kept for compatibility while the
+    project moves to the custom PAD naming.
+    """
+    return load_combined_with_runtime_pad_training_dataset(
+        runtime_repeat=runtime_repeat,
+        casia_sample_ratio=casia_sample_ratio,
+        replay_sample_ratio=replay_sample_ratio,
+        sample_seed=sample_seed,
+        casia_balance=casia_balance,
+        replay_balance=replay_balance,
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
+        augment_live_photometric_scope=augment_live_photometric_scope,
+    )
 
 
 def load_combined_with_runtime_pad_training_dataset(

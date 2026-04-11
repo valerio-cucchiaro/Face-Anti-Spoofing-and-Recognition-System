@@ -44,7 +44,7 @@ from src.recognition.recognition_dataset_loader import (
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
 LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
 RECOGNITION_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "recognition_config.json"
-EVAL_MODE = "orl"
+EVAL_MODE = "custom"
 PROBE_PROGRESS_STEP = 100
 DEBUG_LABEL_MAP_PREVIEW_LIMIT = 10
 DEBUG_SAMPLE_PREVIEW_LIMIT = 10
@@ -108,6 +108,7 @@ def should_save_evaluation_threshold(
     threshold rule.
     """
     valid_pairs = {
+        ("custom", "custom"),
         ("orl", "orl"),
         ("custom_orl", "orl"),
     }
@@ -782,9 +783,9 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None):
     datasets sequentially.
 
     The standalone defaults match the current project reference setup:
-    `custom_orl -> orl`.
+    `custom -> custom`.
     """
-    selected_train_mode = train_mode or "custom_orl"
+    selected_train_mode = train_mode or "custom"
     selected_eval_mode = eval_mode or EVAL_MODE
     namespace_identities = should_namespace_identities(selected_train_mode)
     total_start_time = time.perf_counter()

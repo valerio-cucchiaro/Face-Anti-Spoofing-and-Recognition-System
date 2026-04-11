@@ -2,23 +2,24 @@
 Module: pad_runtime_dataset_collector
 
 Description:
-This module collects real runtime face samples for offline PAD
-dataset creation.
+This module collects custom PAD face samples for offline dataset
+creation.
 
 It captures frames from the webcam, detects and validates a face,
-builds the same padded grayscale crop used by the runtime PAD flow,
-filters it with shared quality checks, and saves it into one of two
-folders inside the selected runtime dataset split:
+uses the same crop-quality checks as the runtime PAD flow, and saves
+the raw frame into one of two folders inside the selected custom
+dataset split:
 
-data/pad_runtime_dataset/<split>/live
-data/pad_runtime_dataset/<split>/spoof
+data/pad_custom_raw/<split>/live
+data/pad_custom_raw/<split>/spoof
 
 The saved images are not converted into PAD features here. They remain
-image crops so that the offline PAD training and evaluation tools can
-reapply their own normalization and feature extraction pipeline later.
+raw webcam frames so that the offline PAD training and evaluation
+tools can reapply their own normalization and feature extraction
+pipeline later.
 
 The same collector can target either the ``train`` or ``test`` split
-of ``data/pad_runtime_dataset`` through a configurable split name.
+of ``data/pad_custom_raw`` through a configurable split name.
 """
 
 import cv2
@@ -39,7 +40,7 @@ THRESHOLD_AREA = 8000
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-RUNTIME_DATASET_ROOT = PROJECT_ROOT / "data" / "pad_runtime_dataset"
+PAD_CUSTOM_RAW_ROOT = PROJECT_ROOT / "data" / "pad_custom_raw"
 DATASET_SPLIT = "train"     # train or test
 
 MAX_IMAGES_LIVE = 120
@@ -54,9 +55,9 @@ def get_next_image_index(folder_path):
     return len(existing_images) + 1
 
 
-def get_runtime_split_paths(split_name):
+def get_custom_split_paths(split_name):
     """
-    Build the runtime PAD dataset paths for the selected split.
+    Build the custom PAD dataset paths for the selected split.
     """
 
     if split_name not in {"train", "test"}:
@@ -65,22 +66,22 @@ def get_runtime_split_paths(split_name):
             f"{split_name}. Use 'train' or 'test'."
         )
 
-    split_root = RUNTIME_DATASET_ROOT / split_name
+    split_root = PAD_CUSTOM_RAW_ROOT / split_name
     return split_root, split_root / "live", split_root / "spoof"
 
 
-def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
+def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
     """
-    Collect live and spoof PAD crops from the webcam for runtime-aware
-    PAD dataset creation.
+    Collect live and spoof raw frames from the webcam for custom PAD
+    dataset creation.
 
     The function reuses the shared face validation, PAD crop
     extraction, and PAD quality checks so that saved samples follow the
     same geometric assumptions as the runtime PAD pipeline.
 
     The selected split controls whether samples are saved under:
-    - ``data/pad_runtime_dataset/train/...``
-    - ``data/pad_runtime_dataset/test/...``
+    - ``data/pad_custom_raw/train/...``
+    - ``data/pad_custom_raw/test/...``
 
     Controls:
         l -> save current valid face crop in the live folder
@@ -92,7 +93,7 @@ def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
         - spoof = face shown through phone/photo attack
     """
 
-    _, live_dataset, spoof_dataset = get_runtime_split_paths(split_name)
+    _, live_dataset, spoof_dataset = get_custom_split_paths(split_name)
 
     # Create dataset directories if they do not exist
     live_dataset.mkdir(parents=True, exist_ok=True)
@@ -119,7 +120,6 @@ def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
             break
 
         valid_face = False
-        pad_face_crop = None
         quality_text = "PAD frame: WAITING"
         quality_color = (200, 200, 200)
 
@@ -160,7 +160,8 @@ def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
             bbox_stable = stability_result["is_stable"]
             prev_face_rect = current_face_rect
 
-            # Build the PAD crop through the same helper used at runtime.
+            # Build the PAD crop only as a quality gate. The saved
+            # dataset image remains the raw frame.
             pad_face_crop = extract_pad_face_crop(gray_frame, x, y, w, h)
             quality_result = evaluate_pad_crop_quality(
                 pad_face_crop,
@@ -168,7 +169,7 @@ def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
             )
             laplacian_variance = quality_result["laplacian_variance"]
 
-            # Only allow saving crops that pass the same structural and blur
+            # Only allow saving frames that pass the same structural and blur
             # checks used by the runtime PAD history update. Bbox
             # stability is treated here as an acquisition policy, not as
             # part of the PAD feature preprocessing path.
@@ -216,20 +217,20 @@ def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
 
         key = cv2.waitKey(1) & 0xFF
 
-        if key == ord("l") and valid_face and pad_face_crop is not None:
+        if key == ord("l") and valid_face:
             if live_count < MAX_IMAGES_LIVE:
                 save_path = live_dataset / f"{live_next_idx:03d}.png"
-                cv2.imwrite(str(save_path), pad_face_crop)
+                cv2.imwrite(str(save_path), frame)
                 print(f"[LIVE] Saved: {save_path.name}")
                 live_count += 1
                 live_next_idx += 1
             else:
                 print("Maximum number of LIVE images reached")
 
-        elif key == ord("s") and valid_face and pad_face_crop is not None:
+        elif key == ord("s") and valid_face:
             if spoof_count < MAX_IMAGES_SPOOF:
                 save_path = spoof_dataset / f"{spoof_next_idx:03d}.png"
-                cv2.imwrite(str(save_path), pad_face_crop)
+                cv2.imwrite(str(save_path), frame)
                 print(f"[SPOOF] Saved: {save_path.name}")
                 spoof_count += 1
                 spoof_next_idx += 1
@@ -244,4 +245,4 @@ def collect_pad_runtime_dataset(split_name=DATASET_SPLIT):
 
 
 if __name__ == "__main__":
-    collect_pad_runtime_dataset()
+    collect_pad_custom_dataset()

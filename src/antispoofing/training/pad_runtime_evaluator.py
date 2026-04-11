@@ -2,12 +2,12 @@
 Module: pad_runtime_evaluator
 
 Description:
-This script evaluates the trained PAD model on the custom runtime test
+This script evaluates the trained PAD model on the custom PAD test
 dataset collected from the real webcam scenario.
 
 The test dataset must be organized as:
 
-data/pad_runtime_dataset/
+data/pad_custom_raw/
     test/
         live/
         spoof/
@@ -35,14 +35,15 @@ from src.antispoofing.pad_model_config import (
     get_expected_feature_dim_from_scaler,
     load_pad_model_config,
 )
+from src.antispoofing.training.pad_dataset_loader import load_custom_pad_test_dataset
 
 
 # ----- CONSTANTS ----- #
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_svm.joblib"
 SCALER_PATH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "pad_scaler.joblib"
 
-RUNTIME_DATASET_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_runtime_dataset"
-TEST_SPLIT_ROOT = RUNTIME_DATASET_ROOT / "test"
+PAD_CUSTOM_RAW_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_custom_raw"
+TEST_SPLIT_ROOT = PAD_CUSTOM_RAW_ROOT / "test"
 LIVE_PATH = TEST_SPLIT_ROOT / "live"
 SPOOF_PATH = TEST_SPLIT_ROOT / "spoof"
 
@@ -122,6 +123,39 @@ def evaluate_folder(folder_path, true_label, scaler, classifier):
     return total_images, valid_images, correct_predictions
 
 
+def evaluate_loaded_dataset(X_test, y_test, sample_paths, scaler, classifier):
+    """
+    Evaluate the custom PAD test dataset already loaded as features.
+    """
+
+    if len(y_test) == 0:
+        print("PAD runtime evaluation dataset: unavailable")
+        print("No valid samples found for evaluation.")
+        return
+
+    X_test_scaled = scaler.transform(X_test)
+    y_pred = classifier.predict(X_test_scaled)
+
+    accuracy = (y_pred == y_test).sum() / len(y_test)
+    live_total = int((y_test == 1).sum())
+    spoof_total = int((y_test == 0).sum())
+    live_correct = int(((y_test == 1) & (y_pred == 1)).sum())
+    spoof_correct = int(((y_test == 0) & (y_pred == 0)).sum())
+
+    print("PAD runtime evaluation dataset:", "Custom PAD test")
+    print(
+        "PAD runtime summary:",
+        f"total={len(y_test)} | valid={len(y_test)} | correct={(y_pred == y_test).sum()} | accuracy={accuracy:.4f}",
+    )
+    print(
+        "PAD runtime per-class:",
+        (
+            f"live(total={live_total}, valid={live_total}, correct={live_correct}) | "
+            f"spoof(total={spoof_total}, valid={spoof_total}, correct={spoof_correct})"
+        ),
+    )
+
+
 def main():
     """Run PAD evaluation on the custom runtime test dataset."""
 
@@ -138,7 +172,9 @@ def main():
     pad_config = load_pad_model_config(expected_feature_dim=expected_feature_dim)
     configure_pad_feature_extractor_from_config(pad_config)
 
-    print("PAD runtime evaluation dataset:", TEST_SPLIT_ROOT)
+    X_test, y_test, sample_paths = load_custom_pad_test_dataset(return_image_paths=True)
+
+    print("PAD runtime evaluation dataset:", "Custom PAD test")
     print(
         "PAD runtime feature setup:",
         (
@@ -151,38 +187,12 @@ def main():
         ),
     )
 
-    live_total, live_valid, live_correct = evaluate_folder(
-        LIVE_PATH,
-        true_label=1,
+    evaluate_loaded_dataset(
+        X_test,
+        y_test,
+        sample_paths,
         scaler=scaler,
-        classifier=classifier
-    )
-
-    spoof_total, spoof_valid, spoof_correct = evaluate_folder(
-        SPOOF_PATH,
-        true_label=0,
-        scaler=scaler,
-        classifier=classifier
-    )
-
-    total_images = live_total + spoof_total
-    valid_images = live_valid + spoof_valid
-    correct_predictions = live_correct + spoof_correct
-
-    accuracy = 0.0
-    if valid_images > 0:
-        accuracy = correct_predictions / valid_images
-
-    print(
-        "PAD runtime summary:",
-        f"total={total_images} | valid={valid_images} | correct={correct_predictions} | accuracy={accuracy:.4f}",
-    )
-    print(
-        "PAD runtime per-class:",
-        (
-            f"live(total={live_total}, valid={live_valid}, correct={live_correct}) | "
-            f"spoof(total={spoof_total}, valid={spoof_valid}, correct={spoof_correct})"
-        ),
+        classifier=classifier,
     )
 
 

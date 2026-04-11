@@ -75,7 +75,7 @@
 Legenda metrica nelle celle:
 - `accuracy / precision / recall / f1`
 
-### Setup del prossimo full da eseguire
+### Setup del full di verifica
 
 - train mode: `combined_runtime`
 - eval mode: `all`

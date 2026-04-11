@@ -27,8 +27,11 @@
 
 ### Threshold attuali
 
-- soglia runtime webcam usata in `bs` e `full`:
-  - `45.0`
+- soglia runtime webcam di riferimento in `full`:
+  - `44.0`
+- `bs` e` il banco prove della recognition:
+  - usa soglie sperimentali nei test live
+  - i run sotto servono a confrontare il comportamento al variare della soglia
 - soglia offline salvata in `models/recognition_config.json`:
   - `29.4611`
   - source: `custom_orl_to_orl`
@@ -65,7 +68,7 @@ Nota:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `custom_orl -> custom` | `260 / 42` | `20` | `1.0000` | `20` | `0` | `45.4040` | `1.35s` |
 
-### Test runtime BS live
+### Test runtime BS (prove)
 
 | Scenario | Threshold | Lettura sintetica | Nota |
 | --- | --- | --- | --- |
@@ -161,22 +164,17 @@ Nota:
 
 - stabilita` del crop del volto e dell'estrazione dei dettagli prima della recognition
 - confidence piu` robusta oltre `threshold + voti temporali`
-- semantica piu` esplicita di `Unknown` vs stato incerto
 - logging runtime piu` strutturato nella pipeline `full`
 - valutazione open-set piu` esplicita
 
 ## Roadmap operativa
 
 1. migliorare la stabilita` del crop e dell'estrazione del volto prima della recognition
-2. separare in modo piu` esplicito `candidate` e `final_name` nella pipeline runtime
-3. aggiungere o rafforzare una logica di lock temporaneo con isteresi
-4. raccogliere e ricalibrare la threshold runtime sui valori reali del runtime live
-5. ripulire la gallery e verificare la qualita` delle immagini per identita`
-6. controllare coerenza tra `run_pipeline_bs.py` e `run_pipeline_full.py` lato recognition
-7. verificare che runtime state, threshold e overlay siano davvero allineati
-8. ripulire eventuali residui di vecchie configurazioni o test nel ramo recognition
-9. verificare file/funzioni legacy non piu` usati
-10. solo dopo, riallineare commenti e docstring
+2. raccogliere e ricalibrare la threshold runtime sui valori reali del runtime live
+3. ripulire la gallery e verificare la qualita` delle immagini per identita`
+4. controllare coerenza tra `run_pipeline_bs.py` e `run_pipeline_full.py` lato recognition
+5. ripulire eventuali residui di vecchie configurazioni o test nel ramo recognition
+6. verificare file/funzioni legacy non piu` usati
 
 ## Roadmap runtime-only
 

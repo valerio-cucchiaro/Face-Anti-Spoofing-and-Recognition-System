@@ -17,8 +17,8 @@ from src.antispoofing.training.pad_model_trainer import train_pad_model
 from src.antispoofing.training.pad_model_evaluator import evaluate_pad_model
 
 # ----- EXPERIMENT CONFIGURATION ----- #
-TRAIN_MODE = "combined_runtime"
-EVAL_MODE = "runtime"
+TRAIN_MODE = "custom"
+EVAL_MODE = "custom"
 
 # ----- SPEED / SAMPLING PRESET ----- #
 EXPERIMENT_SPEED = "fast"   # full or fast
@@ -55,12 +55,15 @@ def run(
     - casia
     - replay
     - combined
+    - custom
+    - combined_custom
     - runtime
     - combined_runtime
 
     Supported evaluation modes:
     - casia
     - replay
+    - custom
     - runtime
     - all
 
@@ -140,8 +143,8 @@ def build_arg_parser():
     parser = argparse.ArgumentParser(
         description="Run a PAD experiment with optional sampling and feature overrides."
     )
-    parser.add_argument("--train-mode", choices=["casia", "replay", "combined", "runtime", "combined_runtime"])
-    parser.add_argument("--eval-mode", choices=["casia", "replay", "runtime", "all"])
+    parser.add_argument("--train-mode", choices=["casia", "replay", "combined", "custom", "combined_custom", "runtime", "combined_runtime"])
+    parser.add_argument("--eval-mode", choices=["casia", "replay", "custom", "runtime", "all"])
     parser.add_argument("--experiment-speed", choices=["full", "fast"])
     parser.add_argument("--runtime-repeat", type=int)
     parser.add_argument("--casia-balance", choices=["true", "false"])

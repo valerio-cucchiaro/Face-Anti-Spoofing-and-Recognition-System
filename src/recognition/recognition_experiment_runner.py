@@ -31,8 +31,8 @@ from src.recognition.recognition_model_evaluator import evaluate_recognition_mod
 
 
 # ----- CONSTANTS ----- #
-TRAIN_MODE = "custom_orl"  # options: custom, orl, lfw, custom_orl, all
-EVAL_MODE = "orl"          # options: custom, orl, lfw, custom_orl, all
+TRAIN_MODE = "custom"      # options: custom, orl, lfw, custom_orl, all
+EVAL_MODE = "custom"       # options: custom, orl, lfw, custom_orl, all
 
 
 def run(train_mode=None, eval_mode=None, crop_padding_ratio=None):

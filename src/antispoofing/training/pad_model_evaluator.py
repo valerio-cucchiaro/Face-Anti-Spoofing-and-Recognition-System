@@ -35,28 +35,32 @@ from src.antispoofing.pad_model_config import (
 from src.antispoofing.training.pad_dataset_loader import (
     load_pad_test_dataset_casia,
     load_pad_test_dataset_replay,
+    load_custom_pad_test_dataset,
     load_pad_split_dataset,
+    CUSTOM_TEST_LIVE_PATH,
+    CUSTOM_TEST_SPOOF_PATH,
     RUNTIME_TEST_LIVE_PATH,
     RUNTIME_TEST_SPOOF_PATH,
 )
 
 
-EVAL_MODE = "runtime"     # casia, replay, runtime
+EVAL_MODE = "custom"     # casia, replay, custom, runtime
 LIVE_FALSE_NEGATIVE_LOG_LIMIT = 20
+
+
+def load_custom_pad_test_dataset_wrapper(return_image_paths=False):
+    """
+    Load the custom PAD test dataset.
+    """
+
+    return load_custom_pad_test_dataset(return_image_paths=return_image_paths)
 
 
 def load_runtime_pad_test_dataset(return_image_paths=False):
     """
-    Load the custom runtime PAD test dataset.
+    Legacy alias for the custom PAD test dataset.
     """
-
-    return load_pad_split_dataset(
-        RUNTIME_TEST_LIVE_PATH,
-        RUNTIME_TEST_SPOOF_PATH,
-        balance=False,
-        dataset_type="final_pad_crop",
-        return_image_paths=return_image_paths,
-    )
+    return load_custom_pad_test_dataset_wrapper(return_image_paths=return_image_paths)
 
 
 def load_configured_test_dataset(eval_mode, include_paths=False):
@@ -66,6 +70,7 @@ def load_configured_test_dataset(eval_mode, include_paths=False):
     Supported modes:
     - casia
     - replay
+    - custom
     - runtime
     """
 
@@ -75,11 +80,16 @@ def load_configured_test_dataset(eval_mode, include_paths=False):
     if eval_mode == "replay":
         return "Replay-Attack test", load_pad_test_dataset_replay()
 
+    if eval_mode == "custom":
+        return "Custom test", load_custom_pad_test_dataset_wrapper(
+            return_image_paths=include_paths
+        )
+
     if eval_mode == "runtime":
         return "Runtime test", load_runtime_pad_test_dataset(return_image_paths=include_paths)
 
     raise ValueError(
-        f"Unsupported EVAL_MODE: {eval_mode}. Use 'casia', 'replay', 'runtime', or 'all'."
+        f"Unsupported EVAL_MODE: {eval_mode}. Use 'casia', 'replay', 'custom', 'runtime', or 'all'."
     )
 
 
@@ -261,11 +271,11 @@ def evaluate_single_pad_dataset(
     load_start_time = time.perf_counter()
     dataset_name, dataset = load_configured_test_dataset(
         eval_mode,
-        include_paths=log_live_false_negatives and eval_mode == "runtime",
+    include_paths=log_live_false_negatives and eval_mode in {"custom", "runtime"},
     )
     load_elapsed = time.perf_counter() - load_start_time
 
-    if log_live_false_negatives and eval_mode == "runtime":
+    if log_live_false_negatives and eval_mode in {"custom", "runtime"}:
         X_test, y_test, sample_paths = dataset
     else:
         X_test, y_test = dataset
@@ -303,7 +313,7 @@ def evaluate_single_pad_dataset(
     )
     print("PAD confusion matrix:\n", conf_matrix)
 
-    if log_live_false_negatives and eval_mode == "runtime":
+    if log_live_false_negatives and eval_mode in {"custom", "runtime"}:
         print_live_false_negative_analysis(
             dataset_name,
             y_test,
@@ -372,7 +382,7 @@ def evaluate_pad_model(
         print("PAD live false-negative logging: disabled")
 
     if selected_mode == "all":
-        for mode in ("casia", "replay", "runtime"):
+        for mode in ("casia", "replay", "custom"):
             evaluate_single_pad_dataset(
                 mode,
                 scaler,

@@ -1210,3 +1210,15 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
   - the `gamma` runtime comparison
   - a runtime-only roadmap separated from the dataset-related work
 - clarified that the remaining problem is not just brightness, but the combination of light asymmetry and crop consistency with LBPH
+
+---
+
+## 2026/06/09
+
+**Custom Raw Dataset Structure**:
+
+- switched the custom dataset flow to store raw webcam frames instead of already processed crops
+- aligned PAD custom collection with `data/pad_custom_raw/train|test/{live,spoof}`
+- aligned recognition custom collection with `data/recognition/custom_raw/{gallery,probe_known,probe_unknown}`
+- kept detection and preprocessing inside the loaders / runtime so the dataset on disk stays closer to the original acquisition
+- updated the custom dataset contract so processing happens later, not during capture

@@ -26,6 +26,8 @@ from src.antispoofing.training.pad_dataset_loader import (
     REPLAY_SAMPLE_RATIO,
     TRAIN_SAMPLING_SEED,
     load_combined_pad_training_dataset,
+    load_combined_with_custom_pad_training_dataset,
+    load_custom_pad_training_dataset,
     load_casia_pad_training_dataset,
     load_combined_with_runtime_pad_training_dataset,
     load_replay_pad_training_dataset,
@@ -35,7 +37,7 @@ from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
 from src.antispoofing.pad_feature_extractor import get_pad_feature_modes
 
 
-TRAIN_MODE = "replay"
+TRAIN_MODE = "custom"
 EXPERIMENT_SPEED = "full"
 FULL_RUNTIME_REPEAT = 10
 FAST_RUNTIME_REPEAT = 1
@@ -114,6 +116,8 @@ def load_configured_training_dataset(
     - casia
     - replay
     - combined
+    - custom
+    - combined_custom
     - runtime
     - combined_runtime
 
@@ -184,6 +188,30 @@ def load_configured_training_dataset(
             augment_live_photometric_scope=augment_live_photometric_scope,
         )
 
+    if selected_mode == "custom":
+        return "Custom train", load_custom_pad_training_dataset(
+            augment_live_photometric=augment_live_photometric,
+            augment_live_photometric_mode=augment_live_photometric_mode,
+        )
+
+    if selected_mode == "combined_custom":
+        dataset_name = (
+            "Combined + custom train "
+            f"(casia_ratio={casia_sample_ratio}, replay_ratio={replay_sample_ratio}, "
+            f"runtime_repeat={runtime_repeat})"
+        )
+        return dataset_name, load_combined_with_custom_pad_training_dataset(
+            runtime_repeat=runtime_repeat,
+            casia_sample_ratio=casia_sample_ratio,
+            replay_sample_ratio=replay_sample_ratio,
+            sample_seed=TRAIN_SAMPLING_SEED,
+            casia_balance=casia_balance,
+            replay_balance=replay_balance,
+            augment_live_photometric=augment_live_photometric,
+            augment_live_photometric_mode=augment_live_photometric_mode,
+            augment_live_photometric_scope=augment_live_photometric_scope,
+        )
+
     if selected_mode == "runtime":
         return "Runtime train", load_runtime_pad_training_dataset(
             augment_live_photometric=augment_live_photometric,
@@ -210,7 +238,7 @@ def load_configured_training_dataset(
 
     raise ValueError(
         "Unsupported TRAIN_MODE: "
-        f"{selected_mode}. Use 'casia', 'replay', 'combined', 'runtime', or 'combined_runtime'."
+        f"{selected_mode}. Use 'casia', 'replay', 'combined', 'custom', 'combined_custom', 'runtime', or 'combined_runtime'."
     )
 
 

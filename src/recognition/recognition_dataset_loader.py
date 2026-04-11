@@ -22,16 +22,22 @@ from pathlib import Path
 import numpy as np
 import time
 
-from src.preprocessing.face_preprocessing import preprocess_loaded_face_for_recognition
+from src.detection.face_detector import load_mediapipe_detector
+from src.preprocessing.frame_preprocessing import get_valid_face
+from src.preprocessing.face_preprocessing import (
+    preprocess_face_for_recognition,
+    preprocess_loaded_face_for_recognition,
+)
 
 
 # ----- CONSTANTS ----- #
 RECOGNITION_ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "recognition"
+CUSTOM_RAW_ROOT = RECOGNITION_ROOT / "custom_raw"
 DATASET_SPLIT_DIRS = {
     "custom": {
-        "gallery": RECOGNITION_ROOT / "custom" / "gallery",
-        "probe_known": RECOGNITION_ROOT / "custom" / "probe_known",
-        "probe_unknown": RECOGNITION_ROOT / "custom" / "probe_unknown",
+        "gallery": CUSTOM_RAW_ROOT / "gallery",
+        "probe_known": CUSTOM_RAW_ROOT / "probe_known",
+        "probe_unknown": CUSTOM_RAW_ROOT / "probe_unknown",
     },
     "orl": {
         "gallery": RECOGNITION_ROOT / "orl" / "gallery",
@@ -45,6 +51,7 @@ DATASET_SPLIT_DIRS = {
 CUSTOM_PROBE_SPLITS = ("probe_known", "probe_unknown")
 VALID_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pgm"}
 IDENTITY_PROGRESS_STEP = 50
+CUSTOM_RAW_MIN_FACE_AREA = 8000
 DATASET_MODE_MAP = {
     "custom": ["custom"],
     "orl": ["orl"],
@@ -161,9 +168,9 @@ def get_split_directories(mode, split):
     return dataset_dirs
 
 
-def load_images_from_identity_dir(identity_dir):
+def load_images_from_identity_dir(identity_dir, dataset_name, detector=None):
     """
-    Load all valid grayscale images from one identity directory.
+    Load all valid images from one identity directory.
     """
     images = []
 
@@ -174,13 +181,38 @@ def load_images_from_identity_dir(identity_dir):
         if image_path.suffix.lower() not in VALID_IMAGE_EXTENSIONS:
             continue
 
-        image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+        if dataset_name == "custom":
+            image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        else:
+            image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
 
         if image is None:
             print(f"Warning: Could not read image {image_path}")
             continue
 
-        preprocessed_image = preprocess_loaded_face_for_recognition(image)
+        if dataset_name == "custom":
+            if detector is None:
+                raise ValueError("A face detector is required to load custom raw images.")
+
+            face_rect, gray_frame, message = get_valid_face(
+                image,
+                detector,
+                CUSTOM_RAW_MIN_FACE_AREA,
+            )
+
+            if message != "Face detected" or face_rect is None or gray_frame is None:
+                continue
+
+            x, y, w, h = face_rect
+            preprocessed_image = preprocess_face_for_recognition(
+                gray_frame,
+                x,
+                y,
+                w,
+                h,
+            )
+        else:
+            preprocessed_image = preprocess_loaded_face_for_recognition(image)
         if preprocessed_image is None:
             continue
 
@@ -198,6 +230,9 @@ def load_gallery_dataset(mode):
     labels = []
     label_map = {}
     dataset_counts = {}
+    custom_detector = (
+        load_mediapipe_detector() if "custom" in resolve_dataset_names(mode) else None
+    )
 
     for dataset_name, _split_name, gallery_dir in get_split_directories(mode, "gallery"):
         start_time = time.perf_counter()
@@ -219,7 +254,11 @@ def load_gallery_dataset(mode):
             )
             normalized_identity_name = normalize_identity_name(identity_name)
 
-            identity_images = load_images_from_identity_dir(person_dir)
+            identity_images = load_images_from_identity_dir(
+                person_dir,
+                dataset_name=dataset_name,
+                detector=custom_detector,
+            )
 
             if not identity_images:
                 continue
@@ -256,6 +295,9 @@ def load_probe_dataset(mode, split="probe", namespace_identities=False):
     """
     probe_records = []
     dataset_counts = {}
+    custom_detector = (
+        load_mediapipe_detector() if "custom" in resolve_dataset_names(mode) else None
+    )
 
     for dataset_name, split_name, probe_dir in get_split_directories(mode, split):
         start_time = time.perf_counter()
@@ -277,7 +319,11 @@ def load_probe_dataset(mode, split="probe", namespace_identities=False):
                 namespace_identities=namespace_identities,
             )
 
-            identity_images = load_images_from_identity_dir(person_dir)
+            identity_images = load_images_from_identity_dir(
+                person_dir,
+                dataset_name=dataset_name,
+                detector=custom_detector,
+            )
             identity_count += 1
 
             if identity_count % IDENTITY_PROGRESS_STEP == 0:

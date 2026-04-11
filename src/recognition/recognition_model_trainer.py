@@ -25,7 +25,7 @@ from src.recognition.recognition_dataset_loader import load_gallery_dataset
 # ----- CONSTANTS ----- #
 MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
 LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
-TRAIN_MODE = "custom_orl"
+TRAIN_MODE = "custom"
 DEFAULT_LBPH_PARAMS = {
     "radius": 1,
     "neighbors": 8,
@@ -54,8 +54,8 @@ def train_recognition_model(train_mode=None, lbph_params=None):
     Train the recognition model using the selected gallery configuration.
 
     Training modes are defined by the shared dataset loader. The
-    default project setup uses `custom_orl`, while experiments may still
-    select `custom`, `orl`, `lfw`, or `all`.
+    default project setup uses `custom`, while experiments may still
+    select `orl`, `lfw`, `custom_orl`, or `all`.
 
     LBPH hyperparameters can be overridden through ``lbph_params``.
     """
