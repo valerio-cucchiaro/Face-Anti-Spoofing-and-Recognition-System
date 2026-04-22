@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+pytest-cache*
 
 # Virtual environments
 venv/
@@ -36,11 +37,11 @@ dist/
 *.egg-info/
 
 # Generated model artifacts and local runtime configs
-models/*.pkl
-models/*.xml
-models/*.joblib
-models/pad_config*.json
-models/recognition_config.json
+models/recognition/*.pkl
+models/recognition/*.xml
+models/recognition/*.json
+models/pad/*.joblib
+models/pad/*.json
 
 # Runtime logs
 logs/

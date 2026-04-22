@@ -35,7 +35,7 @@ TRAIN_MODE = "custom"      # options: custom, orl, lfw, custom_orl, all
 EVAL_MODE = "custom"       # options: custom, orl, lfw, custom_orl, all
 
 
-def run(train_mode=None, eval_mode=None, crop_padding_ratio=None):
+def run(train_mode=None, eval_mode=None, crop_padding_ratio=None, lfw_sample_ratio=None):
     """
     Execute one full recognition experiment.
 
@@ -47,6 +47,7 @@ def run(train_mode=None, eval_mode=None, crop_padding_ratio=None):
         eval_mode=eval_mode,
         lbph_params=None,
         crop_padding_ratio=crop_padding_ratio,
+        lfw_sample_ratio=lfw_sample_ratio,
     )
 
 
@@ -55,6 +56,7 @@ def run_with_lbph_params(
     eval_mode=None,
     lbph_params=None,
     crop_padding_ratio=None,
+    lfw_sample_ratio=None,
 ):
     """
     Execute a full recognition experiment with optional LBPH overrides.
@@ -68,6 +70,7 @@ def run_with_lbph_params(
     selected_train_mode = train_mode or TRAIN_MODE
     selected_eval_mode = eval_mode or EVAL_MODE
     total_start_time = time.perf_counter()
+    selected_lfw_sample_ratio = 1.0 if lfw_sample_ratio is None else lfw_sample_ratio
 
     configure_recognition_preprocessing(crop_padding_ratio=crop_padding_ratio)
     preprocessing_config = get_recognition_preprocessing_config()
@@ -77,11 +80,21 @@ def run_with_lbph_params(
         f"(normalization={preprocessing_config['normalization_mode']}, "
         f"padding_ratio={preprocessing_config['crop_padding_ratio']:.3f}) ==="
     )
+    if selected_lfw_sample_ratio < 1.0:
+        print(f"=== LFW SAMPLING (sample_ratio={selected_lfw_sample_ratio:.3f}) ===")
     print(f"=== TRAINING ({selected_train_mode}) ===")
-    train_recognition_model(selected_train_mode, lbph_params=lbph_params)
+    train_recognition_model(
+        selected_train_mode,
+        lbph_params=lbph_params,
+        lfw_sample_ratio=selected_lfw_sample_ratio,
+    )
 
     print(f"=== EVALUATION ({selected_eval_mode}) ===")
-    evaluate_recognition_model(selected_train_mode, selected_eval_mode)
+    evaluate_recognition_model(
+        selected_train_mode,
+        selected_eval_mode,
+        lfw_sample_ratio=selected_lfw_sample_ratio,
+    )
     print(f"=== TOTAL EXPERIMENT TIME: {time.perf_counter() - total_start_time:.2f}s ===")
 
 
@@ -102,6 +115,7 @@ def build_arg_parser():
     parser.add_argument("--grid-x", type=int)
     parser.add_argument("--grid-y", type=int)
     parser.add_argument("--preprocess-padding-ratio", type=float)
+    parser.add_argument("--lfw-sample-ratio", type=float)
     return parser
 
 
@@ -129,4 +143,5 @@ if __name__ == "__main__":
         eval_mode=cli_args.eval_mode,
         lbph_params=lbph_params_from_args(cli_args),
         crop_padding_ratio=cli_args.preprocess_padding_ratio,
+        lfw_sample_ratio=cli_args.lfw_sample_ratio,
     )

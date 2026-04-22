@@ -10,30 +10,84 @@ inference, runtime dataset collection, and offline PAD evaluation or
 training helpers.
 """
 
+# ----- CONSTANTS ----- #
+PAD_CROP_SCALE = 1.28
+PAD_CROP_TOP_BIAS_RATIO = 0.14
 
-# ----- PAD CROP MARGINS ----- #
-PAD_MARGIN_X_RATIO = 0.12
-PAD_MARGIN_Y_RATIO = 0.18
+
+def build_pad_crop_bounds(
+    frame,
+    x,
+    y,
+    w,
+    h,
+    crop_scale=PAD_CROP_SCALE,
+    top_bias_ratio=PAD_CROP_TOP_BIAS_RATIO,
+):
+    """
+    Compute the canonical PAD crop bounds.
+
+    The crop is a slightly enlarged square centered a bit above the
+    detector box center so it keeps more forehead context without adding
+    much extra space below the chin.
+    """
+
+    if frame is None or frame.size == 0:
+        return None
+
+    crop_side = int(max(w, h) * crop_scale)
+    crop_side = max(crop_side, 1)
+
+    center_x = x + (w // 2)
+    center_y = y + int(h * (0.5 - top_bias_ratio))
+
+    x1 = center_x - (crop_side // 2)
+    y1 = center_y - (crop_side // 2)
+    x2 = x1 + crop_side
+    y2 = y1 + crop_side
+
+    if x1 < 0:
+        x2 -= x1
+        x1 = 0
+    if y1 < 0:
+        y2 -= y1
+        y1 = 0
+    if x2 > frame.shape[1]:
+        shift = x2 - frame.shape[1]
+        x1 = max(0, x1 - shift)
+        x2 = frame.shape[1]
+    if y2 > frame.shape[0]:
+        shift = y2 - frame.shape[0]
+        y1 = max(0, y1 - shift)
+        y2 = frame.shape[0]
+
+    if x1 >= x2 or y1 >= y2:
+        return None
+
+    return x1, y1, x2, y2
 
 
 def extract_pad_face_crop(gray_frame, x, y, w, h):
     """
-    Extract the grayscale PAD face crop using the shared runtime
-    margins.
-
-    The function expands the detected face box with fixed relative
-    margins and clips the result to the frame boundaries.
+    Extract the canonical grayscale PAD crop.
     """
 
-    if gray_frame is None or gray_frame.size == 0:
+    bounds = build_pad_crop_bounds(gray_frame, x, y, w, h)
+    if bounds is None:
         return None
 
-    pad_margin_x = int(w * PAD_MARGIN_X_RATIO)
-    pad_margin_y = int(h * PAD_MARGIN_Y_RATIO)
-
-    x1 = max(0, x - pad_margin_x)
-    y1 = max(0, y - pad_margin_y)
-    x2 = min(gray_frame.shape[1], x + w + pad_margin_x)
-    y2 = min(gray_frame.shape[0], y + h + pad_margin_y)
-
+    x1, y1, x2, y2 = bounds
     return gray_frame[y1:y2, x1:x2]
+
+
+def extract_pad_face_crop_bgr(frame, x, y, w, h):
+    """
+    Extract the canonical PAD crop from a BGR frame.
+    """
+
+    bounds = build_pad_crop_bounds(frame, x, y, w, h)
+    if bounds is None:
+        return None
+
+    x1, y1, x2, y2 = bounds
+    return frame[y1:y2, x1:x2]

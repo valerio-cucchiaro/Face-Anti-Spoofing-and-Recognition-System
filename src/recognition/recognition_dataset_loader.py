@@ -23,6 +23,13 @@ import numpy as np
 import time
 
 from src.detection.face_detector import load_mediapipe_detector
+from src.detection.face_landmarks import load_mediapipe_face_mesh
+from src.preprocessing.face_pose import compute_pose_metrics_from_image
+from src.preprocessing.pose_statistics import (
+    create_pose_summary,
+    format_pose_summary,
+    update_pose_summary,
+)
 from src.preprocessing.frame_preprocessing import get_valid_face
 from src.preprocessing.face_preprocessing import (
     preprocess_face_for_recognition,
@@ -52,6 +59,8 @@ CUSTOM_PROBE_SPLITS = ("probe_known", "probe_unknown")
 VALID_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pgm"}
 IDENTITY_PROGRESS_STEP = 50
 CUSTOM_RAW_MIN_FACE_AREA = 8000
+TRAIN_SAMPLING_SEED = 42
+LFW_SAMPLE_RATIO = 1.0
 DATASET_MODE_MAP = {
     "custom": ["custom"],
     "orl": ["orl"],
@@ -59,6 +68,31 @@ DATASET_MODE_MAP = {
     "custom_orl": ["custom", "orl"],
     "all": ["custom", "orl", "lfw"],
 }
+
+
+def _compute_pose_metrics_for_loaded_image(
+    dataset_name,
+    image,
+    face_mesh,
+    face_rect=None,
+):
+    """
+    Compute pose metrics for one loaded recognition sample.
+    """
+
+    if image is None or face_mesh is None:
+        return None
+
+    if dataset_name == "custom" and face_rect is not None:
+        x, y, w, h = face_rect
+        if image.ndim == 3:
+            sample_image = image[y:y + h, x:x + w]
+        else:
+            sample_image = image[y:y + h, x:x + w]
+    else:
+        sample_image = image
+
+    return compute_pose_metrics_from_image(sample_image, face_mesh)
 
 
 def resolve_dataset_names(mode):
@@ -86,6 +120,23 @@ def should_namespace_identities(mode):
     different datasets cannot collide in the shared label space.
     """
     return mode in {"custom_orl", "all"}
+
+
+def sample_image_paths(paths, ratio=1.0, seed=None):
+    """
+    Deterministically downsample a list of image paths.
+    """
+    if ratio >= 1.0 or len(paths) <= 1:
+        return list(paths)
+
+    if ratio <= 0.0:
+        return []
+
+    n_samples = max(1, int(len(paths) * ratio))
+    rng = np.random.default_rng(seed)
+    indices = rng.choice(len(paths), size=n_samples, replace=False)
+    indices = np.sort(indices)
+    return [paths[i] for i in indices]
 
 
 def build_identity_name(dataset_name, person_name, namespace_identities=False):
@@ -168,18 +219,34 @@ def get_split_directories(mode, split):
     return dataset_dirs
 
 
-def load_images_from_identity_dir(identity_dir, dataset_name, detector=None):
+def load_images_from_identity_dir(
+    identity_dir,
+    dataset_name,
+    detector=None,
+    collect_pose_metrics=False,
+    pose_summary=None,
+    face_mesh=None,
+    sample_ratio=1.0,
+    sample_seed=None,
+):
     """
     Load all valid images from one identity directory.
     """
     images = []
+    image_paths = [
+        image_path
+        for image_path in sorted(identity_dir.iterdir(), key=lambda path: path.name)
+        if image_path.is_file() and image_path.suffix.lower() in VALID_IMAGE_EXTENSIONS
+    ]
 
-    for image_path in sorted(identity_dir.iterdir(), key=lambda path: path.name):
-        if not image_path.is_file():
-            continue
+    if dataset_name == "lfw":
+        image_paths = sample_image_paths(
+            image_paths,
+            ratio=sample_ratio,
+            seed=sample_seed,
+        )
 
-        if image_path.suffix.lower() not in VALID_IMAGE_EXTENSIONS:
-            continue
+    for image_path in image_paths:
 
         if dataset_name == "custom":
             image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
@@ -211,8 +278,23 @@ def load_images_from_identity_dir(identity_dir, dataset_name, detector=None):
                 w,
                 h,
             )
+            if collect_pose_metrics:
+                pose_metrics = _compute_pose_metrics_for_loaded_image(
+                    dataset_name,
+                    image,
+                    face_mesh,
+                    face_rect=face_rect,
+                )
+                update_pose_summary(pose_summary, pose_metrics)
         else:
             preprocessed_image = preprocess_loaded_face_for_recognition(image)
+            if collect_pose_metrics:
+                pose_metrics = _compute_pose_metrics_for_loaded_image(
+                    dataset_name,
+                    image,
+                    face_mesh,
+                )
+                update_pose_summary(pose_summary, pose_metrics)
         if preprocessed_image is None:
             continue
 
@@ -221,7 +303,12 @@ def load_images_from_identity_dir(identity_dir, dataset_name, detector=None):
     return images
 
 
-def load_gallery_dataset(mode):
+def load_gallery_dataset(
+    mode,
+    collect_pose_metrics=False,
+    lfw_sample_ratio=LFW_SAMPLE_RATIO,
+    lfw_sample_seed=TRAIN_SAMPLING_SEED,
+):
     """
     Load one or more gallery datasets for recognition training.
     """
@@ -230,61 +317,84 @@ def load_gallery_dataset(mode):
     labels = []
     label_map = {}
     dataset_counts = {}
+    pose_summary = create_pose_summary() if collect_pose_metrics else None
     custom_detector = (
         load_mediapipe_detector() if "custom" in resolve_dataset_names(mode) else None
     )
+    face_mesh = load_mediapipe_face_mesh() if collect_pose_metrics else None
 
-    for dataset_name, _split_name, gallery_dir in get_split_directories(mode, "gallery"):
-        start_time = time.perf_counter()
-        dataset_counts[dataset_name] = 0
-        identity_count = 0
-        person_dirs = sorted(
-            [path for path in gallery_dir.iterdir() if path.is_dir()],
-            key=lambda path: path.name,
-        )
-
-        print(f"Loading gallery dataset: {dataset_name}")
-        print(f"Found {len(person_dirs)} gallery identities")
-
-        for person_dir in person_dirs:
-            identity_name = build_identity_name(
-                dataset_name,
-                person_dir.name,
-                namespace_identities=namespace_identities,
-            )
-            normalized_identity_name = normalize_identity_name(identity_name)
-
-            identity_images = load_images_from_identity_dir(
-                person_dir,
-                dataset_name=dataset_name,
-                detector=custom_detector,
+    try:
+        for dataset_name, _split_name, gallery_dir in get_split_directories(mode, "gallery"):
+            start_time = time.perf_counter()
+            dataset_counts[dataset_name] = 0
+            identity_count = 0
+            person_dirs = sorted(
+                [path for path in gallery_dir.iterdir() if path.is_dir()],
+                key=lambda path: path.name,
             )
 
-            if not identity_images:
-                continue
+            print(f"Loading gallery dataset: {dataset_name}")
+            print(f"Found {len(person_dirs)} gallery identities")
 
-            current_label = len(label_map)
-            label_map[current_label] = normalized_identity_name
-            identity_count += 1
+            for person_dir in person_dirs:
+                identity_name = build_identity_name(
+                    dataset_name,
+                    person_dir.name,
+                    namespace_identities=namespace_identities,
+                )
+                normalized_identity_name = normalize_identity_name(identity_name)
 
-            if identity_count % IDENTITY_PROGRESS_STEP == 0:
-                print(f"Processed {identity_count}/{len(person_dirs)} gallery identities")
+                identity_images = load_images_from_identity_dir(
+                    person_dir,
+                    dataset_name=dataset_name,
+                    detector=custom_detector,
+                    collect_pose_metrics=collect_pose_metrics,
+                    pose_summary=pose_summary,
+                    face_mesh=face_mesh,
+                    sample_ratio=lfw_sample_ratio,
+                    sample_seed=lfw_sample_seed,
+                )
 
-            for _, image in identity_images:
-                faces.append(image)
-                labels.append(current_label)
-                dataset_counts[dataset_name] += 1
+                if not identity_images:
+                    continue
 
-        elapsed = time.perf_counter() - start_time
-        print(
-            f"Loaded {dataset_counts[dataset_name]} gallery images "
-            f"from {identity_count} identities in {elapsed:.2f}s"
-        )
+                current_label = len(label_map)
+                label_map[current_label] = normalized_identity_name
+                identity_count += 1
 
-    return faces, np.array(labels), label_map, dataset_counts
+                if identity_count % IDENTITY_PROGRESS_STEP == 0:
+                    print(f"Processed {identity_count}/{len(person_dirs)} gallery identities")
+
+                for _, image in identity_images:
+                    faces.append(image)
+                    labels.append(current_label)
+                    dataset_counts[dataset_name] += 1
+
+            elapsed = time.perf_counter() - start_time
+            print(
+                f"Loaded {dataset_counts[dataset_name]} gallery images "
+                f"from {identity_count} identities in {elapsed:.2f}s"
+            )
+            if dataset_name == "lfw" and lfw_sample_ratio < 1.0:
+                print(
+                    f"LFW gallery sampling: ratio={lfw_sample_ratio:.3f} "
+                    f"seed={lfw_sample_seed}"
+                )
+    finally:
+        if face_mesh is not None and hasattr(face_mesh, "close"):
+            face_mesh.close()
+
+    return faces, np.array(labels), label_map, dataset_counts, pose_summary
 
 
-def load_probe_dataset(mode, split="probe", namespace_identities=False):
+def load_probe_dataset(
+    mode,
+    split="probe",
+    namespace_identities=False,
+    collect_pose_metrics=False,
+    lfw_sample_ratio=LFW_SAMPLE_RATIO,
+    lfw_sample_seed=TRAIN_SAMPLING_SEED,
+):
     """
     Load one or more probe datasets for recognition evaluation.
 
@@ -295,56 +405,72 @@ def load_probe_dataset(mode, split="probe", namespace_identities=False):
     """
     probe_records = []
     dataset_counts = {}
+    pose_summary = create_pose_summary() if collect_pose_metrics else None
     custom_detector = (
         load_mediapipe_detector() if "custom" in resolve_dataset_names(mode) else None
     )
+    face_mesh = load_mediapipe_face_mesh() if collect_pose_metrics else None
 
-    for dataset_name, split_name, probe_dir in get_split_directories(mode, split):
-        start_time = time.perf_counter()
-        split_key = f"{dataset_name}/{split_name}"
-        dataset_counts[split_key] = 0
-        identity_count = 0
-        person_dirs = sorted(
-            [path for path in probe_dir.iterdir() if path.is_dir()],
-            key=lambda path: path.name,
-        )
-
-        print(f"Loading probe dataset: {dataset_name} ({split_name})")
-        print(f"Found {len(person_dirs)} probe identities")
-
-        for person_dir in person_dirs:
-            identity_name = build_identity_name(
-                dataset_name,
-                person_dir.name,
-                namespace_identities=namespace_identities,
+    try:
+        for dataset_name, split_name, probe_dir in get_split_directories(mode, split):
+            start_time = time.perf_counter()
+            split_key = f"{dataset_name}/{split_name}"
+            dataset_counts[split_key] = 0
+            identity_count = 0
+            person_dirs = sorted(
+                [path for path in probe_dir.iterdir() if path.is_dir()],
+                key=lambda path: path.name,
             )
 
-            identity_images = load_images_from_identity_dir(
-                person_dir,
-                dataset_name=dataset_name,
-                detector=custom_detector,
-            )
-            identity_count += 1
+            print(f"Loading probe dataset: {dataset_name} ({split_name})")
+            print(f"Found {len(person_dirs)} probe identities")
 
-            if identity_count % IDENTITY_PROGRESS_STEP == 0:
-                print(f"Processed {identity_count}/{len(person_dirs)} probe identities")
-
-            for image_path, image in identity_images:
-                probe_records.append(
-                    {
-                        "dataset": dataset_name,
-                        "split": split_name,
-                        "identity": identity_name,
-                        "path": image_path,
-                        "image": image,
-                    }
+            for person_dir in person_dirs:
+                identity_name = build_identity_name(
+                    dataset_name,
+                    person_dir.name,
+                    namespace_identities=namespace_identities,
                 )
-                dataset_counts[split_key] += 1
 
-        elapsed = time.perf_counter() - start_time
-        print(
-            f"Loaded {dataset_counts[split_key]} probe images "
-            f"from {identity_count} identities in {elapsed:.2f}s"
-        )
+                identity_images = load_images_from_identity_dir(
+                    person_dir,
+                    dataset_name=dataset_name,
+                    detector=custom_detector,
+                    collect_pose_metrics=collect_pose_metrics,
+                    pose_summary=pose_summary,
+                    face_mesh=face_mesh,
+                    sample_ratio=lfw_sample_ratio,
+                    sample_seed=lfw_sample_seed,
+                )
+                identity_count += 1
 
-    return probe_records, dataset_counts
+                if identity_count % IDENTITY_PROGRESS_STEP == 0:
+                    print(f"Processed {identity_count}/{len(person_dirs)} probe identities")
+
+                for image_path, image in identity_images:
+                    probe_records.append(
+                        {
+                            "dataset": dataset_name,
+                            "split": split_name,
+                            "identity": identity_name,
+                            "path": image_path,
+                            "image": image,
+                        }
+                    )
+                    dataset_counts[split_key] += 1
+
+            elapsed = time.perf_counter() - start_time
+            print(
+                f"Loaded {dataset_counts[split_key]} probe images "
+                f"from {identity_count} identities in {elapsed:.2f}s"
+            )
+            if dataset_name == "lfw" and lfw_sample_ratio < 1.0:
+                print(
+                    f"LFW probe sampling: ratio={lfw_sample_ratio:.3f} "
+                    f"seed={lfw_sample_seed}"
+                )
+    finally:
+        if face_mesh is not None and hasattr(face_mesh, "close"):
+            face_mesh.close()
+
+    return probe_records, dataset_counts, pose_summary

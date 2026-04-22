@@ -16,6 +16,7 @@ Besides the global accuracy summary, the evaluator also reports:
 - the worst-performing identities in the current probe split
 - a small threshold analysis that approximates runtime accept/reject
   behavior for a few candidate thresholds
+- an optional all gallery vs all probe distance analysis for reports
 
 Offline threshold updates are intentionally stricter than plain
 evaluation: a threshold is persisted only when the selected run is an
@@ -31,23 +32,54 @@ from pathlib import Path
 import statistics
 import time
 
+import numpy as np
+
 from src.preprocessing.face_preprocessing import get_recognition_preprocessing_config
+from src.preprocessing.pose_statistics import (
+    format_pose_summary,
+    merge_pose_summaries,
+)
 from src.recognition.face_recognizer import DEFAULT_PREDICTION_THRESHOLD
 from src.recognition.recognition_dataset_loader import (
     load_probe_dataset,
     normalize_identity_name,
     should_namespace_identities,
 )
+from src.recognition.recognition_metrics import (
+    compute_all_gallery_vs_all_probe_analysis,
+    build_recognition_threshold_summary,
+    build_doddington_zoo_analysis,
+    build_system_response_reliability_analysis,
+    compute_recognition_eer,
+    export_recognition_metrics_report,
+    evaluate_recognition_at_threshold,
+    sweep_recognition_thresholds,
+)
 
 
 # ----- CONSTANTS ----- #
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
-LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
-RECOGNITION_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "recognition_config.json"
+RECOGNITION_MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models" / "recognition"
+MODEL_PATH = RECOGNITION_MODELS_ROOT / "lbph_model.xml"
+LABEL_MAP_PATH = RECOGNITION_MODELS_ROOT / "label_map.pkl"
+RECOGNITION_CONFIG_PATH = RECOGNITION_MODELS_ROOT / "recognition_config.json"
 EVAL_MODE = "custom"
 PROBE_PROGRESS_STEP = 100
 DEBUG_LABEL_MAP_PREVIEW_LIMIT = 10
 DEBUG_SAMPLE_PREVIEW_LIMIT = 10
+PAIRWISE_MAX_TOTAL_COMPARISONS = 1500000
+PAIRWISE_TOP_K_VALUES = (1, 3, 5)
+
+
+def _build_lfw_sample_suffix(lfw_sample_ratio):
+    """
+    Build a filename suffix that reflects the LFW sampling level.
+    """
+    if lfw_sample_ratio is None or lfw_sample_ratio >= 1.0:
+        return ""
+
+    ratio_tag = f"{lfw_sample_ratio:.3f}".rstrip("0").rstrip(".")
+    ratio_tag = ratio_tag.replace(".", "p")
+    return f"_lfw_r{ratio_tag}"
 
 
 def load_trained_recognition_model():
@@ -115,6 +147,99 @@ def should_save_evaluation_threshold(
     return allow_config_update and (train_mode, eval_mode) in valid_pairs
 
 
+def _extract_lbph_params(recognizer):
+    """
+    Read the LBPH hyperparameters from a trained recognizer.
+    """
+    return {
+        "radius": recognizer.getRadius(),
+        "neighbors": recognizer.getNeighbors(),
+        "grid_x": recognizer.getGridX(),
+        "grid_y": recognizer.getGridY(),
+    }
+
+
+def _extract_lbph_histogram(face_image, lbph_params):
+    """
+    Extract one LBPH histogram using the same parameters as the trained model.
+
+    This helper is used only for the offline pairwise report and leaves
+    the runtime recognition path untouched.
+    """
+    temp_recognizer = cv2.face.LBPHFaceRecognizer_create(
+        radius=lbph_params["radius"],
+        neighbors=lbph_params["neighbors"],
+        grid_x=lbph_params["grid_x"],
+        grid_y=lbph_params["grid_y"],
+    )
+    temp_recognizer.train([face_image], np.array([0], dtype=np.int32))
+    return np.asarray(temp_recognizer.getHistograms()[0], dtype=np.float64).reshape(-1)
+
+
+def build_all_gallery_vs_all_probe_analysis(
+    probe_records,
+    recognizer,
+    label_map,
+    threshold=DEFAULT_PREDICTION_THRESHOLD,
+):
+    """
+    Build the all gallery vs all probe analysis for the current recognizer.
+
+    The helper re-extracts probe histograms with the trained LBPH
+    configuration so the pairwise report stays comparable to the stored
+    gallery templates.
+    """
+    gallery_histograms = [
+        np.asarray(histogram, dtype=np.float64).reshape(-1)
+        for histogram in recognizer.getHistograms()
+    ]
+    gallery_labels = np.asarray(recognizer.getLabels()).reshape(-1).astype(int)
+
+    comparison_count = len(probe_records) * len(gallery_histograms)
+    if comparison_count > PAIRWISE_MAX_TOTAL_COMPARISONS:
+        return {
+            "available": False,
+            "reason": "matrix_too_large",
+            "protocol": "all gallery vs all probe",
+            "threshold": threshold,
+            "probe_count": len(probe_records),
+            "gallery_template_count": len(gallery_histograms),
+            "comparison_count": comparison_count,
+            "max_total_comparisons": PAIRWISE_MAX_TOTAL_COMPARISONS,
+            "rows": [],
+            "identity_columns": [],
+        }
+
+    lbph_params = _extract_lbph_params(recognizer)
+    pairwise_probe_records = []
+    pairwise_probe_histograms = []
+
+    for record in probe_records:
+        true_identity = normalize_identity_name(record["identity"])
+        split_name = record["split"]
+        pairwise_probe_records.append(
+            {
+                "true_identity": true_identity,
+                "split": split_name,
+                "is_known": split_name != "probe_unknown",
+            }
+        )
+        pairwise_probe_histograms.append(
+            _extract_lbph_histogram(record["image"], lbph_params)
+        )
+
+    return compute_all_gallery_vs_all_probe_analysis(
+        pairwise_probe_records,
+        pairwise_probe_histograms,
+        gallery_histograms,
+        gallery_labels,
+        label_map,
+        threshold=threshold,
+        top_k_values=PAIRWISE_TOP_K_VALUES,
+        max_total_comparisons=PAIRWISE_MAX_TOTAL_COMPARISONS,
+    )
+
+
 def compute_score_statistics(scores):
     """
     Compute compact descriptive statistics for a list of confidence scores.
@@ -129,6 +254,43 @@ def compute_score_statistics(scores):
         "min": min(scores),
         "max": max(scores),
     }
+
+
+def _format_optional_float(value):
+    """
+    Format a possibly missing floating-point value for diagnostics.
+    """
+    if value is None:
+        return "n/a"
+    return f"{value:.4f}"
+
+
+def _format_optional_int(value):
+    """
+    Format a possibly missing integer value for diagnostics.
+    """
+    if value is None:
+        return "n/a"
+    return str(int(value))
+
+
+def _lookup_cms_point(cms_points, rank):
+    """
+    Return the CMS value for one requested rank, if available.
+    """
+    for point in cms_points or []:
+        if int(point.get("rank", 0)) == int(rank):
+            return point.get("cms")
+    return None
+
+
+def _format_optional_list(values):
+    """
+    Format a possibly empty list for compact diagnostics.
+    """
+    if not values:
+        return "n/a"
+    return ", ".join(str(value) for value in values)
 
 
 def compute_suggested_threshold(genuine_scores, impostor_scores):
@@ -391,11 +553,360 @@ def print_open_set_threshold_analysis(threshold_results):
         )
 
 
+def print_doddington_zoo_analysis(doddington_analysis, limit=3):
+    """
+    Print a compact Doddington-style summary for recognition.
+    """
+    if not doddington_analysis or not doddington_analysis.get("available"):
+        print("Doddington zoo: unavailable")
+        return
+
+    summary_counts = doddington_analysis.get("summary_counts", {})
+    categories = doddington_analysis.get("categories", {})
+    print(
+        "Doddington zoo:",
+        (
+            f"identities={summary_counts.get('identity_count', 0)} | "
+            f"known_probes={summary_counts.get('known_probes', 0)} | "
+            f"unknown_probes={summary_counts.get('unknown_probes', 0)}"
+        ),
+    )
+
+    for category_name in ("sheep", "goat", "lamb", "wolf"):
+        category = categories.get(category_name, {})
+        identities = category.get("identities", [])
+        top = category.get("top", [])
+        print(
+            f"- {category_name}:",
+            (
+                f"count={category.get('count', 0)} | "
+                f"identities={_format_optional_list(identities[:limit])}"
+            ),
+        )
+        if top:
+            top_text = ", ".join(
+                f"{row['identity']}({row['score']:.4f}, gap={row.get('score_gap', 0.0):.4f})"
+                for row in top[:limit]
+            )
+            print(f"  top={top_text}")
+
+
+def print_system_response_reliability_analysis(srr_analysis, limit=3):
+    """
+    Print a compact offline SRR summary.
+    """
+    if not srr_analysis or not srr_analysis.get("available"):
+        print("System response reliability: unavailable")
+        return
+
+    def _sort_value(value, default):
+        if value is None:
+            return float(default)
+        return float(value)
+
+    summary_counts = srr_analysis.get("summary_counts", {})
+    selected_variant = srr_analysis.get("selected_variant", "adaptive_density_ratio")
+    selected_threshold = srr_analysis.get("selected_threshold")
+    variants = srr_analysis.get("variants", {})
+    selected_variant_report = variants.get(selected_variant, {})
+    selected_stats = selected_variant_report.get("stats", {})
+
+    print(
+        "System response reliability:",
+        (
+            f"variant={selected_variant} | "
+            f"phi_k={_format_optional_float(selected_threshold)} | "
+            f"reliable={summary_counts.get('reliable_responses', 0)} | "
+            f"unreliable={summary_counts.get('unreliable_responses', 0)} | "
+            f"mean_phi={_format_optional_float(selected_stats.get('mean'))}"
+        ),
+    )
+
+    selected_per_probe = srr_analysis.get("per_probe", [])
+    if not selected_per_probe:
+        return
+
+    top_rows = sorted(
+        selected_per_probe,
+        key=lambda row: (
+            -_sort_value(row.get("selected_score"), -np.inf),
+            _sort_value(row.get("reliability_gap"), -np.inf),
+            row.get("probe_index"),
+        ),
+    )
+    low_rows = sorted(
+        selected_per_probe,
+        key=lambda row: (
+            _sort_value(row.get("selected_score"), np.inf),
+            _sort_value(row.get("reliability_gap"), np.inf),
+            row.get("probe_index"),
+        ),
+    )
+
+    print(f"SRR top {min(limit, len(top_rows))}:")
+    for row in top_rows[:limit]:
+        print(
+            "-",
+            f"probe={row.get('probe_index')}",
+            f"true={row.get('true_identity')}",
+            f"score={_format_optional_float(row.get('selected_score'))}",
+            f"gap={_format_optional_float(row.get('reliability_gap'))}",
+            f"reliable={row.get('selected_reliable')}",
+        )
+
+    print(f"SRR lowest {min(limit, len(low_rows))}:")
+    for row in low_rows[:limit]:
+        print(
+            "-",
+            f"probe={row.get('probe_index')}",
+            f"true={row.get('true_identity')}",
+            f"score={_format_optional_float(row.get('selected_score'))}",
+            f"gap={_format_optional_float(row.get('reliability_gap'))}",
+            f"reliable={row.get('selected_reliable')}",
+        )
+
+
+def compute_recognition_evaluation_metrics(
+    records,
+    selected_threshold,
+    output_stem=None,
+):
+    """
+    Compute the official recognition metrics used by the project reports.
+
+    The evaluator keeps the loading and logging responsibilities, while
+    this function delegates the actual metric computation to
+    ``recognition_metrics.py``.
+    """
+
+    selected_metrics = evaluate_recognition_at_threshold(records, selected_threshold)
+    sweep_results = sweep_recognition_thresholds(records)
+    eer_results = compute_recognition_eer(sweep_results)
+    threshold_summary = build_recognition_threshold_summary(sweep_results)
+
+    report = {
+        "selected_threshold": selected_threshold,
+        "selected_metrics": selected_metrics,
+        "sweep_results": sweep_results,
+        "eer_results": eer_results,
+        "threshold_summary": threshold_summary,
+    }
+
+    if output_stem is not None:
+        report["export_paths"] = export_recognition_metrics_report(report, output_stem)
+
+    return report
+
+
+def log_recognition_evaluation_diagnostics(
+    mode_label,
+    load_elapsed,
+    metrics_report,
+    known_stats=None,
+    unknown_stats=None,
+    identity_stats=None,
+    threshold_results=None,
+    saved_evaluation_threshold=None,
+    saved_evaluation_threshold_source=None,
+    dataset_counts=None,
+    total_count=None,
+    correct_count=None,
+    genuine_count=None,
+    impostor_count=None,
+    known_count=None,
+    unknown_count=None,
+    evaluation_elapsed=None,
+    open_set=False,
+    pairwise_analysis=None,
+    pose_summary=None,
+):
+    """
+    Print the project diagnostics for recognition.
+
+    The evaluator keeps the human-readable logs here, while the official
+    project metrics are produced by ``recognition_metrics.py``.
+    """
+
+    print(f"=== RECOGNITION DIAGNOSTICS: {mode_label} ===")
+    selected_metrics = metrics_report["selected_metrics"]
+    threshold_summary = metrics_report["threshold_summary"]
+    eer_results = metrics_report["eer_results"]
+
+    if open_set:
+        print("Probe samples:", total_count if total_count is not None else 0)
+        print(f"Probe loading completed in {load_elapsed:.2f}s")
+        if known_count is not None:
+            print("probe_known samples:", known_count)
+        if unknown_count is not None:
+            print("probe_unknown samples:", unknown_count)
+        if pose_summary is not None:
+            print(format_pose_summary(pose_summary, title="Probe pose summary:"))
+        print(f"Using runtime threshold: {selected_metrics['threshold']:.2f}")
+        print("Known accepted correctly:", selected_metrics["correct_identification"])
+        print("Known rejected as unknown:", selected_metrics["false_reject"])
+        print(
+            "Known accepted wrongly as other known:",
+            selected_metrics["misidentification"],
+        )
+        print("Unknown rejected correctly:", selected_metrics["true_reject"])
+        print("Unknown accepted wrongly as known:", selected_metrics["false_accept"])
+    else:
+        print("Probe samples:", total_count if total_count is not None else 0)
+        print(f"Probe loading completed in {load_elapsed:.2f}s")
+        if dataset_counts is not None:
+            for dataset_name, sample_count in dataset_counts.items():
+                print(f"{dataset_name} probe samples: {sample_count}")
+        if pose_summary is not None:
+            print(format_pose_summary(pose_summary, title="Probe pose summary:"))
+        if correct_count is not None and total_count is not None:
+            print("Correct:", correct_count)
+            print("Accuracy:", correct_count / total_count if total_count else 0.0)
+        if genuine_count is not None:
+            print("Genuine matches:", genuine_count)
+        if impostor_count is not None:
+            print("Impostor matches:", impostor_count)
+
+    print(
+        "Recognition official metrics:",
+        (
+            f"threshold={selected_metrics['threshold']:.4f} | "
+            f"DIR={selected_metrics['DIR']:.4f} | "
+            f"FAR={selected_metrics['FAR']:.4f} | "
+            f"FRR={selected_metrics['FRR']:.4f} | "
+            f"GAR={selected_metrics['GAR']:.4f} | "
+            f"misidentification={selected_metrics['misidentification_rate']:.4f}"
+        ),
+    )
+
+    if eer_results.get("eer_value") is not None:
+        print(
+            "Recognition EER:",
+            (
+                f"eer={eer_results['eer_value']:.4f} | "
+                f"eer_threshold={eer_results['eer_threshold']:.4f}"
+            ),
+        )
+
+    summary_rows = []
+    for label in ("low", "mid", "high"):
+        row = threshold_summary.get(label)
+        if row is None:
+            continue
+        summary_rows.append(
+            (
+                f"{label}={row['threshold']:.4f} | "
+                f"DIR={row['DIR']:.4f} | "
+                f"FAR={row['FAR']:.4f} | "
+                f"FRR={row['FRR']:.4f} | "
+                f"GAR={row['GAR']:.4f} | "
+                f"misidentification={row['misidentification_rate']:.4f}"
+            )
+        )
+
+    if summary_rows:
+        print("Recognition threshold summary:")
+        for row in summary_rows:
+            print(f"- {row}")
+
+    if known_stats is not None:
+        print("Mean known confidence:", known_stats["mean"])
+    if unknown_stats is not None:
+        print("Mean unknown confidence:", unknown_stats["mean"])
+    if identity_stats is not None:
+        print_identity_breakdown(identity_stats, limit=5)
+    if saved_evaluation_threshold is not None:
+        print(
+            "Saved evaluation threshold source:",
+            saved_evaluation_threshold_source or "unknown",
+        )
+    if threshold_results is not None:
+        if open_set:
+            print_open_set_threshold_analysis(threshold_results)
+        else:
+            print_threshold_analysis(threshold_results)
+
+    if pairwise_analysis is not None:
+        if pairwise_analysis.get("available"):
+            rank_summary = pairwise_analysis.get("rank_summary", {})
+            rank_1 = rank_summary.get("rank_1_accuracy")
+            rank_3 = rank_summary.get("rank_3_accuracy")
+            rank_5 = rank_summary.get("rank_5_accuracy")
+            cms_curve = pairwise_analysis.get("cms_curve", {})
+            cms_points = cms_curve.get("points", []) if cms_curve else []
+            cms_1 = _lookup_cms_point(cms_points, 1)
+            cms_3 = _lookup_cms_point(cms_points, 3)
+            cms_5 = _lookup_cms_point(cms_points, 5)
+            cms_10 = _lookup_cms_point(cms_points, 10)
+            mean_margin = pairwise_analysis.get("margin_stats", {}).get("mean")
+            print(
+                "All gallery vs all probe:",
+                (
+                    f"probes={pairwise_analysis.get('probe_count', 0)} | "
+                    f"gallery_templates={pairwise_analysis.get('gallery_template_count', 0)} | "
+                    f"rank1={_format_optional_float(rank_1)} | "
+                    f"rank3={_format_optional_float(rank_3)} | "
+                    f"rank5={_format_optional_float(rank_5)} | "
+                    f"cms1={_format_optional_float(cms_1)} | "
+                    f"cms3={_format_optional_float(cms_3)} | "
+                    f"cms5={_format_optional_float(cms_5)} | "
+                    f"cms10={_format_optional_float(cms_10)} | "
+                    f"mean_margin={_format_optional_float(mean_margin)}"
+                ),
+            )
+            preview_rows = pairwise_analysis.get("preview_rows", [])
+            if preview_rows:
+                print("Pairwise preview:")
+                for preview_row in preview_rows[:3]:
+                    print(
+                        "-",
+                        f"{preview_row.get('example_type')}:",
+                        f"probe={preview_row.get('probe_index')}",
+                        f"true={preview_row.get('true_identity')}",
+                        f"rank={_format_optional_int(preview_row.get('true_identity_rank'))}",
+                        f"margin={_format_optional_float(preview_row.get('margin'))}",
+                        f"best={preview_row.get('best_identity')}({_format_optional_float(preview_row.get('best_distance'))})",
+                    )
+        else:
+            print(
+                "All gallery vs all probe:",
+                f"unavailable ({pairwise_analysis.get('reason', 'unknown')})",
+            )
+
+    doddington_analysis = metrics_report.get("doddington_analysis")
+    if doddington_analysis is not None:
+        print_doddington_zoo_analysis(doddington_analysis)
+
+    srr_analysis = metrics_report.get("srr_analysis")
+    if srr_analysis is not None:
+        print_system_response_reliability_analysis(srr_analysis)
+
+    if evaluation_elapsed is not None:
+        print(f"Evaluation completed in {evaluation_elapsed:.2f}s")
+    export_paths = metrics_report.get("export_paths")
+    if export_paths:
+        print("Recognition metric exports:")
+        print(f"- json: {export_paths['json']}")
+        print(f"- summary_csv: {export_paths['summary_csv']}")
+        print(f"- roc_csv: {export_paths['roc_csv']}")
+        print(f"- det_csv: {export_paths['det_csv']}")
+        if "all_gallery_vs_all_probe_csv" in export_paths:
+            print(f"- all_gallery_vs_all_probe_csv: {export_paths['all_gallery_vs_all_probe_csv']}")
+        if "all_gallery_vs_all_probe_cms_csv" in export_paths:
+            print(f"- all_gallery_vs_all_probe_cms_csv: {export_paths['all_gallery_vs_all_probe_cms_csv']}")
+        if "all_gallery_vs_all_probe_preview_csv" in export_paths:
+            print(f"- all_gallery_vs_all_probe_preview_csv: {export_paths['all_gallery_vs_all_probe_preview_csv']}")
+        if "system_response_reliability_csv" in export_paths:
+            print(f"- system_response_reliability_csv: {export_paths['system_response_reliability_csv']}")
+    print()
+
+
 def evaluate_custom_open_set_dataset(
     train_mode,
     recognizer,
     label_map,
     allow_config_update=False,
+    output_stem=None,
+    lfw_sample_ratio=None,
 ):
     """
     Evaluate the custom recognition dataset as an open-set problem.
@@ -411,18 +922,23 @@ def evaluate_custom_open_set_dataset(
         f"normalization={preprocessing_config['normalization_mode']},",
         f"padding_ratio={preprocessing_config['crop_padding_ratio']:.3f}",
     )
+    if lfw_sample_ratio is not None and lfw_sample_ratio < 1.0:
+        print(f"LFW sample ratio: {lfw_sample_ratio:.3f}")
 
     load_start_time = time.perf_counter()
-    known_records, known_dataset_counts = load_probe_dataset(
+    known_records, known_dataset_counts, known_pose_summary = load_probe_dataset(
         "custom",
         split="probe_known",
         namespace_identities=False,
+        collect_pose_metrics=True,
     )
-    unknown_records, unknown_dataset_counts = load_probe_dataset(
+    unknown_records, unknown_dataset_counts, unknown_pose_summary = load_probe_dataset(
         "custom",
         split="probe_unknown",
         namespace_identities=False,
+        collect_pose_metrics=True,
     )
+    pose_summary = merge_pose_summaries(known_pose_summary, unknown_pose_summary)
     load_elapsed = time.perf_counter() - load_start_time
 
     probe_records = known_records + unknown_records
@@ -437,6 +953,7 @@ def evaluate_custom_open_set_dataset(
 
     known_scores = []
     unknown_scores = []
+    normalized_records = []
     evaluation_records = []
 
     for index, record in enumerate(probe_records, start=1):
@@ -460,6 +977,14 @@ def evaluate_custom_open_set_dataset(
                 "is_known_split": is_known_split,
             }
         )
+        normalized_records.append(
+            {
+                "is_known": is_known_split,
+                "true_id": true_name if is_known_split else None,
+                "predicted_id": predicted_name,
+                "score": confidence,
+            }
+        )
 
         if index <= DEBUG_SAMPLE_PREVIEW_LIMIT:
             print(
@@ -476,54 +1001,35 @@ def evaluate_custom_open_set_dataset(
             print(f"Evaluated {index}/{len(probe_records)} probe images")
 
     evaluation_threshold = DEFAULT_PREDICTION_THRESHOLD
-    accepted_known_correctly = 0
-    known_rejected_as_unknown = 0
-    known_accepted_wrongly_as_other_known = 0
-    unknown_rejected_correctly = 0
-    unknown_accepted_wrongly_as_known = 0
+    report_stem = output_stem or f"{train_mode}_custom_open_set{_build_lfw_sample_suffix(lfw_sample_ratio)}"
 
-    for record in evaluation_records:
-        is_accepted = record["confidence"] < evaluation_threshold
-        final_identity = record["predicted_identity"] if is_accepted else "Unknown"
-
-        if record["is_known_split"]:
-            if final_identity == record["identity"]:
-                accepted_known_correctly += 1
-            elif final_identity == "Unknown":
-                known_rejected_as_unknown += 1
-            else:
-                known_accepted_wrongly_as_other_known += 1
-        else:
-            if final_identity == "Unknown":
-                unknown_rejected_correctly += 1
-            else:
-                unknown_accepted_wrongly_as_known += 1
-
-    print("Probe samples:", len(probe_records))
-    print(f"Probe loading completed in {load_elapsed:.2f}s")
-    print(
-        "probe_known samples:",
-        sum(known_dataset_counts.values()),
+    metrics_report = compute_recognition_evaluation_metrics(
+        normalized_records,
+        evaluation_threshold,
+        output_stem=None,
     )
-    print(
-        "probe_unknown samples:",
-        sum(unknown_dataset_counts.values()),
+    pairwise_analysis = build_all_gallery_vs_all_probe_analysis(
+        probe_records,
+        recognizer,
+        label_map,
+        threshold=evaluation_threshold,
     )
-    print(f"Using runtime threshold: {evaluation_threshold:.2f}")
-    print("Known accepted correctly:", accepted_known_correctly)
-    print("Known rejected as unknown:", known_rejected_as_unknown)
-    print("Known accepted wrongly as other known:", known_accepted_wrongly_as_other_known)
-    print("Unknown rejected correctly:", unknown_rejected_correctly)
-    print("Unknown accepted wrongly as known:", unknown_accepted_wrongly_as_known)
+    metrics_report["pairwise_analysis"] = pairwise_analysis
+    metrics_report["doddington_analysis"] = build_doddington_zoo_analysis(
+        pairwise_analysis,
+        threshold=evaluation_threshold,
+    )
+    metrics_report["srr_analysis"] = build_system_response_reliability_analysis(
+        pairwise_analysis,
+        threshold=evaluation_threshold,
+    )
+    metrics_report["export_paths"] = export_recognition_metrics_report(
+        metrics_report,
+        report_stem,
+    )
 
     known_stats = compute_score_statistics(known_scores)
     unknown_stats = compute_score_statistics(unknown_scores)
-
-    if known_stats is not None:
-        print("Mean known confidence:", known_stats["mean"])
-
-    if unknown_stats is not None:
-        print("Mean unknown confidence:", unknown_stats["mean"])
 
     open_set_threshold, open_set_threshold_rule = compute_open_set_threshold(
         known_scores,
@@ -540,10 +1046,6 @@ def evaluate_custom_open_set_dataset(
     if current_evaluation_config is not None:
         saved_evaluation_threshold = current_evaluation_config.get("unknown_threshold")
         saved_evaluation_threshold_source = current_evaluation_config.get("threshold_source")
-        print(
-            "Saved evaluation threshold source:",
-            saved_evaluation_threshold_source or "unknown",
-        )
 
     conservative_threshold = None
     if open_set_threshold is not None and unknown_scores:
@@ -572,12 +1074,25 @@ def evaluate_custom_open_set_dataset(
         threshold_candidates,
     )
 
-    print_score_statistics("Known", known_stats)
-    print_score_statistics("Unknown", unknown_stats)
-    print_open_set_threshold_analysis(threshold_results)
+    log_recognition_evaluation_diagnostics(
+        "CUSTOM OPEN SET",
+        load_elapsed,
+        metrics_report,
+        known_stats=known_stats,
+        unknown_stats=unknown_stats,
+        threshold_results=threshold_results,
+        saved_evaluation_threshold=saved_evaluation_threshold,
+        saved_evaluation_threshold_source=saved_evaluation_threshold_source,
+        total_count=len(probe_records),
+        known_count=sum(known_dataset_counts.values()),
+        unknown_count=sum(unknown_dataset_counts.values()),
+        evaluation_elapsed=time.perf_counter() - load_start_time,
+        open_set=True,
+        pairwise_analysis=pairwise_analysis,
+        pose_summary=pose_summary,
+    )
 
-    print(f"Evaluation completed in {time.perf_counter() - load_start_time:.2f}s")
-    print()
+    return
 
 
 def evaluate_single_recognition_dataset(
@@ -587,6 +1102,8 @@ def evaluate_single_recognition_dataset(
     label_map,
     namespace_identities=False,
     allow_config_update=False,
+    output_stem=None,
+    lfw_sample_ratio=None,
 ):
     """
     Evaluate the trained recognition model on one selected probe dataset.
@@ -601,6 +1118,8 @@ def evaluate_single_recognition_dataset(
             recognizer,
             label_map,
             allow_config_update=allow_config_update,
+            output_stem=output_stem,
+            lfw_sample_ratio=lfw_sample_ratio,
         )
         return
 
@@ -611,11 +1130,15 @@ def evaluate_single_recognition_dataset(
         f"normalization={preprocessing_config['normalization_mode']},",
         f"padding_ratio={preprocessing_config['crop_padding_ratio']:.3f}",
     )
+    if eval_mode == "lfw" and lfw_sample_ratio is not None and lfw_sample_ratio < 1.0:
+        print(f"LFW sample ratio: {lfw_sample_ratio:.3f}")
 
     load_start_time = time.perf_counter()
-    probe_records, dataset_counts = load_probe_dataset(
+    probe_records, dataset_counts, pose_summary = load_probe_dataset(
         eval_mode,
         namespace_identities=namespace_identities,
+        collect_pose_metrics=True,
+        lfw_sample_ratio=lfw_sample_ratio if lfw_sample_ratio is not None else 1.0,
     )
     load_elapsed = time.perf_counter() - load_start_time
 
@@ -626,6 +1149,7 @@ def evaluate_single_recognition_dataset(
 
     genuine_scores = []
     impostor_scores = []
+    normalized_records = []
     evaluation_records = []
     correct = 0
     total = 0
@@ -650,26 +1174,49 @@ def evaluate_single_recognition_dataset(
                 "is_correct": predicted_name == true_name,
             }
         )
+        normalized_records.append(
+            {
+                "is_known": True,
+                "true_id": true_name,
+                "predicted_id": predicted_name,
+                "score": confidence,
+            }
+        )
 
         total += 1
 
         if index % PROBE_PROGRESS_STEP == 0:
             print(f"Evaluated {index}/{len(probe_records)} probe images")
 
-    print("Probe samples:", total)
-    print(f"Probe loading completed in {load_elapsed:.2f}s")
-
-    for dataset_name, sample_count in dataset_counts.items():
-        print(f"{dataset_name} probe samples: {sample_count}")
-
-    print("Correct:", correct)
-    print("Accuracy:", correct / total)
-    print("Genuine matches:", len(genuine_scores))
-    print("Impostor matches:", len(impostor_scores))
-
     genuine_stats = compute_score_statistics(genuine_scores)
     impostor_stats = compute_score_statistics(impostor_scores)
     identity_stats = compute_identity_accuracy(evaluation_records)
+    report_stem = output_stem or f"{train_mode}_{eval_mode}{_build_lfw_sample_suffix(lfw_sample_ratio)}"
+
+    metrics_report = compute_recognition_evaluation_metrics(
+        normalized_records,
+        DEFAULT_PREDICTION_THRESHOLD,
+        output_stem=None,
+    )
+    pairwise_analysis = build_all_gallery_vs_all_probe_analysis(
+        probe_records,
+        recognizer,
+        label_map,
+        threshold=DEFAULT_PREDICTION_THRESHOLD,
+    )
+    metrics_report["pairwise_analysis"] = pairwise_analysis
+    metrics_report["doddington_analysis"] = build_doddington_zoo_analysis(
+        pairwise_analysis,
+        threshold=DEFAULT_PREDICTION_THRESHOLD,
+    )
+    metrics_report["srr_analysis"] = build_system_response_reliability_analysis(
+        pairwise_analysis,
+        threshold=DEFAULT_PREDICTION_THRESHOLD,
+    )
+    metrics_report["export_paths"] = export_recognition_metrics_report(
+        metrics_report,
+        report_stem,
+    )
 
     current_evaluation_config = load_evaluation_threshold_config()
     saved_evaluation_threshold = None
@@ -681,20 +1228,10 @@ def evaluate_single_recognition_dataset(
     suggested_threshold = None
     suggested_threshold_rule = None
 
-    if genuine_stats is not None:
-        print("Mean genuine confidence:", genuine_stats["mean"])
-
-    if impostor_stats is not None:
-        print("Mean impostor confidence:", impostor_stats["mean"])
-
     suggested_threshold, suggested_threshold_rule = compute_suggested_threshold(
         genuine_scores,
         impostor_scores,
     )
-
-    if suggested_threshold is not None:
-        print("Suggested threshold:", suggested_threshold)
-        print("Suggested threshold rule:", suggested_threshold_rule)
 
     conservative_threshold = None
     if suggested_threshold is not None and impostor_scores:
@@ -718,16 +1255,6 @@ def evaluate_single_recognition_dataset(
         evaluation_records,
         threshold_candidates,
     )
-
-    print_score_statistics("Genuine", genuine_stats)
-    print_score_statistics("Impostor", impostor_stats)
-    print_identity_breakdown(identity_stats, limit=5)
-    if saved_evaluation_threshold is not None:
-        print(
-            "Saved evaluation threshold source:",
-            saved_evaluation_threshold_source or "unknown",
-        )
-    print_threshold_analysis(threshold_results)
 
     has_both_classes = bool(genuine_scores) and bool(impostor_scores)
     non_fallback_rule = suggested_threshold_rule != "max_genuine_plus_5_fallback"
@@ -755,6 +1282,8 @@ def evaluate_single_recognition_dataset(
             "suggested_threshold_rule": suggested_threshold_rule,
         }
         save_recognition_config(config_data)
+        saved_evaluation_threshold = suggested_threshold
+        saved_evaluation_threshold_source = f"{train_mode}_to_{eval_mode}"
         print(f"Recognition evaluation config saved to: {RECOGNITION_CONFIG_PATH}")
     elif allow_config_update:
         if not can_update_evaluation_threshold:
@@ -773,11 +1302,29 @@ def evaluate_single_recognition_dataset(
                 "allowed for the stored reference."
             )
 
-    print(f"Evaluation completed in {time.perf_counter() - evaluation_start_time:.2f}s")
-    print()
+    log_recognition_evaluation_diagnostics(
+        f"{train_mode.upper()} -> {eval_mode.upper()}",
+        load_elapsed,
+        metrics_report,
+        known_stats=genuine_stats,
+        unknown_stats=impostor_stats,
+        identity_stats=identity_stats,
+        threshold_results=threshold_results,
+        saved_evaluation_threshold=saved_evaluation_threshold,
+        saved_evaluation_threshold_source=saved_evaluation_threshold_source,
+        dataset_counts=dataset_counts,
+        total_count=total,
+        correct_count=correct,
+        genuine_count=len(genuine_scores),
+        impostor_count=len(impostor_scores),
+        evaluation_elapsed=time.perf_counter() - evaluation_start_time,
+        open_set=False,
+        pairwise_analysis=pairwise_analysis,
+        pose_summary=pose_summary,
+    )
 
 
-def evaluate_recognition_model(train_mode=None, eval_mode=None):
+def evaluate_recognition_model(train_mode=None, eval_mode=None, lfw_sample_ratio=None):
     """
     Evaluate the recognition model on one dataset or on all supported
     datasets sequentially.
@@ -787,6 +1334,7 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None):
     """
     selected_train_mode = train_mode or "custom"
     selected_eval_mode = eval_mode or EVAL_MODE
+    selected_lfw_sample_ratio = lfw_sample_ratio
     namespace_identities = should_namespace_identities(selected_train_mode)
     total_start_time = time.perf_counter()
 
@@ -801,6 +1349,7 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None):
                 label_map,
                 namespace_identities=namespace_identities,
                 allow_config_update=False,
+                lfw_sample_ratio=selected_lfw_sample_ratio,
             )
         print(f"Total evaluation time: {time.perf_counter() - total_start_time:.2f}s")
         return
@@ -812,6 +1361,7 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None):
         label_map,
         namespace_identities=namespace_identities,
         allow_config_update=True,
+        lfw_sample_ratio=selected_lfw_sample_ratio,
     )
     print(f"Total evaluation time: {time.perf_counter() - total_start_time:.2f}s")
 

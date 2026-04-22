@@ -9,7 +9,7 @@ datasets.
 The script can evaluate the trained model on:
 - CASIA test
 - Replay-Attack test
-- custom runtime PAD test
+- custom PAD test
 
 It can also run the three evaluations sequentially while keeping the
 output of each dataset separated, so the behavior remains equivalent to
@@ -32,38 +32,30 @@ from src.antispoofing.pad_model_config import (
     get_pad_artifact_paths,
     load_pad_model_config,
 )
+from src.antispoofing.pad_metrics import (
+    build_pad_threshold_summary,
+    compute_pad_eer,
+    export_pad_metrics_report,
+    evaluate_pad_at_threshold,
+    sweep_pad_thresholds,
+)
+from src.preprocessing.pose_statistics import format_pose_summary
 from src.antispoofing.training.pad_dataset_loader import (
     load_pad_test_dataset_casia,
     load_pad_test_dataset_replay,
     load_custom_pad_test_dataset,
-    load_pad_split_dataset,
-    CUSTOM_TEST_LIVE_PATH,
-    CUSTOM_TEST_SPOOF_PATH,
-    RUNTIME_TEST_LIVE_PATH,
-    RUNTIME_TEST_SPOOF_PATH,
 )
 
 
-EVAL_MODE = "custom"     # casia, replay, custom, runtime
+EVAL_MODE = "custom"     # casia, replay, custom
 LIVE_FALSE_NEGATIVE_LOG_LIMIT = 20
 
 
-def load_custom_pad_test_dataset_wrapper(return_image_paths=False):
-    """
-    Load the custom PAD test dataset.
-    """
-
-    return load_custom_pad_test_dataset(return_image_paths=return_image_paths)
-
-
-def load_runtime_pad_test_dataset(return_image_paths=False):
-    """
-    Legacy alias for the custom PAD test dataset.
-    """
-    return load_custom_pad_test_dataset_wrapper(return_image_paths=return_image_paths)
-
-
-def load_configured_test_dataset(eval_mode, include_paths=False):
+def load_configured_test_dataset(
+    eval_mode,
+    include_paths=False,
+    collect_pose_metrics=False,
+):
     """
     Load the PAD evaluation dataset selected by ``eval_mode``.
 
@@ -71,25 +63,29 @@ def load_configured_test_dataset(eval_mode, include_paths=False):
     - casia
     - replay
     - custom
-    - runtime
     """
 
     if eval_mode == "casia":
-        return "CASIA test", load_pad_test_dataset_casia()
-
-    if eval_mode == "replay":
-        return "Replay-Attack test", load_pad_test_dataset_replay()
-
-    if eval_mode == "custom":
-        return "Custom test", load_custom_pad_test_dataset_wrapper(
-            return_image_paths=include_paths
+        return "CASIA test", load_pad_test_dataset_casia(
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
         )
 
-    if eval_mode == "runtime":
-        return "Runtime test", load_runtime_pad_test_dataset(return_image_paths=include_paths)
+    if eval_mode == "replay":
+        return "Replay-Attack test", load_pad_test_dataset_replay(
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
+        )
+
+    if eval_mode == "custom":
+        return "Custom test", load_custom_pad_test_dataset(
+            return_image_paths=include_paths,
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
+        )
 
     raise ValueError(
-        f"Unsupported EVAL_MODE: {eval_mode}. Use 'casia', 'replay', 'custom', 'runtime', or 'all'."
+        f"Unsupported EVAL_MODE: {eval_mode}. Use 'casia', 'replay', 'custom', or 'all'."
     )
 
 
@@ -111,12 +107,178 @@ def get_live_score_details(classifier, X_test_scaled):
     return None, None
 
 
-def compute_runtime_crop_diagnostics(sample_path):
+def compute_pad_evaluation_metrics(
+    y_test,
+    score_values,
+    score_label,
+    output_stem=None,
+):
+    """
+    Compute the official PAD metrics used by the project reports.
+
+    The evaluator keeps the raw predictions and score arrays, while this
+    function turns them into the reportable PAD metrics:
+    FAR, FRR, GAR, APCER, BPCER, ACER, ROC, DET, and EER.
+    """
+
+    if score_label == "decision":
+        selected_threshold = 0.0
+    else:
+        selected_threshold = 0.5
+
+    selected_metrics = evaluate_pad_at_threshold(
+        y_test,
+        score_values,
+        selected_threshold,
+    )
+    sweep_results = sweep_pad_thresholds(y_test, score_values)
+    eer_results = compute_pad_eer(sweep_results)
+    threshold_summary = build_pad_threshold_summary(sweep_results)
+
+    report = {
+        "selected_threshold": selected_threshold,
+        "selected_metrics": selected_metrics,
+        "sweep_results": sweep_results,
+        "eer_results": eer_results,
+        "threshold_summary": threshold_summary,
+    }
+
+    if output_stem is not None:
+        report["export_paths"] = export_pad_metrics_report(report, output_stem)
+
+    return report
+
+
+def log_pad_evaluation_diagnostics(
+    dataset_name,
+    y_test,
+    y_pred,
+    score_values,
+    score_label,
+    sample_paths,
+    load_elapsed,
+    evaluation_elapsed,
+    metrics_report,
+    pose_summary=None,
+    log_live_false_negatives=False,
+    live_false_negative_limit=LIVE_FALSE_NEGATIVE_LOG_LIMIT,
+):
+    """
+    Print the project diagnostics for PAD.
+
+    This function intentionally keeps the human-readable logs separate
+    from the official metric computation. The actual PAD metrics are
+    produced by ``pad_metrics.py`` and only summarized here.
+    """
+
+    print(f"=== PAD DIAGNOSTICS: {dataset_name} ===")
+    selected_metrics = metrics_report["selected_metrics"]
+    threshold_summary = metrics_report["threshold_summary"]
+    eer_results = metrics_report["eer_results"]
+
+    print(f"PAD evaluation dataset: {dataset_name}")
+    print(
+        "PAD evaluation samples:",
+        (
+            f"total={len(y_test)} | "
+            f"live={(y_test == 1).sum()} | spoof={(y_test == 0).sum()} | "
+            f"pred_live={(y_pred == 1).sum()} | pred_spoof={(y_pred == 0).sum()}"
+        ),
+    )
+    if pose_summary is not None:
+        print(format_pose_summary(pose_summary, title="PAD pose summary:"))
+    print(f"PAD evaluation dataset loading completed in {load_elapsed:.2f}s")
+
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    recall = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    conf_matrix = confusion_matrix(y_test, y_pred)
+
+    print(
+        "PAD project logs:",
+        f"accuracy={accuracy:.4f} | precision={precision:.4f} | recall={recall:.4f} | f1={f1:.4f}",
+    )
+    print("PAD confusion matrix:\n", conf_matrix)
+    print(
+        "PAD official metrics:",
+        (
+            f"threshold={selected_metrics['threshold']:.4f} | "
+            f"FAR={selected_metrics['far']:.4f} | "
+            f"FRR={selected_metrics['frr']:.4f} | "
+            f"GAR={selected_metrics['gar']:.4f} | "
+            f"APCER={selected_metrics['apcer']:.4f} | "
+            f"BPCER={selected_metrics['bpcer']:.4f} | "
+            f"ACER={selected_metrics['acer']:.4f}"
+        ),
+    )
+    if eer_results.get("eer_value") is not None:
+        print(
+            "PAD EER:",
+            (
+                f"eer={eer_results['eer_value']:.4f} | "
+                f"eer_threshold={eer_results['eer_threshold']:.4f}"
+            ),
+        )
+
+    export_paths = metrics_report.get("export_paths")
+    if export_paths:
+        print("PAD metric exports:")
+        print(f"- json: {export_paths['json']}")
+        print(f"- summary_csv: {export_paths['summary_csv']}")
+        print(f"- roc_csv: {export_paths['roc_csv']}")
+        print(f"- det_csv: {export_paths['det_csv']}")
+
+    summary_rows = []
+    for label in ("low", "mid", "high"):
+        row = threshold_summary.get(label)
+        if row is None:
+            continue
+        summary_rows.append(
+            (
+                f"{label}={row['threshold']:.4f} | "
+                f"FAR={row['far']:.4f} | "
+                f"FRR={row['frr']:.4f} | "
+                f"GAR={row['gar']:.4f} | "
+                f"ACER={(row['apcer'] + row['bpcer']) / 2.0:.4f}"
+            )
+        )
+
+    if summary_rows:
+        print("PAD threshold summary:")
+        for row in summary_rows:
+            print(f"- {row}")
+
+    if log_live_false_negatives and sample_paths is not None:
+        print_live_false_negative_analysis(
+            dataset_name,
+            y_test,
+            y_pred,
+            sample_paths,
+            score_values,
+            score_label,
+            live_false_negative_limit,
+        )
+        print_spoof_false_positive_analysis(
+            dataset_name,
+            y_test,
+            y_pred,
+            sample_paths,
+            score_values,
+            score_label,
+            live_false_negative_limit,
+        )
+
+    print(f"PAD evaluation completed in {evaluation_elapsed:.2f}s")
+    print()
+
+
+def compute_crop_diagnostics(sample_path):
     """
     Compute simple image diagnostics for a PAD crop.
 
     These are lightweight proxies for lighting, contrast, blur, and
-    coarse asymmetry so runtime false results can be inspected more
+    coarse asymmetry so false results can be inspected more
     usefully from the batch logs.
     """
 
@@ -186,7 +348,7 @@ def print_live_false_negative_analysis(dataset_name, y_test, y_pred, sample_path
         line = f"[LIVE_FN {rank:02d}] path={sample_paths[index]}"
         if score_values is not None:
             line += f" | {score_label}={score_values[index]:.4f}"
-        diagnostics = compute_runtime_crop_diagnostics(sample_paths[index])
+        diagnostics = compute_crop_diagnostics(sample_paths[index])
         if diagnostics is not None:
             line += (
                 f" | mean={diagnostics['mean']:.1f}"
@@ -237,7 +399,7 @@ def print_spoof_false_positive_analysis(
         line = f"[SPOOF_FP {rank:02d}] path={sample_paths[index]}"
         if score_values is not None:
             line += f" | {score_label}={score_values[index]:.4f}"
-        diagnostics = compute_runtime_crop_diagnostics(sample_paths[index])
+        diagnostics = compute_crop_diagnostics(sample_paths[index])
         if diagnostics is not None:
             line += (
                 f" | mean={diagnostics['mean']:.1f}"
@@ -263,6 +425,7 @@ def evaluate_single_pad_dataset(
     classifier,
     log_live_false_negatives=False,
     live_false_negative_limit=LIVE_FALSE_NEGATIVE_LOG_LIMIT,
+    output_stem=None,
 ):
     """
     Evaluate the trained PAD model on one selected PAD test dataset.
@@ -271,14 +434,15 @@ def evaluate_single_pad_dataset(
     load_start_time = time.perf_counter()
     dataset_name, dataset = load_configured_test_dataset(
         eval_mode,
-    include_paths=log_live_false_negatives and eval_mode in {"custom", "runtime"},
+        include_paths=log_live_false_negatives and eval_mode == "custom",
+        collect_pose_metrics=True,
     )
     load_elapsed = time.perf_counter() - load_start_time
 
-    if log_live_false_negatives and eval_mode in {"custom", "runtime"}:
-        X_test, y_test, sample_paths = dataset
+    if log_live_false_negatives and eval_mode == "custom":
+        X_test, y_test, sample_paths, pose_summary = dataset
     else:
-        X_test, y_test = dataset
+        X_test, y_test, pose_summary = dataset
         sample_paths = None
 
     if len(y_test) == 0:
@@ -290,50 +454,31 @@ def evaluate_single_pad_dataset(
     X_test_scaled = scaler.transform(X_test)
     y_pred = classifier.predict(X_test_scaled)
     score_values, score_label = get_live_score_details(classifier, X_test_scaled)
+    if score_values is None:
+        score_values = y_pred.astype(np.float64)
+        score_label = "prediction_fallback"
 
-    accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred, zero_division=0)
-    recall = recall_score(y_test, y_pred, zero_division=0)
-    f1 = f1_score(y_test, y_pred, zero_division=0)
-    conf_matrix = confusion_matrix(y_test, y_pred)
-
-    print(f"PAD evaluation dataset: {dataset_name}")
-    print(
-        "PAD evaluation samples:",
-        (
-            f"total={len(y_test)} | "
-            f"live={(y_test == 1).sum()} | spoof={(y_test == 0).sum()} | "
-            f"pred_live={(y_pred == 1).sum()} | pred_spoof={(y_pred == 0).sum()}"
-        ),
+    metrics_report = compute_pad_evaluation_metrics(
+        y_test,
+        score_values,
+        score_label,
+        output_stem=output_stem,
     )
-    print(f"PAD evaluation dataset loading completed in {load_elapsed:.2f}s")
-    print(
-        "PAD metrics:",
-        f"accuracy={accuracy:.4f} | precision={precision:.4f} | recall={recall:.4f} | f1={f1:.4f}",
-    )
-    print("PAD confusion matrix:\n", conf_matrix)
 
-    if log_live_false_negatives and eval_mode in {"custom", "runtime"}:
-        print_live_false_negative_analysis(
-            dataset_name,
-            y_test,
-            y_pred,
-            sample_paths,
-            score_values,
-            score_label,
-            live_false_negative_limit,
-        )
-        print_spoof_false_positive_analysis(
-            dataset_name,
-            y_test,
-            y_pred,
-            sample_paths,
-            score_values,
-            score_label,
-            live_false_negative_limit,
-        )
-    print(f"PAD evaluation completed in {time.perf_counter() - evaluation_start_time:.2f}s")
-    print()
+    log_pad_evaluation_diagnostics(
+        dataset_name,
+        y_test,
+        y_pred,
+        score_values,
+        score_label,
+        sample_paths if log_live_false_negatives and eval_mode == "custom" else None,
+        load_elapsed,
+        time.perf_counter() - evaluation_start_time,
+        metrics_report,
+        pose_summary=pose_summary,
+        log_live_false_negatives=log_live_false_negatives and eval_mode == "custom",
+        live_false_negative_limit=live_false_negative_limit,
+    )
 
 
 def evaluate_pad_model(
@@ -389,6 +534,7 @@ def evaluate_pad_model(
                 classifier,
                 log_live_false_negatives=log_live_false_negatives,
                 live_false_negative_limit=live_false_negative_limit,
+                output_stem=f"{artifact_profile}_{mode}",
             )
         print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
         return
@@ -399,6 +545,7 @@ def evaluate_pad_model(
         classifier,
         log_live_false_negatives=log_live_false_negatives,
         live_false_negative_limit=live_false_negative_limit,
+        output_stem=f"{artifact_profile}_{selected_mode}",
     )
     print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
 

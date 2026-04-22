@@ -2,11 +2,11 @@
 Module: recognition_dataset_collector
 
 Description:
-This module is responsible for collecting raw webcam frames used to
+This module is responsible for collecting face crops used to
 build the custom recognition dataset.
 
 The script captures frames from the webcam, detects and validates a
-face with MediaPipe, and stores the raw frame in the selected
+face with MediaPipe, and stores the cropped face region in the selected
 ``custom_raw`` split directory when the user requests a capture. The
 actual recognition preprocessing is deferred to the loader and runtime
 pipeline.
@@ -28,6 +28,8 @@ import argparse
 from pathlib import Path
 
 from src.detection.face_detector import load_mediapipe_detector
+from src.preprocessing.face_bbox_visualization import draw_visual_face_bbox
+from src.preprocessing.face_preprocessing import crop_face
 from src.preprocessing.frame_preprocessing import get_valid_face
 
 
@@ -35,8 +37,8 @@ from src.preprocessing.frame_preprocessing import get_valid_face
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CUSTOM_RAW_ROOT = PROJECT_ROOT / "data" / "recognition" / "custom_raw"
 THRESHOLD_AREA = 8000
-PERSON = "valerio"
-MODE = "probe_known"      # gallery, probe_known, probe_unknown
+PERSON = "francesca"
+MODE = "gallery"      # gallery, probe_known, probe_unknown
 MAX_IMAGES_GALLERY = 30
 MAX_IMAGES_PROBE = 10
 
@@ -93,6 +95,7 @@ def collect_dataset(person_name=PERSON, split_name=MODE):
 
         display_frame = frame.copy()
         valid_face = False
+        face_crop = None
 
         face_rect, gray_frame, message = get_valid_face(
             frame,
@@ -128,7 +131,8 @@ def collect_dataset(person_name=PERSON, split_name=MODE):
             x, y, w, h = face_rect
 
             valid_face = True
-            cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            face_crop = crop_face(frame, x, y, w, h, padding_ratio=0.10)
+            draw_visual_face_bbox(display_frame, face_rect, (0, 255, 0), 2)
 
             cv2.putText(
                 display_frame,
@@ -157,7 +161,10 @@ def collect_dataset(person_name=PERSON, split_name=MODE):
         if key == ord("s") and valid_face:
             if image_count < max_images:
                 image_count += 1
-                cv2.imwrite(str(dataset_dir / f"{image_count:03d}.png"), frame)
+                if face_crop is None:
+                    print("Skipping save: invalid face crop")
+                else:
+                    cv2.imwrite(str(dataset_dir / f"{image_count:03d}.png"), face_crop)
 
             else:
                 print("Maximum number of images reached")

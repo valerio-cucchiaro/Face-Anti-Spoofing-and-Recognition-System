@@ -19,7 +19,8 @@ from src.antispoofing.pad_feature_extractor import configure_pad_feature_modes
 
 # ----- CONSTANTS ----- #
 MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models"
-PAD_CONFIG_PATH = MODELS_ROOT / "pad_config.json"
+PAD_MODELS_ROOT = MODELS_ROOT / "pad"
+PAD_CONFIG_PATH = PAD_MODELS_ROOT / "pad_config.json"
 
 
 def get_pad_artifact_paths(artifact_profile="runtime"):
@@ -34,17 +35,17 @@ def get_pad_artifact_paths(artifact_profile="runtime"):
 
     if artifact_profile == "runtime":
         return {
-            "model_path": MODELS_ROOT / "pad_svm.joblib",
-            "scaler_path": MODELS_ROOT / "pad_scaler.joblib",
-            "config_path": MODELS_ROOT / "pad_config.json",
+            "model_path": PAD_MODELS_ROOT / "pad_svm.joblib",
+            "scaler_path": PAD_MODELS_ROOT / "pad_scaler.joblib",
+            "config_path": PAD_CONFIG_PATH,
         }
 
     if artifact_profile in {"full", "fast"}:
         suffix = artifact_profile
         return {
-            "model_path": MODELS_ROOT / f"pad_svm_{suffix}.joblib",
-            "scaler_path": MODELS_ROOT / f"pad_scaler_{suffix}.joblib",
-            "config_path": MODELS_ROOT / f"pad_config_{suffix}.json",
+            "model_path": PAD_MODELS_ROOT / f"pad_svm_{suffix}.joblib",
+            "scaler_path": PAD_MODELS_ROOT / f"pad_scaler_{suffix}.joblib",
+            "config_path": PAD_MODELS_ROOT / f"pad_config_{suffix}.json",
         }
 
     raise ValueError(
@@ -76,7 +77,7 @@ def infer_pad_feature_config_from_dim(feature_dim):
     if feature_dim not in known_configs:
         raise ValueError(
             "Unable to infer PAD feature configuration from feature_dim="
-            f"{feature_dim}. Save pad_config.json by retraining the PAD model."
+            f"{feature_dim}. Save pad_config.json under models/pad by retraining the PAD model."
         )
 
     inferred_config = known_configs[feature_dim].copy()

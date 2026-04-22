@@ -17,8 +17,9 @@ from pathlib import Path
 
 
 # ----- CONSTANTS ----- #
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
-LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
+RECOGNITION_MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models" / "recognition"
+MODEL_PATH = RECOGNITION_MODELS_ROOT / "lbph_model.xml"
+LABEL_MAP_PATH = RECOGNITION_MODELS_ROOT / "label_map.pkl"
 DEFAULT_PREDICTION_THRESHOLD = 44.0
 
 

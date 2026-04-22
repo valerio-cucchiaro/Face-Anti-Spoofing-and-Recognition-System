@@ -17,7 +17,6 @@ appears to be a live face or a spoof attack.
 
 import joblib
 import time
-from pathlib import Path
 
 from src.antispoofing.pad_inference_preprocessing import (
     extract_pad_features_from_crop_with_timing,
@@ -25,13 +24,15 @@ from src.antispoofing.pad_inference_preprocessing import (
 from src.antispoofing.pad_model_config import (
     configure_pad_feature_extractor_from_config,
     get_expected_feature_dim_from_scaler,
+    get_pad_artifact_paths,
     load_pad_model_config,
 )
 
 
 # ----- CONSTANTS ----- #
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "pad_svm.joblib"
-SCALER_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "pad_scaler.joblib"
+PAD_RUNTIME_ARTIFACT_PATHS = get_pad_artifact_paths("runtime")
+MODEL_PATH = PAD_RUNTIME_ARTIFACT_PATHS["model_path"]
+SCALER_PATH = PAD_RUNTIME_ARTIFACT_PATHS["scaler_path"]
 
 
 class AntiSpoofingDetector:

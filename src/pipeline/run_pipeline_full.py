@@ -29,6 +29,7 @@ from src.antispoofing.pad_frame_quality import (
 from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
 from src.antispoofing.pad_runtime_state import PadRuntimeState
 from src.detection.face_detector import load_mediapipe_detector
+from src.preprocessing.face_bbox_visualization import draw_visual_face_bbox
 from src.preprocessing.frame_preprocessing import get_valid_face
 from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
 from src.pipeline.runtime_session_state import RuntimeSessionState
@@ -530,7 +531,7 @@ def draw_face_overlay(
     bottom_line_1_y = y + h + 25
     bottom_line_2_y = y + h + 55
 
-    cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
+    draw_visual_face_bbox(frame, face_rect, box_color, 2)
     cv2.putText(
         frame,
         phase_text,

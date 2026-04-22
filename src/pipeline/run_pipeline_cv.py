@@ -21,9 +21,20 @@ from src.antispoofing.pad_frame_quality import (
     evaluate_bbox_stability,
     evaluate_pad_crop_quality,
 )
+from src.detection.face_landmarks import (
+    extract_face_mesh_landmarks,
+    get_reference_points,
+    load_mediapipe_face_mesh,
+)
 from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
 from src.antispoofing.pad_runtime_state import PadRuntimeState
 from src.detection.face_detector import load_mediapipe_detector
+from src.preprocessing.face_bbox_visualization import draw_visual_face_bbox
+from src.preprocessing.face_pose import (
+    apply_roll_correction,
+    compute_pose_metrics_from_landmarks,
+    format_pose_metrics_for_log,
+)
 from src.preprocessing.frame_preprocessing import get_valid_face
 
 
@@ -238,7 +249,7 @@ def draw_pad_overlay(frame, face_rect, box_color, pad_text, details_text):
     bottom_line_1_y = y + h + 25
     bottom_line_2_y = y + h + 55
 
-    cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
+    draw_visual_face_bbox(frame, face_rect, box_color, 2)
     cv2.putText(
         frame,
         "State: PAD ONLY",
@@ -448,6 +459,7 @@ def run_pipeline_cv():
         raise RuntimeError("Could not open webcam")
 
     detector = load_mediapipe_detector()
+    face_mesh = load_mediapipe_face_mesh()
     pad_detector = AntiSpoofingDetector()
     pad_runtime_state = create_pad_runtime_state()
     display_state = PadDisplayState()
@@ -473,19 +485,19 @@ def run_pipeline_cv():
     last_logged_distance_band = None
     last_logged_final_label = None
     startup_started_at = time.monotonic()
-    log_cv_event(f"PAD run interval: {PAD_RUN_INTERVAL}")
-    log_cv_event(
-        "PAD runtime feature set: "
-        f"{active_feature_set} | dim={pad_detector.pad_config['feature_dim']}"
-    )
-    log_cv_event(
-        "PAD runtime modes: "
-        f"debug={configured_modes['pad_debug_feature_mode']} | "
-        f"lft={configured_modes['pad_lft_mode']} | "
-        f"tgsd_tau={configured_modes.get('tgsd_tau')} | "
-        f"tgsd_top_percent={configured_modes.get('tgsd_top_percent')} | "
-        f"tgsd_grad={configured_modes.get('tgsd_gradient_operator')}"
-    )
+    # log_cv_event(f"PAD run interval: {PAD_RUN_INTERVAL}")
+    # log_cv_event(
+    #     "PAD runtime feature set: "
+    #     f"{active_feature_set} | dim={pad_detector.pad_config['feature_dim']}"
+    # )
+    # log_cv_event(
+    #     "PAD runtime modes: "
+    #     f"debug={configured_modes['pad_debug_feature_mode']} | "
+    #     f"lft={configured_modes['pad_lft_mode']} | "
+    #     f"tgsd_tau={configured_modes.get('tgsd_tau')} | "
+    #     f"tgsd_top_percent={configured_modes.get('tgsd_top_percent')} | "
+    #     f"tgsd_grad={configured_modes.get('tgsd_gradient_operator')}"
+    # )  # Blocked for pose-only testing.
 
     while True:
         ret, frame = cap.read()
@@ -549,6 +561,17 @@ def run_pipeline_cv():
         frame_area = float(frame.shape[0] * frame.shape[1])
         face_area_ratio = (float(w * h) / frame_area) if frame_area > 0 else 0.0
         distance_band = classify_pad_distance_band(face_area_ratio)
+        landmarks_result = extract_face_mesh_landmarks(face_mesh, frame)
+        pose_metrics = None
+        if landmarks_result is not None:
+            reference_points = get_reference_points(landmarks_result.landmarks)
+            pose_metrics = compute_pose_metrics_from_landmarks(reference_points)
+        roll_angle = (
+            pose_metrics["roll_degrees"]
+            if pose_metrics is not None
+            else None
+        )
+        roll_correction_applied = False
         stability_result = evaluate_bbox_stability(
             current_face_rect,
             previous_face_rect,
@@ -560,6 +583,17 @@ def run_pipeline_cv():
             pad_face_crop,
             PAD_MIN_VARIANCE_LAPLACIAN,
         )
+        pad_face_crop_for_prediction = pad_face_crop
+        if (
+            pad_face_crop is not None
+            and roll_angle is not None
+            and abs(float(roll_angle)) > 0.5
+        ):
+            pad_face_crop_for_prediction = apply_roll_correction(
+                pad_face_crop,
+                roll_angle,
+            )
+            roll_correction_applied = True
         spatial_text = build_pad_spatial_summary(frame.shape, face_rect)
         light_text = build_pad_light_summary(pad_face_crop)
         pad_frame_usable = (
@@ -570,7 +604,7 @@ def run_pipeline_cv():
         should_run_pad = (frame_counter % PAD_RUN_INTERVAL == 0)
         if should_run_pad:
             if quality_result["is_valid_crop"]:
-                pad_result = pad_detector.predict(pad_face_crop)
+                pad_result = pad_detector.predict(pad_face_crop_for_prediction)
             else:
                 pad_result = {
                     "status": "invalid_crop",
@@ -608,6 +642,8 @@ def run_pipeline_cv():
                 )
             )
             if should_log_details:
+                pose_text = format_pose_metrics_for_log(pose_metrics)
+                roll_text = "yes" if roll_correction_applied else "no"
                 log_cv_event(
                     "PAD check: "
                     f"feature_set={active_feature_set} | "
@@ -617,6 +653,8 @@ def run_pipeline_cv():
                     f"score={score_text} | "
                     f"final={pad_state_result['final_label']} | "
                     f"avg_live={avg_live_text} | "
+                    f"pose={pose_text} | "
+                    f"roll_corrected={roll_text} | "
                     f"{spatial_text} | "
                     f"{light_text} | "
                     f"{last_timing_text}"
@@ -664,13 +702,15 @@ def run_pipeline_cv():
     cap.release()
     cv2.destroyAllWindows()
 
-    log_cv_event("Distance band summary (PAD checks):")
-    for band in ("near", "mid", "far"):
-        band_counts = distance_band_counts[band]
-        total = band_counts["live"] + band_counts["spoof"] + band_counts["unknown"]
-        log_cv_event(
-            f"{band}: total={total} | "
-            f"live={band_counts['live']} | "
-            f"spoof={band_counts['spoof']} | "
-            f"unknown={band_counts['unknown']}"
-        )
+    # log_cv_event("Distance band summary (PAD checks):")
+    # for band in ("near", "mid", "far"):
+    #     band_counts = distance_band_counts[band]
+    #     total = band_counts["live"] + band_counts["spoof"] + band_counts["unknown"]
+    #     log_cv_event(
+    #         f"{band}: total={total} | "
+    #         f"live={band_counts['live']} | "
+    #         f"spoof={band_counts['spoof']} | "
+    #         f"unknown={band_counts['unknown']}"
+    #     )  # Blocked for pose-only testing.
+    if hasattr(face_mesh, "close"):
+        face_mesh.close()

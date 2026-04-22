@@ -20,11 +20,13 @@ import time
 
 from src.preprocessing.face_preprocessing import get_recognition_preprocessing_config
 from src.recognition.recognition_dataset_loader import load_gallery_dataset
+from src.preprocessing.pose_statistics import format_pose_summary
 
 
 # ----- CONSTANTS ----- #
-MODEL_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "lbph_model.xml"
-LABEL_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "models" / "label_map.pkl"
+RECOGNITION_MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models" / "recognition"
+MODEL_PATH = RECOGNITION_MODELS_ROOT / "lbph_model.xml"
+LABEL_MAP_PATH = RECOGNITION_MODELS_ROOT / "label_map.pkl"
 TRAIN_MODE = "custom"
 DEFAULT_LBPH_PARAMS = {
     "radius": 1,
@@ -49,7 +51,7 @@ def resolve_lbph_params(lbph_params=None):
     return resolved_params
 
 
-def train_recognition_model(train_mode=None, lbph_params=None):
+def train_recognition_model(train_mode=None, lbph_params=None, lfw_sample_ratio=None):
     """
     Train the recognition model using the selected gallery configuration.
 
@@ -61,6 +63,7 @@ def train_recognition_model(train_mode=None, lbph_params=None):
     """
     selected_mode = train_mode or TRAIN_MODE
     selected_lbph_params = resolve_lbph_params(lbph_params)
+    selected_lfw_sample_ratio = 1.0 if lfw_sample_ratio is None else lfw_sample_ratio
     total_start_time = time.perf_counter()
     preprocessing_config = get_recognition_preprocessing_config()
 
@@ -73,7 +76,11 @@ def train_recognition_model(train_mode=None, lbph_params=None):
     print("Loading gallery dataset...")
 
     load_start_time = time.perf_counter()
-    faces, labels, label_map, dataset_counts = load_gallery_dataset(selected_mode)
+    faces, labels, label_map, dataset_counts, pose_summary = load_gallery_dataset(
+        selected_mode,
+        collect_pose_metrics=True,
+        lfw_sample_ratio=selected_lfw_sample_ratio,
+    )
     load_elapsed = time.perf_counter() - load_start_time
 
     if len(faces) == 0:
@@ -85,12 +92,16 @@ def train_recognition_model(train_mode=None, lbph_params=None):
 
     for dataset_name, sample_count in dataset_counts.items():
         print(f"{dataset_name} gallery samples: {sample_count}")
+    if pose_summary is not None:
+        print(format_pose_summary(pose_summary, title="Gallery pose summary:"))
 
     print("Training LBPH model...")
     print(
         "LBPH params:",
         ", ".join(f"{key}={value}" for key, value in selected_lbph_params.items()),
     )
+    if "lfw" in selected_mode:
+        print(f"LFW sample ratio: {selected_lfw_sample_ratio:.3f}")
 
     recognizer = cv2.face.LBPHFaceRecognizer_create(
         radius=selected_lbph_params["radius"],

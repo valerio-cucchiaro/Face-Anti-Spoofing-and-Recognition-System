@@ -9,7 +9,7 @@ The script loads the selected PAD training dataset, trains the SVM
 classifier, and saves both the trained model and the fitted scaler
 to disk.
 
-The saved artifacts will later be used during runtime inference to
+The saved artifacts will later be used during live inference to
 classify detected faces as live or spoof before face recognition.
 """
 
@@ -29,23 +29,22 @@ from src.antispoofing.training.pad_dataset_loader import (
     load_combined_with_custom_pad_training_dataset,
     load_custom_pad_training_dataset,
     load_casia_pad_training_dataset,
-    load_combined_with_runtime_pad_training_dataset,
     load_replay_pad_training_dataset,
-    load_runtime_pad_training_dataset,
 )
 from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
 from src.antispoofing.pad_feature_extractor import get_pad_feature_modes
+from src.preprocessing.pose_statistics import format_pose_summary
 
 
 TRAIN_MODE = "custom"
 EXPERIMENT_SPEED = "full"
-FULL_RUNTIME_REPEAT = 10
-FAST_RUNTIME_REPEAT = 1
+FULL_CUSTOM_REPEAT = 10
+FAST_CUSTOM_REPEAT = 1
 
 
 def get_speed_config(
     experiment_speed=None,
-    runtime_repeat_override=None,
+    custom_repeat_override=None,
     casia_balance_override=None,
     replay_balance_override=None,
 ):
@@ -53,7 +52,7 @@ def get_speed_config(
     Resolve the sampling and balancing configuration associated with
     the selected PAD experiment speed.
 
-    Each speed preset defines stable defaults. The runtime repeat can
+    Each speed preset defines stable defaults. The custom repeat can
     still be overridden explicitly by the experiment runner. The same
     applies to the per-dataset pre-extraction balancing flags.
     """
@@ -65,12 +64,12 @@ def get_speed_config(
             "name": "full",
             "casia_sample_ratio": CASIA_SAMPLE_RATIO,
             "replay_sample_ratio": REPLAY_SAMPLE_RATIO,
-            "runtime_repeat": FULL_RUNTIME_REPEAT,
+            "custom_repeat": FULL_CUSTOM_REPEAT,
             "casia_balance": False,
             "replay_balance": True,
         }
-        if runtime_repeat_override is not None:
-            config["runtime_repeat"] = runtime_repeat_override
+        if custom_repeat_override is not None:
+            config["custom_repeat"] = custom_repeat_override
         if casia_balance_override is not None:
             config["casia_balance"] = casia_balance_override
         if replay_balance_override is not None:
@@ -82,12 +81,12 @@ def get_speed_config(
             "name": "fast",
             "casia_sample_ratio": 0.1,
             "replay_sample_ratio": 0.1,
-            "runtime_repeat": FAST_RUNTIME_REPEAT,
+            "custom_repeat": FAST_CUSTOM_REPEAT,
             "casia_balance": False,
             "replay_balance": True,
         }
-        if runtime_repeat_override is not None:
-            config["runtime_repeat"] = runtime_repeat_override
+        if custom_repeat_override is not None:
+            config["custom_repeat"] = custom_repeat_override
         if casia_balance_override is not None:
             config["casia_balance"] = casia_balance_override
         if replay_balance_override is not None:
@@ -102,9 +101,10 @@ def get_speed_config(
 def load_configured_training_dataset(
     train_mode=None,
     experiment_speed=None,
-    runtime_repeat_override=None,
+    custom_repeat_override=None,
     casia_balance_override=None,
     replay_balance_override=None,
+    collect_pose_metrics=False,
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
     augment_live_photometric_scope="all",
@@ -118,15 +118,13 @@ def load_configured_training_dataset(
     - combined
     - custom
     - combined_custom
-    - runtime
-    - combined_runtime
 
     Supported experiment speeds:
     - full
     - fast
 
-    If runtime_repeat_override is provided, it overrides the default
-    runtime weight defined by the selected speed preset.
+    If the repeat override is provided, it overrides the default
+    custom repeat defined by the selected speed preset.
 
     If casia_balance_override or replay_balance_override is provided,
     it overrides the corresponding pre-extraction balancing flag from
@@ -136,13 +134,13 @@ def load_configured_training_dataset(
     selected_mode = train_mode or TRAIN_MODE
     speed_config = get_speed_config(
         experiment_speed,
-        runtime_repeat_override=runtime_repeat_override,
+        custom_repeat_override=custom_repeat_override,
         casia_balance_override=casia_balance_override,
         replay_balance_override=replay_balance_override,
     )
     casia_sample_ratio = speed_config["casia_sample_ratio"]
     replay_sample_ratio = speed_config["replay_sample_ratio"]
-    runtime_repeat = speed_config["runtime_repeat"]
+    custom_repeat = speed_config["custom_repeat"]
     casia_balance = speed_config["casia_balance"]
     replay_balance = speed_config["replay_balance"]
 
@@ -155,6 +153,8 @@ def load_configured_training_dataset(
             sample_ratio=casia_sample_ratio,
             sample_seed=TRAIN_SAMPLING_SEED,
             balance=casia_balance,
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
             augment_live_photometric=augment_live_photometric,
             augment_live_photometric_mode=augment_live_photometric_mode,
         )
@@ -168,6 +168,8 @@ def load_configured_training_dataset(
             sample_ratio=replay_sample_ratio,
             sample_seed=TRAIN_SAMPLING_SEED,
             balance=replay_balance,
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
             augment_live_photometric=augment_live_photometric,
             augment_live_photometric_mode=augment_live_photometric_mode,
         )
@@ -183,6 +185,8 @@ def load_configured_training_dataset(
             sample_seed=TRAIN_SAMPLING_SEED,
             casia_balance=casia_balance,
             replay_balance=replay_balance,
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
             augment_live_photometric=augment_live_photometric,
             augment_live_photometric_mode=augment_live_photometric_mode,
             augment_live_photometric_scope=augment_live_photometric_scope,
@@ -190,6 +194,8 @@ def load_configured_training_dataset(
 
     if selected_mode == "custom":
         return "Custom train", load_custom_pad_training_dataset(
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
             augment_live_photometric=augment_live_photometric,
             augment_live_photometric_mode=augment_live_photometric_mode,
         )
@@ -198,39 +204,17 @@ def load_configured_training_dataset(
         dataset_name = (
             "Combined + custom train "
             f"(casia_ratio={casia_sample_ratio}, replay_ratio={replay_sample_ratio}, "
-            f"runtime_repeat={runtime_repeat})"
+            f"custom_repeat={custom_repeat})"
         )
         return dataset_name, load_combined_with_custom_pad_training_dataset(
-            runtime_repeat=runtime_repeat,
+            custom_repeat=custom_repeat,
             casia_sample_ratio=casia_sample_ratio,
             replay_sample_ratio=replay_sample_ratio,
             sample_seed=TRAIN_SAMPLING_SEED,
             casia_balance=casia_balance,
             replay_balance=replay_balance,
-            augment_live_photometric=augment_live_photometric,
-            augment_live_photometric_mode=augment_live_photometric_mode,
-            augment_live_photometric_scope=augment_live_photometric_scope,
-        )
-
-    if selected_mode == "runtime":
-        return "Runtime train", load_runtime_pad_training_dataset(
-            augment_live_photometric=augment_live_photometric,
-            augment_live_photometric_mode=augment_live_photometric_mode,
-        )
-
-    if selected_mode == "combined_runtime":
-        dataset_name = (
-            "Combined + runtime train "
-            f"(casia_ratio={casia_sample_ratio}, replay_ratio={replay_sample_ratio}, "
-            f"runtime_repeat={runtime_repeat})"
-        )
-        return dataset_name, load_combined_with_runtime_pad_training_dataset(
-            runtime_repeat=runtime_repeat,
-            casia_sample_ratio=casia_sample_ratio,
-            replay_sample_ratio=replay_sample_ratio,
-            sample_seed=TRAIN_SAMPLING_SEED,
-            casia_balance=casia_balance,
-            replay_balance=replay_balance,
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
             augment_live_photometric=augment_live_photometric,
             augment_live_photometric_mode=augment_live_photometric_mode,
             augment_live_photometric_scope=augment_live_photometric_scope,
@@ -238,18 +222,19 @@ def load_configured_training_dataset(
 
     raise ValueError(
         "Unsupported TRAIN_MODE: "
-        f"{selected_mode}. Use 'casia', 'replay', 'combined', 'custom', 'combined_custom', 'runtime', or 'combined_runtime'."
+        f"{selected_mode}. Use 'casia', 'replay', 'combined', 'custom', or 'combined_custom'."
     )
 
 
 def train_pad_model(
     train_mode=None,
     experiment_speed=None,
-    runtime_repeat_override=None,
+    custom_repeat_override=None,
     casia_balance_override=None,
     replay_balance_override=None,
     artifact_profile="runtime",
     update_runtime_artifacts=False,
+    collect_pose_metrics=True,
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
     augment_live_photometric_scope="all",
@@ -258,10 +243,10 @@ def train_pad_model(
     Train the PAD model using the selected PAD training dataset.
 
     The experiment speed controls the default sampling and balancing
-    preset. runtime_repeat_override can be used to force a custom
-    runtime oversampling factor for a specific experiment. The same
-    override mechanism is available for CASIA and Replay-Attack
-    pre-extraction balancing.
+    preset. The repeat override can be used to force a custom repeat
+    factor for a specific experiment. The same override
+    mechanism is available for CASIA and Replay-Attack pre-extraction
+    balancing.
 
     The trained artifacts can be stored under a dedicated profile
     (for example ``fast`` or ``full``). When ``update_runtime_artifacts``
@@ -273,16 +258,22 @@ def train_pad_model(
 
     # Load the training dataset
     load_start_time = time.perf_counter()
-    dataset_name, (X_train, y_train) = load_configured_training_dataset(
+    dataset_name, train_payload = load_configured_training_dataset(
         train_mode,
         experiment_speed=experiment_speed,
-        runtime_repeat_override=runtime_repeat_override,
+        custom_repeat_override=custom_repeat_override,
         casia_balance_override=casia_balance_override,
         replay_balance_override=replay_balance_override,
+        collect_pose_metrics=collect_pose_metrics,
         augment_live_photometric=augment_live_photometric,
         augment_live_photometric_mode=augment_live_photometric_mode,
         augment_live_photometric_scope=augment_live_photometric_scope,
     )
+    if collect_pose_metrics:
+        X_train, y_train, pose_summary = train_payload
+    else:
+        X_train, y_train = train_payload
+        pose_summary = None
     load_elapsed = time.perf_counter() - load_start_time
 
     # print control information about the loaded dataset
@@ -312,6 +303,8 @@ def train_pad_model(
         "PAD training samples:",
         f"total={len(y_train)} | live={live_count} | spoof={spoof_count} | feature_dim={X_train.shape[1]}",
     )
+    if pose_summary is not None:
+        print(format_pose_summary(pose_summary, title="PAD training pose summary:"))
     print(f"PAD training dataset loading completed in {load_elapsed:.2f}s")
 
     # Train the PAD classifier
@@ -321,7 +314,7 @@ def train_pad_model(
 
     artifact_paths = get_pad_artifact_paths(artifact_profile)
 
-    # create models directory if it does not exist
+    # create the PAD artifact directory if it does not exist
     artifact_paths["model_path"].parent.mkdir(parents=True, exist_ok=True)
 
     # Save the trained model and scaler to disk
@@ -329,7 +322,7 @@ def train_pad_model(
     joblib.dump(classifier, artifact_paths["model_path"])
 
     # Save the feature configuration used to produce the trained PAD
-    # artifacts so runtime inference can restore the exact same setup.
+    # artifacts so live inference can restore the exact same setup.
     pad_model_config = build_pad_model_config(
         debug_feature_mode=active_feature_modes["pad_debug_feature_mode"],
         lft_mode=active_feature_modes["pad_lft_mode"],

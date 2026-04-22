@@ -25,7 +25,17 @@ from src.antispoofing.pad_frame_quality import (
     evaluate_bbox_stability,
     evaluate_pad_crop_quality,
 )
+from src.detection.face_landmarks import (
+    extract_face_mesh_landmarks,
+    get_reference_points,
+    load_mediapipe_face_mesh,
+)
 from src.detection.face_detector import load_mediapipe_detector
+from src.preprocessing.face_bbox_visualization import draw_visual_face_bbox
+from src.preprocessing.face_pose import (
+    compute_pose_metrics_from_landmarks,
+    format_pose_metrics_for_log,
+)
 from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
 from src.preprocessing.frame_preprocessing import get_valid_face
 from src.recognition.face_recognizer import load_recognizer, predict_identity
@@ -41,6 +51,12 @@ RECOGNITION_MIN_CONFIRMATIONS = 3
 RECOGNITION_RESET_AFTER_MISSES = 10
 RECOGNITION_RUN_INTERVAL = 3
 RUNTIME_RECOGNITION_THRESHOLD = 43.0
+# SRR is kept here as a prototype, but disabled for now because the
+# custom dataset is too small and the reliability gate collapses to
+# "Unknown" too often. Re-enable once more identities are added.
+RUNTIME_SRR_ENABLED = False
+RUNTIME_SRR_VARIANT = "adaptive_density_ratio"
+RUNTIME_SRR_RELIABILITY_THRESHOLD = 0.50
 DISPLAY_KNOWN_ENTRY_VOTES = 3
 DISPLAY_UNKNOWN_ENTRY_VOTES = 3
 DISPLAY_KNOWN_EXIT_INCOHERENT = 4
@@ -62,6 +78,235 @@ LIGHT_GOOD_BRIGHT_RATIO_MAX = 0.15
 LIGHT_MID_BRIGHT_RATIO_MAX = 0.45
 LIGHT_GOOD_ASYMMETRY_MAX = 18.0
 LIGHT_MID_ASYMMETRY_MAX = 55.0
+
+
+def _safe_divide(numerator, denominator, fallback=0.0):
+    if denominator == 0:
+        return fallback
+    return numerator / denominator
+
+
+def _extract_lbph_params_from_recognizer(recognizer):
+    """
+    Recover the LBPH configuration used by the loaded runtime model.
+    """
+
+    lbph_params = {
+        "radius": 1,
+        "neighbors": 8,
+        "grid_x": 6,
+        "grid_y": 6,
+    }
+
+    getter_map = {
+        "radius": "getRadius",
+        "neighbors": "getNeighbors",
+        "grid_x": "getGridX",
+        "grid_y": "getGridY",
+    }
+
+    for param_name, getter_name in getter_map.items():
+        getter = getattr(recognizer, getter_name, None)
+        if callable(getter):
+            try:
+                lbph_params[param_name] = int(getter())
+            except Exception:
+                pass
+
+    return lbph_params
+
+
+def _extract_lbph_histogram(face_image, lbph_params):
+    """
+    Extract one LBPH histogram using the same parameters as the runtime model.
+    """
+
+    temp_recognizer = cv2.face.LBPHFaceRecognizer_create(
+        radius=lbph_params["radius"],
+        neighbors=lbph_params["neighbors"],
+        grid_x=lbph_params["grid_x"],
+        grid_y=lbph_params["grid_y"],
+    )
+    temp_recognizer.train(
+        [face_image],
+        np.asarray([0], dtype=np.int32),
+    )
+    return np.asarray(temp_recognizer.getHistograms()[0], dtype=np.float64).reshape(-1)
+
+
+def _chi_square_alt_distance_matrix(gallery_matrix, probe_histogram):
+    """
+    Compute LBPH-style distances between one probe histogram and a gallery matrix.
+    """
+
+    epsilon = 1e-12
+    difference = gallery_matrix - probe_histogram
+    denominator = gallery_matrix + probe_histogram + epsilon
+    return 2.0 * np.sum((difference * difference) / denominator, axis=1)
+
+
+def _srr_relative_distance(sorted_distances):
+    if len(sorted_distances) == 0:
+        return 0.0
+    if len(sorted_distances) == 1:
+        return 1.0
+
+    first_distance = float(sorted_distances[0])
+    second_distance = float(sorted_distances[1])
+    last_distance = float(sorted_distances[-1])
+    return float(
+        np.clip(
+            _safe_divide(second_distance - first_distance, last_distance - first_distance),
+            0.0,
+            1.0,
+        )
+    )
+
+
+def _srr_density_ratio(sorted_distances):
+    if len(sorted_distances) == 0:
+        return 0.0
+
+    first_distance = float(sorted_distances[0])
+    neighbourhood_radius = 2.0 * first_distance
+    neighbourhood_size = int(
+        np.sum(np.asarray(sorted_distances, dtype=np.float64) < neighbourhood_radius)
+    )
+    return float(1.0 - _safe_divide(neighbourhood_size, len(sorted_distances)))
+
+
+def _srr_adaptive_density_ratio(sorted_distances):
+    if len(sorted_distances) == 0:
+        return 0.0
+
+    sorted_distances = np.asarray(sorted_distances, dtype=np.float64)
+    first_distance = float(sorted_distances[0])
+    if len(sorted_distances) == 1:
+        return 1.0
+
+    second_distance = float(sorted_distances[1])
+    gap = max(second_distance - first_distance, 0.0)
+    adaptive_radius = 2.0 * first_distance * (1.0 + 1.0 / (1.0 + gap))
+    neighbourhood_size = int(np.sum(sorted_distances < adaptive_radius))
+    return float(1.0 - _safe_divide(neighbourhood_size, len(sorted_distances)))
+
+
+def build_runtime_srr_reference(recognizer, label_map):
+    """
+    Cache the gallery histograms used to compute runtime SRR checks.
+    """
+
+    if recognizer is None:
+        return None
+
+    get_histograms = getattr(recognizer, "getHistograms", None)
+    get_labels = getattr(recognizer, "getLabels", None)
+    if not callable(get_histograms) or not callable(get_labels):
+        return None
+
+    lbph_params = _extract_lbph_params_from_recognizer(recognizer)
+    gallery_histograms = []
+    gallery_labels = []
+    gallery_names = []
+
+    try:
+        raw_histograms = get_histograms()
+        raw_labels = np.asarray(get_labels()).reshape(-1).astype(int)
+    except Exception:
+        return None
+
+    for histogram, label in zip(raw_histograms, raw_labels):
+        gallery_histograms.append(np.asarray(histogram, dtype=np.float64).reshape(-1))
+        gallery_labels.append(int(label))
+        gallery_names.append(label_map.get(int(label), f"label_{int(label)}"))
+
+    if len(gallery_histograms) == 0:
+        return None
+
+    return {
+        "lbph_params": lbph_params,
+        "gallery_matrix": np.vstack(gallery_histograms).astype(np.float64),
+        "gallery_labels": np.asarray(gallery_labels, dtype=int),
+        "gallery_names": gallery_names,
+    }
+
+
+def compute_runtime_srr(face_image, runtime_srr_reference, variant=RUNTIME_SRR_VARIANT):
+    """
+    Compute a runtime SRR score from the live face crop and the cached gallery.
+    """
+
+    if runtime_srr_reference is None or face_image is None:
+        return {
+            "available": False,
+            "variant": variant,
+            "score": None,
+            "reliable": False,
+            "threshold": RUNTIME_SRR_RELIABILITY_THRESHOLD,
+            "best_name": None,
+            "second_name": None,
+            "best_distance": None,
+            "second_distance": None,
+            "margin": None,
+        }
+
+    gallery_matrix = runtime_srr_reference["gallery_matrix"]
+    gallery_labels = runtime_srr_reference["gallery_labels"]
+    gallery_names = runtime_srr_reference["gallery_names"]
+    lbph_params = runtime_srr_reference["lbph_params"]
+
+    if gallery_matrix.size == 0:
+        return {
+            "available": False,
+            "variant": variant,
+            "score": None,
+            "reliable": False,
+            "threshold": RUNTIME_SRR_RELIABILITY_THRESHOLD,
+            "best_name": None,
+            "second_name": None,
+            "best_distance": None,
+            "second_distance": None,
+            "margin": None,
+        }
+
+    probe_histogram = _extract_lbph_histogram(face_image, lbph_params)
+    probe_distances = _chi_square_alt_distance_matrix(gallery_matrix, probe_histogram)
+    ranking = np.argsort(probe_distances, kind="mergesort")
+    sorted_distances = np.asarray(probe_distances, dtype=np.float64)[ranking]
+
+    best_index = int(ranking[0])
+    second_index = int(ranking[1]) if len(ranking) > 1 else best_index
+    best_label = int(gallery_labels[best_index])
+    second_label = int(gallery_labels[second_index])
+    best_name = gallery_names[best_index]
+    second_name = gallery_names[second_index]
+    best_distance = float(sorted_distances[0])
+    second_distance = float(sorted_distances[1]) if len(sorted_distances) > 1 else best_distance
+    margin = float(second_distance - best_distance)
+
+    if variant == "relative_distance":
+        score = _srr_relative_distance(sorted_distances)
+    elif variant == "density_ratio":
+        score = _srr_density_ratio(sorted_distances)
+    else:
+        score = _srr_adaptive_density_ratio(sorted_distances)
+
+    reliable = score >= RUNTIME_SRR_RELIABILITY_THRESHOLD
+
+    return {
+        "available": True,
+        "variant": variant,
+        "score": float(score),
+        "reliable": reliable,
+        "threshold": RUNTIME_SRR_RELIABILITY_THRESHOLD,
+        "best_name": best_name,
+        "second_name": second_name,
+        "best_label": best_label,
+        "second_label": second_label,
+        "best_distance": best_distance,
+        "second_distance": second_distance,
+        "margin": margin,
+    }
 
 
 def format_identity_for_display(name):
@@ -574,6 +819,11 @@ def build_recognition_log_signature(recognition_result):
         recognition_result["stable_count"],
         recognition_result["history_size"],
         recognition_result.get("light_band"),
+        recognition_result.get("srr_variant"),
+        round(recognition_result["srr_score"], 3)
+        if recognition_result.get("srr_score") is not None
+        else None,
+        recognition_result.get("srr_reliable"),
     )
 
 
@@ -606,7 +856,7 @@ def draw_recognition_overlay(
     bottom_line_1_y = y + h + 25
     bottom_line_2_y = y + h + 55
 
-    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    draw_visual_face_bbox(frame, face_rect, (0, 255, 0), 2)
     cv2.putText(
         frame,
         "State: RECOGNITION",
@@ -654,7 +904,9 @@ def run_pipeline_bs():
         raise RuntimeError("Could not open webcam")
 
     detector = load_mediapipe_detector()
+    face_mesh = load_mediapipe_face_mesh()
     recognizer, label_map = load_recognizer()
+    runtime_srr_reference = build_runtime_srr_reference(recognizer, label_map)
     recognition_state = create_recognition_runtime_state()
     display_state = RecognitionDisplayState()
     runtime_log_stats = RecognitionRuntimeLogStats()
@@ -668,6 +920,14 @@ def run_pipeline_bs():
         "unknown_votes": 0,
         "current_name": None,
         "current_confidence": None,
+        "srr_variant": None,
+        "srr_score": None,
+        "srr_reliable": None,
+        "srr_best_name": None,
+        "srr_second_name": None,
+        "srr_best_distance": None,
+        "srr_second_distance": None,
+        "srr_margin": None,
         "missing_face_counter": 0,
     }
     last_logged_signature = None
@@ -677,6 +937,15 @@ def run_pipeline_bs():
     log_bs_event(
         f"Recognition runtime threshold: {RUNTIME_RECOGNITION_THRESHOLD:.2f}"
     )
+    if runtime_srr_reference is None:
+        log_bs_event("Recognition SRR: disabled | reason=gallery_reference_unavailable")
+    else:
+        log_bs_event(
+            "Recognition SRR: "
+            f"variant={RUNTIME_SRR_VARIANT} | "
+            f"threshold={RUNTIME_SRR_RELIABILITY_THRESHOLD:.2f} | "
+            f"gallery_templates={len(runtime_srr_reference['gallery_labels'])}"
+        )
 
     while True:
         ret, frame = cap.read()
@@ -743,15 +1012,24 @@ def run_pipeline_bs():
             current_face_rect,
             previous_face_rect,
         )
+        landmarks_result = extract_face_mesh_landmarks(face_mesh, frame)
+        pose_metrics = None
+        if landmarks_result is not None:
+            reference_points = get_reference_points(landmarks_result.landmarks)
+            pose_metrics = compute_pose_metrics_from_landmarks(reference_points)
+        roll_angle = (
+            pose_metrics["roll_degrees"]
+            if pose_metrics is not None
+            else None
+        )
         stability_result = evaluate_bbox_stability(
             current_face_rect,
             previous_face_rect,
         )
         bbox_stable = stability_result["is_stable"]
         previous_face_rect = current_face_rect
-        recognition_face_crop = extract_pad_face_crop(gray_frame, x, y, w, h)
         quality_result = evaluate_pad_crop_quality(
-            recognition_face_crop,
+            extract_pad_face_crop(gray_frame, x, y, w, h),
             PAD_MIN_VARIANCE_LAPLACIAN,
         )
         should_run_recognition = (frame_counter % RECOGNITION_RUN_INTERVAL == 0)
@@ -773,8 +1051,16 @@ def run_pipeline_bs():
             face = None
             light_diagnostics = None
             if recognition_frame_usable:
-                light_diagnostics = compute_light_diagnostics(recognition_face_crop)
-                face = preprocess_face_for_recognition(gray_frame, x, y, w, h)
+                face = preprocess_face_for_recognition(
+                    gray_frame,
+                    x,
+                    y,
+                    w,
+                    h,
+                )
+                light_diagnostics = compute_light_diagnostics(
+                    face
+                )
 
             if face is None:
                 recognition_result = recognition_state.update(
@@ -782,20 +1068,48 @@ def run_pipeline_bs():
                     recognition_allowed=True,
                     face_missing=False,
                 )
+                recognition_result["srr_variant"] = RUNTIME_SRR_VARIANT
+                recognition_result["srr_score"] = None
+                recognition_result["srr_reliable"] = None
+                recognition_result["srr_best_name"] = None
+                recognition_result["srr_second_name"] = None
+                recognition_result["srr_best_distance"] = None
+                recognition_result["srr_second_distance"] = None
+                recognition_result["srr_margin"] = None
             else:
+                runtime_srr_result = compute_runtime_srr(
+                    face,
+                    runtime_srr_reference,
+                )
                 predicted_name, confidence = predict_identity(
                     face,
                     recognizer,
                     label_map,
                     threshold=RUNTIME_RECOGNITION_THRESHOLD,
                 )
+                srr_gate_allows_vote = (
+                    not RUNTIME_SRR_ENABLED
+                    or not runtime_srr_result["available"]
+                    or runtime_srr_result["reliable"]
+                )
+                effective_predicted_name = predicted_name
+                if predicted_name != "Unknown" and not srr_gate_allows_vote:
+                    effective_predicted_name = "Unknown"
                 recognition_result = recognition_state.update(
-                    predicted_name=predicted_name,
+                    predicted_name=effective_predicted_name,
                     confidence=confidence,
                     frame_usable=True,
                     recognition_allowed=True,
                     face_missing=False,
                 )
+                recognition_result["srr_variant"] = runtime_srr_result["variant"]
+                recognition_result["srr_score"] = runtime_srr_result["score"]
+                recognition_result["srr_reliable"] = runtime_srr_result["reliable"]
+                recognition_result["srr_best_name"] = runtime_srr_result["best_name"]
+                recognition_result["srr_second_name"] = runtime_srr_result["second_name"]
+                recognition_result["srr_best_distance"] = runtime_srr_result["best_distance"]
+                recognition_result["srr_second_distance"] = runtime_srr_result["second_distance"]
+                recognition_result["srr_margin"] = runtime_srr_result["margin"]
                 if light_diagnostics is not None:
                     recognition_result["light_band"] = light_diagnostics["band"]
                     recognition_result["light_mean"] = light_diagnostics["mean"]
@@ -805,7 +1119,10 @@ def run_pipeline_bs():
                     recognition_result["light_asymmetry"] = light_diagnostics["asymmetry"]
                 runtime_log_stats.register_prediction_check(
                     usable=recognition_frame_usable,
-                    accepted=(confidence < RUNTIME_RECOGNITION_THRESHOLD),
+                    accepted=(
+                        confidence < RUNTIME_RECOGNITION_THRESHOLD
+                        and srr_gate_allows_vote
+                    ),
                     final_name=recognition_result["final_name"],
                     confidence=confidence,
                     light_band=recognition_result.get("light_band"),
@@ -823,7 +1140,7 @@ def run_pipeline_bs():
                 threshold_text = f"{RUNTIME_RECOGNITION_THRESHOLD:.2f}"
                 accepted_text = (
                     "accepted"
-                    if confidence < RUNTIME_RECOGNITION_THRESHOLD
+                    if confidence < RUNTIME_RECOGNITION_THRESHOLD and srr_gate_allows_vote
                     else "rejected"
                 )
                 current_signature = build_recognition_log_signature(recognition_result)
@@ -849,12 +1166,25 @@ def run_pipeline_bs():
                         f"aspect={geometry_result['aspect_ratio']:.2f} | "
                         f"gate={gate_reason_text}"
                     )
+                    pose_text = format_pose_metrics_for_log(pose_metrics)
+                    srr_text = (
+                        f"{recognition_result['srr_variant']} | "
+                        f"score={recognition_result['srr_score']:.4f} | "
+                        f"reliable={recognition_result['srr_reliable']} | "
+                        f"best={recognition_result['srr_best_name']} | "
+                        f"second={recognition_result['srr_second_name']} | "
+                        f"margin={recognition_result['srr_margin']:.4f}"
+                        if recognition_result.get("srr_score") is not None
+                        else "disabled"
+                    )
                     log_bs_event(
                         "Recognition check: "
                         f"usable={recognition_frame_usable} | "
                         f"threshold={threshold_text} | "
                         f"decision={accepted_text} | "
                         f"{geometry_text} | "
+                        f"pose={pose_text} | "
+                        f"srr={srr_text} | "
                         f"current={recognition_result['current_name']} | "
                         f"confidence={confidence_text} | "
                         f"light={light_text} | "
@@ -898,5 +1228,7 @@ def run_pipeline_bs():
             break
 
     cap.release()
+    if hasattr(face_mesh, "close"):
+        face_mesh.close()
     cv2.destroyAllWindows()
     log_bs_event(runtime_log_stats.format_final_summary())

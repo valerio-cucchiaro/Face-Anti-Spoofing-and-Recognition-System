@@ -8,10 +8,10 @@ attack detection (PAD) training pipeline.
 The loader supports both training and evaluation dataset loading,
 including single-dataset and combined-dataset variants.
 
-The active dataset contract is ``raw_frame``: images are treated as
-raw frames that still need detection, crop construction, and PAD
-feature extraction. ``final_pad_crop`` is retained only as a legacy
-compatibility path.
+The active dataset contract is ``raw_frame`` for public PAD datasets
+that still need detection, crop construction, and PAD feature
+extraction. Custom PAD data is stored as ``final_pad_crop`` so it can
+be read directly as a face crop without the full webcam window.
 
 The resulting dataset is returned as a pair of NumPy arrays:
 one for the extracted feature vectors and one for the class labels.
@@ -26,6 +26,14 @@ from src.antispoofing.pad_crop_utils import extract_pad_face_crop
 from src.antispoofing.pad_frame_quality import PAD_MIN_VARIANCE_LAPLACIAN
 from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
 from src.detection.face_detector import load_mediapipe_detector
+from src.detection.face_landmarks import load_mediapipe_face_mesh
+from src.preprocessing.face_pose import compute_pose_metrics_from_image
+from src.preprocessing.pose_statistics import (
+    create_pose_summary,
+    format_pose_summary,
+    merge_pose_summaries,
+    update_pose_summary,
+)
 from src.preprocessing.frame_preprocessing import get_valid_face
 
 
@@ -52,14 +60,6 @@ CUSTOM_TRAIN_LIVE_PATH = PAD_CUSTOM_RAW_ROOT / "train" / "live"
 CUSTOM_TRAIN_SPOOF_PATH = PAD_CUSTOM_RAW_ROOT / "train" / "spoof"
 CUSTOM_TEST_LIVE_PATH = PAD_CUSTOM_RAW_ROOT / "test" / "live"
 CUSTOM_TEST_SPOOF_PATH = PAD_CUSTOM_RAW_ROOT / "test" / "spoof"
-
-# Legacy aliases kept for compatibility while the rest of the project is
-# being migrated away from the old runtime naming.
-RUNTIME_ROOT = PAD_CUSTOM_RAW_ROOT
-RUNTIME_TRAIN_LIVE_PATH = CUSTOM_TRAIN_LIVE_PATH
-RUNTIME_TRAIN_SPOOF_PATH = CUSTOM_TRAIN_SPOOF_PATH
-RUNTIME_TEST_LIVE_PATH = CUSTOM_TEST_LIVE_PATH
-RUNTIME_TEST_SPOOF_PATH = CUSTOM_TEST_SPOOF_PATH
 
 # ----- CONSTANTS ----- #
 THRESHOLD_AREA = 8000
@@ -184,6 +184,9 @@ def extract_pad_features_from_raw_frame(
     img,
     detector,
     apply_quality_gate=True,
+    collect_pose_metrics=False,
+    face_mesh=None,
+    pose_summary=None,
 ):
     """
     Extract PAD features from a raw frame by running face detection and
@@ -203,21 +206,31 @@ def extract_pad_features_from_raw_frame(
 
     x, y, w, h = face_box
 
-    # Reuse the same padded crop used by the runtime pipeline before
+    # Reuse the same padded crop used by the live pipeline before
     # applying the standard PAD normalization.
     pad_face_crop = extract_pad_face_crop(gray_frame, x, y, w, h)
     if pad_face_crop is None or pad_face_crop.size == 0:
         return None
 
+    if collect_pose_metrics:
+        pose_metrics = compute_pose_metrics_from_image(pad_face_crop, face_mesh)
+        update_pose_summary(pose_summary, pose_metrics)
+
     return extract_pad_features_from_final_crop(
         pad_face_crop,
         apply_quality_gate=apply_quality_gate,
+        collect_pose_metrics=collect_pose_metrics,
+        face_mesh=face_mesh,
+        pose_summary=pose_summary,
     )
 
 
 def extract_pad_features_from_final_crop(
     img,
     apply_quality_gate=True,
+    collect_pose_metrics=False,
+    face_mesh=None,
+    pose_summary=None,
 ):
     """
     Legacy helper for PAD crops that were already preprocessed before
@@ -226,6 +239,10 @@ def extract_pad_features_from_final_crop(
     New dataset flows should use ``raw_frame`` and let the loader run
     face detection and crop construction itself.
     """
+
+    if collect_pose_metrics:
+        pose_metrics = compute_pose_metrics_from_image(img, face_mesh)
+        update_pose_summary(pose_summary, pose_metrics)
 
     return extract_pad_features_from_crop(
         img,
@@ -239,6 +256,9 @@ def extract_pad_features_from_dataset_image(
     detector=None,
     dataset_type="raw_frame",
     apply_quality_gate=True,
+    collect_pose_metrics=False,
+    face_mesh=None,
+    pose_summary=None,
 ):
     """
     Dispatch PAD feature extraction according to the declared dataset
@@ -256,12 +276,18 @@ def extract_pad_features_from_dataset_image(
             img,
             detector,
             apply_quality_gate=apply_quality_gate,
+            collect_pose_metrics=collect_pose_metrics,
+            face_mesh=face_mesh,
+            pose_summary=pose_summary,
         )
 
     if dataset_type == "final_pad_crop":
         return extract_pad_features_from_final_crop(
             img,
             apply_quality_gate=apply_quality_gate,
+            collect_pose_metrics=collect_pose_metrics,
+            face_mesh=face_mesh,
+            pose_summary=pose_summary,
         )
 
     raise ValueError(
@@ -276,6 +302,8 @@ def load_combined_pad_training_dataset(
     sample_seed=TRAIN_SAMPLING_SEED,
     casia_balance=False,
     replay_balance=True,
+    collect_pose_metrics=False,
+    return_pose_summary=False,
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
     augment_live_photometric_scope="all",
@@ -285,7 +313,7 @@ def load_combined_pad_training_dataset(
     """
     # CASIA dataset
     print("Loading CASIA PAD dataset...")
-    X1, y1 = load_pad_split_dataset(
+    X1, y1, pose_summary_1 = load_pad_split_dataset(
         TRAIN_LIVE_PATH,
         TRAIN_SPOOF_PATH,
         balance=casia_balance,
@@ -297,11 +325,13 @@ def load_combined_pad_training_dataset(
             augment_live_photometric and augment_live_photometric_scope == "all"
         ),
         augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=True,
     )
 
     # ReplayAttack dataset
     print("Loading ReplayAttack PAD dataset...")
-    X2, y2 = load_pad_split_dataset(
+    X2, y2, pose_summary_2 = load_pad_split_dataset(
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=replay_balance,
@@ -313,10 +343,16 @@ def load_combined_pad_training_dataset(
             augment_live_photometric and augment_live_photometric_scope == "all"
         ),
         augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=True,
     )
 
     X = np.concatenate([X1, X2], axis=0)
     y = np.concatenate([y1, y2], axis=0)
+    pose_summary = merge_pose_summaries(pose_summary_1, pose_summary_2)
+
+    if return_pose_summary:
+        return X, y, pose_summary
 
     return X, y
 
@@ -325,6 +361,8 @@ def load_casia_pad_training_dataset(
     sample_ratio=CASIA_SAMPLE_RATIO,
     sample_seed=TRAIN_SAMPLING_SEED,
     balance=False,
+    collect_pose_metrics=False,
+    return_pose_summary=False,
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
 ):
@@ -341,6 +379,8 @@ def load_casia_pad_training_dataset(
         dataset_type="raw_frame",
         augment_live_photometric=augment_live_photometric,
         augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
     )
 
 
@@ -348,6 +388,8 @@ def load_replay_pad_training_dataset(
     sample_ratio=REPLAY_SAMPLE_RATIO,
     sample_seed=TRAIN_SAMPLING_SEED,
     balance=True,
+    collect_pose_metrics=False,
+    return_pose_summary=False,
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
 ):
@@ -364,10 +406,14 @@ def load_replay_pad_training_dataset(
         dataset_type="raw_frame",
         augment_live_photometric=augment_live_photometric,
         augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
     )
 
 
 def load_custom_pad_training_dataset(
+    collect_pose_metrics=False,
+    return_pose_summary=False,
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
 ):
@@ -378,38 +424,36 @@ def load_custom_pad_training_dataset(
         CUSTOM_TRAIN_LIVE_PATH,
         CUSTOM_TRAIN_SPOOF_PATH,
         balance=False,
-        dataset_type="raw_frame",
+        dataset_type="final_pad_crop",
         augment_live_photometric=augment_live_photometric,
         augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
     )
 
 
-def load_runtime_pad_training_dataset(
-    augment_live_photometric=False,
-    augment_live_photometric_mode=None,
+def load_custom_pad_test_dataset(
+    return_image_paths=False,
+    collect_pose_metrics=False,
+    return_pose_summary=False,
 ):
-    """
-    Legacy alias for the custom PAD training dataset.
-    """
-    return load_custom_pad_training_dataset(
-        augment_live_photometric=augment_live_photometric,
-        augment_live_photometric_mode=augment_live_photometric_mode,
-    )
-
-
-def load_custom_pad_test_dataset(return_image_paths=False):
     """
     Load the custom PAD test dataset from pad_custom_raw.
     """
     return load_pad_split_dataset(
         CUSTOM_TEST_LIVE_PATH,
         CUSTOM_TEST_SPOOF_PATH,
-        dataset_type="raw_frame",
+        dataset_type="final_pad_crop",
         return_image_paths=return_image_paths,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
     )
 
 
-def load_pad_test_dataset():
+def load_pad_test_dataset(
+    collect_pose_metrics=False,
+    return_pose_summary=False,
+):
     """
     Load the default PAD test dataset (CASIA) and extract feature vectors.
     """
@@ -417,10 +461,15 @@ def load_pad_test_dataset():
         TEST_LIVE_PATH,
         TEST_SPOOF_PATH,
         dataset_type="raw_frame",
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
     )
 
 
-def load_pad_test_dataset_casia():
+def load_pad_test_dataset_casia(
+    collect_pose_metrics=False,
+    return_pose_summary=False,
+):
     """
     Load the CASIA PAD test dataset and extract feature vectors.
     """
@@ -428,10 +477,15 @@ def load_pad_test_dataset_casia():
         TEST_LIVE_PATH,
         TEST_SPOOF_PATH,
         dataset_type="raw_frame",
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
     )
 
 
-def load_pad_test_dataset_replay():
+def load_pad_test_dataset_replay(
+    collect_pose_metrics=False,
+    return_pose_summary=False,
+):
     """
     Load the Replay-Attack PAD test dataset and extract feature vectors.
     """
@@ -440,72 +494,60 @@ def load_pad_test_dataset_replay():
         REPLAY_TEST_SPOOF_PATH,
         balance=False,
         dataset_type="raw_frame",
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
     )
 
 
-def load_pad_test_dataset_combined():
+def load_pad_test_dataset_combined(
+    collect_pose_metrics=False,
+    return_pose_summary=False,
+):
     """
     Load the combined PAD test dataset (CASIA + Replay-Attack).
     """
 
     print("Loading CASIA PAD test dataset...")
-    X1, y1 = load_pad_test_dataset_casia()
+    X1, y1, pose_summary_1 = load_pad_test_dataset_casia(
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=True,
+    )
 
     print("Loading ReplayAttack PAD test dataset...")
-    X2, y2 = load_pad_test_dataset_replay()
+    X2, y2, pose_summary_2 = load_pad_test_dataset_replay(
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=True,
+    )
 
     X = np.concatenate([X1, X2], axis=0)
     y = np.concatenate([y1, y2], axis=0)
+    pose_summary = merge_pose_summaries(pose_summary_1, pose_summary_2)
+
+    if return_pose_summary:
+        return X, y, pose_summary
 
     return X, y
 
 
 def load_combined_with_custom_pad_training_dataset(
-    runtime_repeat=5,
+    custom_repeat=5,
     casia_sample_ratio=CASIA_SAMPLE_RATIO,
     replay_sample_ratio=REPLAY_SAMPLE_RATIO,
     sample_seed=TRAIN_SAMPLING_SEED,
     casia_balance=False,
     replay_balance=True,
+    collect_pose_metrics=False,
+    return_pose_summary=False,
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
     augment_live_photometric_scope="all",
 ):
     """
-    Legacy combined training helper kept for compatibility while the
-    project moves to the custom PAD naming.
-    """
-    return load_combined_with_runtime_pad_training_dataset(
-        runtime_repeat=runtime_repeat,
-        casia_sample_ratio=casia_sample_ratio,
-        replay_sample_ratio=replay_sample_ratio,
-        sample_seed=sample_seed,
-        casia_balance=casia_balance,
-        replay_balance=replay_balance,
-        augment_live_photometric=augment_live_photometric,
-        augment_live_photometric_mode=augment_live_photometric_mode,
-        augment_live_photometric_scope=augment_live_photometric_scope,
-    )
-
-
-def load_combined_with_runtime_pad_training_dataset(
-    runtime_repeat=5,
-    casia_sample_ratio=CASIA_SAMPLE_RATIO,
-    replay_sample_ratio=REPLAY_SAMPLE_RATIO,
-    sample_seed=TRAIN_SAMPLING_SEED,
-    casia_balance=False,
-    replay_balance=True,
-    augment_live_photometric=False,
-    augment_live_photometric_mode=None,
-    augment_live_photometric_scope="all",
-):
-    """
-    Load the combined PAD training dataset and oversample the runtime
+    Load the combined PAD training dataset and oversample the custom
     training split so it has a stronger influence during training.
     """
-
     print("Loading CASIA PAD dataset...")
-    X1, y1 = load_pad_split_dataset(
+    X1, y1, pose_summary_1 = load_pad_split_dataset(
         TRAIN_LIVE_PATH,
         TRAIN_SPOOF_PATH,
         balance=casia_balance,
@@ -517,10 +559,12 @@ def load_combined_with_runtime_pad_training_dataset(
             augment_live_photometric and augment_live_photometric_scope == "all"
         ),
         augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=True,
     )
 
     print("Loading ReplayAttack PAD dataset...")
-    X2, y2 = load_pad_split_dataset(
+    X2, y2, pose_summary_2 = load_pad_split_dataset(
         REPLAY_TRAIN_LIVE_PATH,
         REPLAY_TRAIN_SPOOF_PATH,
         balance=replay_balance,
@@ -532,30 +576,34 @@ def load_combined_with_runtime_pad_training_dataset(
             augment_live_photometric and augment_live_photometric_scope == "all"
         ),
         augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=True,
     )
 
-    print("Loading runtime PAD dataset...")
-    X3, y3 = load_runtime_pad_training_dataset(
+    print("Loading custom PAD dataset...")
+    X3, y3, pose_summary_3 = load_custom_pad_training_dataset(
         augment_live_photometric=augment_live_photometric,
         augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=True,
     )
-    runtime_base_count = len(y3)
+    custom_base_count = len(y3)
 
-    if len(y3) > 0 and runtime_repeat > 1:
-        X3 = np.concatenate([X3] * runtime_repeat, axis=0)
-        y3 = np.concatenate([y3] * runtime_repeat, axis=0)
+    if len(y3) > 0 and custom_repeat > 1:
+        X3 = np.concatenate([X3] * custom_repeat, axis=0)
+        y3 = np.concatenate([y3] * custom_repeat, axis=0)
 
     X = np.concatenate([X1, X2, X3], axis=0)
     y = np.concatenate([y1, y2, y3], axis=0)
 
     casia_count = len(y1)
     replay_count = len(y2)
-    runtime_effective_count = len(y3)
+    custom_effective_count = len(y3)
     total_count = len(y)
 
     casia_weight = (casia_count / total_count * 100) if total_count else 0.0
     replay_weight = (replay_count / total_count * 100) if total_count else 0.0
-    runtime_weight = (runtime_effective_count / total_count * 100) if total_count else 0.0
+    custom_weight = (custom_effective_count / total_count * 100) if total_count else 0.0
 
     print("Number of samples effectively used for training")
     print("Training sampling seed:", sample_seed)
@@ -565,13 +613,19 @@ def load_combined_with_runtime_pad_training_dataset(
     print("Replay pre-extraction balance:", replay_balance)
     print("CASIA train:", casia_count)
     print("Replay-Attack train:", replay_count)
-    print("Runtime train (base):", runtime_base_count)
-    print("Runtime repeat:", runtime_repeat)
-    print("Runtime train (effective):", runtime_effective_count)
+    print("Custom train (base):", custom_base_count)
+    print("Custom repeat:", custom_repeat)
+    print("Custom train (effective):", custom_effective_count)
     print("Final training set:", total_count)
     print(f"CASIA weight: {casia_weight:.2f}%")
     print(f"Replay-Attack weight: {replay_weight:.2f}%")
-    print(f"Runtime weight: {runtime_weight:.2f}%")
+    print(f"Custom weight: {custom_weight:.2f}%")
+
+    pose_summary = merge_pose_summaries(pose_summary_1, pose_summary_2)
+    pose_summary = merge_pose_summaries(pose_summary, pose_summary_3)
+
+    if return_pose_summary:
+        return X, y, pose_summary
 
     return X, y
 
@@ -586,6 +640,8 @@ def load_pad_split_dataset(
     dataset_type="raw_frame",
     apply_quality_gate=True,
     return_image_paths=False,
+    collect_pose_metrics=False,
+    return_pose_summary=False,
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
 ):
@@ -602,12 +658,13 @@ def load_pad_split_dataset(
 
     The shared quality gate applies only to the crop loading path
     selected by ``apply_quality_gate``; it does not duplicate the
-    runtime pipeline history gate.
+    live pipeline history gate.
     """
 
     features = []
     labels = []
     sample_paths = []
+    pose_summary = create_pose_summary() if collect_pose_metrics else None
     valid_extensions = {".png", ".jpg", ".jpeg"}
     start_time = time.perf_counter()
     augmentation_seed = (
@@ -622,6 +679,7 @@ def load_pad_split_dataset(
     detector = None
     if dataset_type == "raw_frame":
         detector = load_mediapipe_detector()
+    face_mesh = load_mediapipe_face_mesh() if collect_pose_metrics else None
 
     # Build image path lists
     live_paths = [
@@ -687,6 +745,9 @@ def load_pad_split_dataset(
             detector=detector,
             dataset_type=dataset_type,
             apply_quality_gate=apply_quality_gate,
+            collect_pose_metrics=collect_pose_metrics,
+            face_mesh=face_mesh,
+            pose_summary=pose_summary,
         )
         if img_features is None:
             continue
@@ -714,6 +775,9 @@ def load_pad_split_dataset(
                 detector=detector,
                 dataset_type=dataset_type,
                 apply_quality_gate=apply_quality_gate,
+                collect_pose_metrics=collect_pose_metrics,
+                face_mesh=face_mesh,
+                pose_summary=pose_summary,
             )
             if augmented_features is not None:
                 features.append(augmented_features)
@@ -740,6 +804,9 @@ def load_pad_split_dataset(
             detector=detector,
             dataset_type=dataset_type,
             apply_quality_gate=apply_quality_gate,
+            collect_pose_metrics=collect_pose_metrics,
+            face_mesh=face_mesh,
+            pose_summary=pose_summary,
         )
         if img_features is None:
             continue
@@ -767,11 +834,19 @@ def load_pad_split_dataset(
         print(f"Final valid spoof weight: {spoof_ratio:.2f}%")
     print(f"PAD split loading completed in {elapsed:.2f}s")
 
+    if face_mesh is not None and hasattr(face_mesh, "close"):
+        face_mesh.close()
+
     features_array = np.array(features, dtype=np.float32)
     labels_array = np.array(labels, dtype=np.int32)
 
     if return_image_paths:
+        if return_pose_summary:
+            return features_array, labels_array, sample_paths, pose_summary
         return features_array, labels_array, sample_paths
+
+    if return_pose_summary:
+        return features_array, labels_array, pose_summary
 
     return features_array, labels_array
 

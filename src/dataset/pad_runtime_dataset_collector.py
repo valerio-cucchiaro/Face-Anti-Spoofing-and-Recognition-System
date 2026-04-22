@@ -7,14 +7,14 @@ creation.
 
 It captures frames from the webcam, detects and validates a face,
 uses the same crop-quality checks as the runtime PAD flow, and saves
-the raw frame into one of two folders inside the selected custom
+the cropped face region into one of two folders inside the selected custom
 dataset split:
 
 data/pad_custom_raw/<split>/live
 data/pad_custom_raw/<split>/spoof
 
 The saved images are not converted into PAD features here. They remain
-raw webcam frames so that the offline PAD training and evaluation
+cropped face images so that the offline PAD training and evaluation
 tools can reapply their own normalization and feature extraction
 pipeline later.
 
@@ -25,13 +25,17 @@ of ``data/pad_custom_raw`` through a configurable split name.
 import cv2
 from pathlib import Path
 
-from src.antispoofing.pad_crop_utils import extract_pad_face_crop
+from src.antispoofing.pad_crop_utils import (
+    extract_pad_face_crop,
+    extract_pad_face_crop_bgr,
+)
 from src.antispoofing.pad_frame_quality import (
     PAD_MIN_VARIANCE_LAPLACIAN,
     evaluate_bbox_stability,
     evaluate_pad_crop_quality,
 )
 from src.detection.face_detector import load_mediapipe_detector
+from src.preprocessing.face_bbox_visualization import draw_visual_face_bbox
 from src.preprocessing.frame_preprocessing import get_valid_face
 
 
@@ -41,10 +45,10 @@ THRESHOLD_AREA = 8000
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 PAD_CUSTOM_RAW_ROOT = PROJECT_ROOT / "data" / "pad_custom_raw"
-DATASET_SPLIT = "train"     # train or test
+DATASET_SPLIT = "test"     # train or test
 
 MAX_IMAGES_LIVE = 120
-MAX_IMAGES_SPOOF = 120
+MAX_IMAGES_SPOOF = 140
 
 
 def get_next_image_index(folder_path):
@@ -119,9 +123,12 @@ def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
             print("Failed to grab frame")
             break
 
+        display_frame = frame.copy()
+        crop_source_frame = frame.copy()
         valid_face = False
         quality_text = "PAD frame: WAITING"
         quality_color = (200, 200, 200)
+        pad_face_crop_bgr = None
 
         face_rect, gray_frame, message = get_valid_face(
             frame,
@@ -130,21 +137,21 @@ def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
         )
 
         # Default overlay info
-        cv2.putText(frame, f"Split: {split_name.upper()}", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(display_frame, f"Split: {split_name.upper()}", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
 
-        cv2.putText(frame, f"LIVE samples: {live_count} / {MAX_IMAGES_LIVE}", (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(display_frame, f"LIVE samples: {live_count} / {MAX_IMAGES_LIVE}", (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
 
-        cv2.putText(frame, f"SPOOF samples: {spoof_count} / {MAX_IMAGES_SPOOF}", (30, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(display_frame, f"SPOOF samples: {spoof_count} / {MAX_IMAGES_SPOOF}", (30, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
 
-        cv2.putText(frame, "Press L = save live | S = save spoof | Q = quit", (30, 145), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2, cv2.LINE_AA)
+        cv2.putText(display_frame, "Press L = save live | S = save spoof | Q = quit", (30, 145), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2, cv2.LINE_AA)
 
         if message == "No face detected":
             prev_face_rect = None
-            cv2.putText(frame, message, (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(display_frame, message, (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Move closer to the camera":
             prev_face_rect = None
-            cv2.putText(frame, message, (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(display_frame, message, (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2, cv2.LINE_AA)
 
         elif message == "Face detected":
             x, y, w, h = face_rect
@@ -160,9 +167,11 @@ def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
             bbox_stable = stability_result["is_stable"]
             prev_face_rect = current_face_rect
 
-            # Build the PAD crop only as a quality gate. The saved
-            # dataset image remains the raw frame.
+            # Build the grayscale PAD crop only as a quality gate. The
+            # saved dataset image uses the same canonical PAD crop
+            # geometry, but keeps the original BGR colors.
             pad_face_crop = extract_pad_face_crop(gray_frame, x, y, w, h)
+            pad_face_crop_bgr = extract_pad_face_crop_bgr(crop_source_frame, x, y, w, h)
             quality_result = evaluate_pad_crop_quality(
                 pad_face_crop,
                 PAD_MIN_VARIANCE_LAPLACIAN,
@@ -176,10 +185,12 @@ def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
             valid_face = quality_result["is_frame_usable_for_history"] and bbox_stable
 
             # Draw face bounding box
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            draw_visual_face_bbox(display_frame, face_rect, (0, 255, 0), 2)
 
-            # Show crop preview
-            # cv2.imshow("PAD Face Crop", pad_face_crop)
+            # Show a small crop preview so the user sees exactly what
+            # will be stored when the current frame passes quality gates.
+            if pad_face_crop_bgr is not None:
+                cv2.imshow("PAD Face Crop", pad_face_crop_bgr)
 
             if not quality_result["is_valid_crop"]:
                 if not quality_result["is_large_enough"]:
@@ -209,18 +220,18 @@ def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
                 quality_color = (0, 255, 0)
 
             # Show crop and detector size for quick sanity checks.
-            cv2.putText(frame, f"Face size: {w}x{h}", (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
+            cv2.putText(display_frame, f"Face size: {w}x{h}", (30, 185), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
 
-        cv2.putText(frame, quality_text, (30, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.7, quality_color, 2, cv2.LINE_AA)
+        cv2.putText(display_frame, quality_text, (30, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.7, quality_color, 2, cv2.LINE_AA)
 
-        cv2.imshow("Webcam", frame)
+        cv2.imshow("Webcam", display_frame)
 
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord("l") and valid_face:
             if live_count < MAX_IMAGES_LIVE:
                 save_path = live_dataset / f"{live_next_idx:03d}.png"
-                cv2.imwrite(str(save_path), frame)
+                cv2.imwrite(str(save_path), pad_face_crop_bgr)
                 print(f"[LIVE] Saved: {save_path.name}")
                 live_count += 1
                 live_next_idx += 1
@@ -230,7 +241,7 @@ def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
         elif key == ord("s") and valid_face:
             if spoof_count < MAX_IMAGES_SPOOF:
                 save_path = spoof_dataset / f"{spoof_next_idx:03d}.png"
-                cv2.imwrite(str(save_path), frame)
+                cv2.imwrite(str(save_path), pad_face_crop_bgr)
                 print(f"[SPOOF] Saved: {save_path.name}")
                 spoof_count += 1
                 spoof_next_idx += 1

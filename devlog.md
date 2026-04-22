@@ -1213,7 +1213,7 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 
 ---
 
-## 2026/06/09
+## 2026/04/09
 
 **Custom Raw Dataset Structure**:
 
@@ -1222,3 +1222,120 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 - aligned recognition custom collection with `data/recognition/custom_raw/{gallery,probe_known,probe_unknown}`
 - kept detection and preprocessing inside the loaders / runtime so the dataset on disk stays closer to the original acquisition
 - updated the custom dataset contract so processing happens later, not during capture
+
+---
+
+## 2026/04/11
+
+**PAD and Recognition Refactor**:
+
+- centralized the PAD crop geometry in `src/antispoofing/pad_crop_utils.py` so runtime, dataset collection, and offline evaluation share the same canonical crop bounds
+- updated the PAD dataset loader to distinguish between public `raw_frame` inputs and custom `final_pad_crop` data
+- extracted the official PAD metric computation into `src/antispoofing/pad_metrics.py`, including threshold sweep, EER, and report exports
+- split PAD diagnostics from metric computation so the evaluator can print both human-readable logs and report-ready values cleanly
+- extracted the recognition metric computation into `src/recognition/recognition_metrics.py`, including threshold sweep, EER, and report exports
+- refactored `src/recognition/recognition_model_evaluator.py` to rely on the new metrics module and produce more structured diagnostics
+- unified the face-bbox visualization used by `run_pipeline_bs.py`, `run_pipeline_cv.py`, and `run_pipeline_full.py` through `src/preprocessing/face_bbox_visualization.py`
+
+---
+
+## 2026/04/16
+
+**Recognition Metric Expansion**:
+
+- added an offline `all gallery vs all probe` pairwise analysis to the recognition metrics, using the same LBPH distance logic already used by the recognizer
+- kept the runtime decision path unchanged:
+  - `predict(...)`
+  - best match
+  - threshold-based `Unknown` rejection
+- added pairwise/offline outputs to the recognition reports so the evaluator can now export:
+  - the standard threshold / ROC / DET artifacts
+  - a separate pairwise matrix report for probe-vs-gallery analysis
+- derived extra offline readings from the distance matrix:
+  - rank-1 / rank-k
+  - best-vs-second-best margin
+  - identity-level minimum distance aggregation
+  - open-set summary from the pairwise view
+- kept the new analysis additive so the existing recognition metrics remain valid and comparable, while the report becomes more informative for the exam / thesis discussion
+
+**Model Artifact Refactor**:
+
+- split the generated model artifacts into two dedicated subfolders:
+  - `models/recognition/`
+  - `models/pad/`
+- moved the recognition artifacts to the canonical recognition folder:
+  - `lbph_model.xml`
+  - `label_map.pkl`
+  - `recognition_config.json`
+- moved the PAD runtime and experiment artifacts to the canonical PAD folder:
+  - `pad_svm.joblib`
+  - `pad_scaler.joblib`
+  - `pad_config.json`
+  - the `fast` and `full` PAD snapshots
+- updated the recognition and PAD loaders / trainers / evaluators so they all resolve the new canonical paths consistently
+- kept the model behavior unchanged: only the artifact layout changed, not the recognition or PAD logic
+
+**Public Metric Batch Setup**:
+
+- prepared the batch runner to execute only public-dataset metric checks
+- recognition runs now target:
+  - `custom_orl -> orl`
+  - `orl -> orl`
+- PAD runs now target:
+  - `casia -> casia`
+  - `replay -> replay`
+- kept the custom datasets out of the batch for now because the custom PAD spoof split and the custom recognition unknown split are still incomplete
+- kept the batch output separated into the existing recognition and PAD log files
+
+**Recognition Report Refinement**:
+
+- added a compact CMS/CMC curve export for recognition so the rank-based behavior can be plotted directly from the report data
+- added a small pairwise preview export for a few representative probes so the distance matrix can be shown without dumping the full matrix
+- kept the full all-gallery-vs-all-probe matrix export unchanged for deeper analysis
+- updated the recognition diagnostics to print the CMS summary and a short preview of representative probe cases
+- left the recognition runtime unchanged: the new outputs are report-only additions
+
+---
+
+## 2026/04/21
+
+**Pose Metrics Layer**:
+
+- added offline and runtime pose metrics for `roll`, `yaw`, `pitch`, and `SP` without changing the custom raw dataset collection flow
+- wired the new pose summaries into recognition and PAD training / evaluation so the reports now include pose coverage, means, and extrema
+- kept `roll correction` out of offline runs for now so the current metrics stay comparable with the existing saved data
+- used the new logs to confirm that the recognition and PAD runs stay stable while pose values vary coherently across datasets and splits
+- left the next step open for a separate `roll correction` pass after this baseline comparison
+
+**PAD Runtime/Custom Refactor**:
+
+- unified the PAD dataset naming around `custom` and `combined_custom`
+- removed the old dataset-side `runtime` aliases and the duplicate repeat wrapper names
+- renamed the custom PAD evaluator file and aligned its content and logs to the custom test flow
+- kept `runtime` only where it still means live/runtime artifacts for the PAD inference pipeline
+- verified that the current PAD custom batch runs still launch and export the expected models and metrics
+
+---
+
+## 2026/04/22
+
+**Doddington Zoo**:
+
+- made the Doddington zoo report assign exactly one dominant label per identity instead of overlapping categories
+- kept all category scores in the report together with the gap between the best and second-best score
+- exported the updated zoo analysis in the recognition reports so the dominant class and confidence gap are visible offline
+- stress-tested the zoo on `custom -> custom`, `all -> all`, `orl -> orl`, and reduced-LFW runs so the new assignment stays consistent
+
+**System Response Reliability**:
+
+- added an offline SRR analysis on top of the recognition pairwise report
+- computed multiple variants for the reliability score, including `relative_distance`, `density_ratio`, and `adaptive_density_ratio`
+- calibrated the SRR threshold offline and exported a dedicated reliability CSV alongside the standard recognition metrics
+- kept SRR as a report-only layer for now, separate from the runtime recognition threshold
+
+**BS Runtime Crop Alignment**:
+
+- aligned the BS runtime recognizer crop with the offline recognition preprocessing instead of reusing the PAD crop for LBPH input
+- kept the PAD crop only for quality / gating checks inside the BS runtime
+- confirmed that the runtime model artifacts are still created and loaded correctly after the crop change
+- verified that the BS pipeline now recognizes the custom identities consistently again with the offline-style crop
