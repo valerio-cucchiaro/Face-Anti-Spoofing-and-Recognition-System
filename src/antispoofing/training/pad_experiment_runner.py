@@ -14,7 +14,7 @@ import time
 
 from src.antispoofing.pad_feature_extractor import configure_pad_feature_modes
 from src.antispoofing.training.pad_model_trainer import train_pad_model
-from src.antispoofing.training.pad_model_evaluator import evaluate_pad_model
+from src.evaluation.pad_model_evaluator import evaluate_pad_model
 
 # ----- EXPERIMENT CONFIGURATION ----- #
 TRAIN_MODE = "custom"

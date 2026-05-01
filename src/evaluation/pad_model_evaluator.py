@@ -32,7 +32,7 @@ from src.antispoofing.pad_model_config import (
     get_pad_artifact_paths,
     load_pad_model_config,
 )
-from src.antispoofing.pad_metrics import (
+from src.evaluation.pad_metrics import (
     build_pad_threshold_summary,
     compute_pad_eer,
     export_pad_metrics_report,

@@ -6,7 +6,6 @@ recognition. It is useful when recognition must be tested in
 isolation without the PAD gate.
 """
 
-
 from src.pipeline.run_pipeline_bs import run_pipeline_bs
     
 

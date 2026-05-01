@@ -1339,3 +1339,139 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 - kept the PAD crop only for quality / gating checks inside the BS runtime
 - confirmed that the runtime model artifacts are still created and loaded correctly after the crop change
 - verified that the BS pipeline now recognizes the custom identities consistently again with the offline-style crop
+
+---
+
+## 2026/04/29
+
+**System-Level Evaluation**:
+
+- added `src/evaluation/system_evaluator.py` as an offline evaluator for the complete biometric system
+- introduced an open-set identification protocol with PAD gating and three explicit input classes:
+  - `known_live`: enrolled live users
+  - `unknown_live`: non-enrolled live users / biometric impostors
+  - `spoof_attack`: presentation attacks
+- kept biometric impostors and presentation attacks separated so recognition errors and PAD errors are measured with the correct terminology
+- reported recognition-only metrics on live probes:
+  - FAR
+  - FRR
+  - EER
+  - DIR
+  - misidentification rate
+- reported PAD-only metrics on live/spoof samples:
+  - APCER
+  - BPCER
+  - ACER
+- added PAD-gated recognition metrics for the final system decision:
+  - `final_unknown_live_far`
+  - `final_known_live_frr`
+  - `spoof_attacks_blocked`
+  - `spoof_attacks_passed_pad`
+  - `live_samples_blocked_by_pad`
+  - `live_samples_passed_pad`
+- exported the system-level results to:
+  - `logs/metrics/system/system_evaluation_report.json`
+  - `logs/metrics/system/system_evaluation_samples.csv`
+- kept `run_pipeline_full.py` unchanged so the runtime demo remains separate from the offline evaluation evidence
+
+**Recognition Probe Prediction Export**:
+
+- added a per-probe recognition CSV export in `src/recognition/recognition_model_evaluator.py`
+- exported one readable row per probe with dataset, split, path, true identity, predicted identity, LBPH distance, threshold, acceptance flag, and final recognition decision
+- used decision labels aligned with the system evaluator:
+  - `ACCEPTED_CORRECT`
+  - `ACCEPTED_WRONG`
+  - `REJECTED_UNKNOWN`
+  - `FALSE_ACCEPT`
+- kept the export inside the recognition evaluator so `src/recognition/recognition_metrics.py` remains focused on metric computation
+
+**Recognition Protocol Logs**:
+
+- added explicit gallery/probe protocol logs to the recognition trainer and evaluator
+- made the enrollment/test separation visible at run time:
+  - `gallery` is used for enrollment / LBPH template training
+  - `probe`, `probe_known`, and `probe_unknown` are used only for evaluation
+- clarified the custom open-set meaning of `probe_unknown` as non-enrolled live identities / biometric impostors
+
+**Evaluation Package Cleanup**:
+
+- moved PAD evaluator code into `src/evaluation/`:
+  - `src/antispoofing/training/pad_model_evaluator.py` -> `src/evaluation/pad_model_evaluator.py`
+  - `src/antispoofing/pad_metrics.py` -> `src/evaluation/pad_metrics.py`
+  - `src/antispoofing/training/pad_custom_evaluator.py` -> `src/evaluation/pad_custom_evaluator.py`
+- moved recognition evaluator code into `src/evaluation/`:
+  - `src/recognition/recognition_model_evaluator.py` -> `src/evaluation/recognition_model_evaluator.py`
+  - `src/recognition/recognition_metrics.py` -> `src/evaluation/recognition_metrics.py`
+- updated runner/test imports to use the new evaluation module paths
+- fixed the moved custom PAD evaluator project-root path after relocation
+- kept trainers, dataset loaders, runtime modules, and preprocessing modules in their original packages
+
+---
+
+## 2026/04/30
+
+**Recognition Validation/Test Protocol**:
+
+- replaced the public recognition open-set evaluation layout with an explicit threshold-selection split:
+  - `gallery`: enrolled identities used only for LBPH training
+  - `validation_known`: enrolled identities used only to select the recognition threshold
+  - `validation_unknown`: non-enrolled identities used only to select the recognition threshold
+  - `test_known`: enrolled identities used only for final metrics
+  - `test_unknown`: non-enrolled identities used only for final metrics
+- kept the split rule consistent across datasets:
+  - known identities: split by image
+  - unknown identities: split by subject
+  - gallery: always separate from validation and test
+- ORL structure:
+  - `gallery`: 30 known subjects, images `1-5`
+  - `validation_known`: same known subjects, images `6-7`
+  - `test_known`: same known subjects, images `8-10`
+  - `validation_unknown`: 5 non-enrolled subjects, all images
+  - `test_unknown`: 5 non-enrolled subjects, all images
+- LFW structure:
+  - `gallery`
+  - `validation_known` / `test_known`
+  - `validation_unknown` / `test_unknown`
+  - unknown subjects are split between validation and test, not mixed by image
+- Multi-PIE structure:
+  - `gallery`
+  - HR: `validation_known_hr`, `validation_unknown_hr`, `test_known_hr`, `test_unknown_hr`
+  - LR: `validation_known_lr`, `validation_unknown_lr`, `test_known_lr`, `test_unknown_lr`
+  - unknown HR/LR subjects are split by subject between validation and test
+- kept custom recognition data on the live-style `gallery`, `probe_known`, `probe_unknown` layout for runtime/system samples
+- updated the recognition evaluator so the official threshold is selected on validation and then frozen for the final test metrics
+- renamed open-set metric exports to make the final evaluation scope explicit:
+  - `*_test_predictions.csv`
+  - `*_all_gallery_vs_all_test_matrix.csv`
+  - `*_all_gallery_vs_all_test_cms_points.csv`
+  - `*_all_gallery_vs_all_test_preview.csv`
+- added `threshold_source` and `evaluation_scope` to the recognition metric reports and threshold-summary CSVs
+
+---
+
+## 2026/05/01
+
+**Recognition Decision Logic**:
+
+- added a dedicated recognition decision layer for identity-level candidate ranking
+- separated decision logic, threshold calibration, and metric computation
+- added validation-based calibration for distance and margin thresholds
+- added reliability-gated offline metrics using `distance + margin` as a security-oriented comparison against the distance-only baseline
+- kept the older adaptive-density SRR report as diagnostic-only evidence, while using margin as the practical reliability gate
+
+**Recognition Experiments**:
+
+- updated the batch workflow to run focused recognition experiments without deleting the commented alternatives
+- checked custom-to-custom, ORL-to-ORL, and Multi-PIE-to-Multi-PIE behavior with the new offline decision reporting
+- documented that Multi-PIE is a stress/failure case for the current LBPH setup, especially in LR probes
+
+**Documentation**:
+
+- updated `recognition.md` to clarify that offline recognition thresholds are selected on each dataset validation split and then frozen on the corresponding test split
+- added the current distance-only vs distance+margin interpretation for the latest offline recognition reports
+
+**Runtime Notes**:
+
+- enabled and inspected SRR-style runtime diagnostics in the BS recognition pipeline
+- corrected the SRR candidate interpretation to aggregate by identity rather than by duplicate templates of the same identity
+- briefly tested a shared third-party log silencing helper, then removed it because MediaPipe/TFLite native stderr warnings were not reliably suppressed

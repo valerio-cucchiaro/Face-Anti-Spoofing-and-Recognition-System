@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.recognition.recognition_metrics import (
+from src.evaluation.recognition_metrics import (
     compute_all_gallery_vs_all_probe_analysis,
     build_doddington_zoo_analysis,
     build_system_response_reliability_analysis,
@@ -121,6 +121,37 @@ def test_compute_all_gallery_vs_all_probe_analysis_skips_large_matrices():
 
     assert analysis["available"] is False
     assert analysis["reason"] == "matrix_too_large"
+
+
+def test_compute_all_gallery_vs_all_probe_analysis_treats_test_unknown_as_unknown():
+    gallery_histograms = [
+        np.array([1.0, 0.0], dtype=np.float64),
+    ]
+    gallery_labels = np.array([0], dtype=np.int64)
+    label_map = {
+        0: "alice",
+    }
+    probe_records = [
+        {
+            "true_identity": "unknown_probe",
+            "split": "test_unknown",
+        },
+    ]
+    probe_histograms = [
+        np.array([0.5, 0.5], dtype=np.float64),
+    ]
+
+    analysis = compute_all_gallery_vs_all_probe_analysis(
+        probe_records,
+        probe_histograms,
+        gallery_histograms,
+        gallery_labels,
+        label_map,
+        threshold=0.1,
+    )
+
+    assert analysis["rows"][0]["is_known"] is False
+    assert analysis["open_set_summary"]["true_reject"] == 1
 
 
 def test_build_doddington_zoo_analysis_groups_expected_identity_roles():

@@ -206,6 +206,70 @@ def evaluate_recognition_at_threshold(records, threshold):
     }
 
 
+def evaluate_recognition_decisions(records):
+    """
+    Evaluate open-set recognition metrics from already finalized decisions.
+
+    Decision records are expected to include:
+    - ``is_known``
+    - ``true_id`` for known probes
+    - ``final_identity``
+    - ``accepted``
+
+    This lets distance-only, distance+margin, distance+SRR, and future
+    runtime-like decision policies share the same metric computation.
+    """
+
+    total_known = 0
+    total_unknown = 0
+    correct_identification = 0
+    false_reject = 0
+    misidentification = 0
+    false_accept = 0
+    true_reject = 0
+
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise ValueError(f"Recognition decision #{index} must be a dictionary.")
+
+        is_known = bool(record.get("is_known", False))
+        accepted = bool(record.get("accepted", False))
+        true_id = record.get("true_id")
+        final_identity = record.get("final_identity")
+
+        if is_known:
+            total_known += 1
+            if accepted:
+                if final_identity == true_id:
+                    correct_identification += 1
+                else:
+                    misidentification += 1
+            else:
+                false_reject += 1
+        else:
+            total_unknown += 1
+            if accepted:
+                false_accept += 1
+            else:
+                true_reject += 1
+
+    frr = _safe_div(false_reject, total_known)
+    return {
+        "total_known": total_known,
+        "total_unknown": total_unknown,
+        "correct_identification": correct_identification,
+        "false_reject": false_reject,
+        "misidentification": misidentification,
+        "false_accept": false_accept,
+        "true_reject": true_reject,
+        "DIR": _safe_div(correct_identification, total_known),
+        "FAR": _safe_div(false_accept, total_unknown),
+        "FRR": frr,
+        "GAR": 1.0 - frr,
+        "misidentification_rate": _safe_div(misidentification, total_known),
+    }
+
+
 def sweep_recognition_thresholds(records, thresholds=None):
     """
     Evaluate recognition metrics over a threshold sweep.
@@ -341,15 +405,19 @@ def _json_ready_report(report):
 
     doddington_analysis = report.get("doddington_analysis")
     srr_analysis = report.get("srr_analysis")
+    reliability_gated_report = report.get("reliability_gated_report")
 
     return {
         "selected_threshold": report.get("selected_threshold"),
+        "threshold_source": report.get("threshold_source"),
+        "evaluation_scope": report.get("evaluation_scope"),
         "selected_metrics": report.get("selected_metrics"),
         "eer_results": report.get("eer_results"),
         "threshold_summary": report.get("threshold_summary"),
         "pairwise_analysis": pairwise_json,
         "doddington_analysis": doddington_analysis,
         "srr_analysis": srr_analysis,
+        "reliability_gated_report": reliability_gated_report,
         "sweep_results": {
             "thresholds": report.get("sweep_results", {}).get("thresholds", []),
             "roc_points": report.get("sweep_results", {}).get("roc_points", []),
@@ -1182,9 +1250,10 @@ def compute_all_gallery_vs_all_probe_analysis(
     threshold=None,
     top_k_values=(1, 3, 5),
     max_total_comparisons=1000000,
+    evaluation_scope="probe",
 ):
     """
-    Build an all gallery vs all probe distance analysis.
+    Build an all gallery vs all evaluation-sample distance analysis.
 
     The analysis uses the LBPH chi-square alternative distance so the
     pairwise matrix stays consistent with the recognizer confidence.
@@ -1216,6 +1285,7 @@ def compute_all_gallery_vs_all_probe_analysis(
         return {
             "available": False,
             "reason": "no_gallery_templates",
+            "protocol": f"all gallery vs all {evaluation_scope}",
             "threshold": threshold,
             "rows": [],
             "identity_columns": [],
@@ -1231,6 +1301,7 @@ def compute_all_gallery_vs_all_probe_analysis(
         return {
             "available": False,
             "reason": "matrix_too_large",
+            "protocol": f"all gallery vs all {evaluation_scope}",
             "threshold": threshold,
             "probe_count": len(normalized_probe_records),
             "gallery_template_count": len(normalized_gallery_histograms),
@@ -1276,7 +1347,7 @@ def compute_all_gallery_vs_all_probe_analysis(
     ):
         true_identity = probe_record.get("true_identity")
         split_name = probe_record.get("split", "probe")
-        is_known = bool(probe_record.get("is_known", split_name != "probe_unknown"))
+        is_known = bool(probe_record.get("is_known", "unknown" not in split_name))
 
         probe_distances = _chi_square_alt_distance_matrix(gallery_matrix, probe_histogram)
 
@@ -1443,7 +1514,7 @@ def compute_all_gallery_vs_all_probe_analysis(
     return {
         "available": True,
         "reason": None,
-        "protocol": "all gallery vs all probe",
+        "protocol": f"all gallery vs all {evaluation_scope}",
         "threshold": threshold,
         "probe_count": len(normalized_probe_records),
         "known_probe_count": known_probe_count,
@@ -1464,7 +1535,12 @@ def compute_all_gallery_vs_all_probe_analysis(
     }
 
 
-def export_recognition_metrics_report(report, output_stem, output_root=None):
+def export_recognition_metrics_report(
+    report,
+    output_stem,
+    output_root=None,
+    evaluation_scope="probe",
+):
     """
     Export report-ready recognition metrics as JSON and CSV artifacts.
 
@@ -1485,7 +1561,8 @@ def export_recognition_metrics_report(report, output_stem, output_root=None):
     summary_csv_path = output_root / f"{output_stem}_threshold_summary.csv"
     roc_csv_path = output_root / f"{output_stem}_roc_points.csv"
     det_csv_path = output_root / f"{output_stem}_det_points.csv"
-    pairwise_csv_path = output_root / f"{output_stem}_all_gallery_vs_all_probe_matrix.csv"
+    pairwise_tag = f"all_gallery_vs_all_{evaluation_scope}"
+    pairwise_csv_path = output_root / f"{output_stem}_{pairwise_tag}_matrix.csv"
     doddington_csv_path = output_root / f"{output_stem}_doddington_zoo.csv"
     srr_csv_path = output_root / f"{output_stem}_system_response_reliability.csv"
 
@@ -1504,6 +1581,9 @@ def export_recognition_metrics_report(report, output_stem, output_root=None):
                 "label": label,
                 "threshold": row["threshold"],
                 "selected_threshold": selected_thresholds.get(label),
+                "official_threshold": report.get("selected_threshold"),
+                "threshold_source": report.get("threshold_source"),
+                "evaluation_scope": report.get("evaluation_scope"),
                 "dir": row["DIR"],
                 "far": row["FAR"],
                 "frr": row["FRR"],
@@ -1519,6 +1599,9 @@ def export_recognition_metrics_report(report, output_stem, output_root=None):
             "label",
             "threshold",
             "selected_threshold",
+            "official_threshold",
+            "threshold_source",
+            "evaluation_scope",
             "dir",
             "far",
             "frr",
@@ -1569,7 +1652,7 @@ def export_recognition_metrics_report(report, output_stem, output_root=None):
 
     cms_curve = pairwise_analysis.get("cms_curve", {}) if pairwise_analysis else {}
     cms_points = cms_curve.get("points", []) if cms_curve else []
-    cms_csv_path = output_root / f"{output_stem}_all_gallery_vs_all_probe_cms_points.csv"
+    cms_csv_path = output_root / f"{output_stem}_{pairwise_tag}_cms_points.csv"
     if cms_curve.get("available") and cms_points:
         _write_csv(
             cms_csv_path,
@@ -1579,7 +1662,7 @@ def export_recognition_metrics_report(report, output_stem, output_root=None):
         cms_csv_exported = True
 
     preview_rows = pairwise_analysis.get("preview_rows", []) if pairwise_analysis else []
-    preview_csv_path = output_root / f"{output_stem}_all_gallery_vs_all_probe_preview.csv"
+    preview_csv_path = output_root / f"{output_stem}_{pairwise_tag}_preview.csv"
     if pairwise_analysis.get("available") and preview_rows:
         _write_csv(
             preview_csv_path,
@@ -1711,11 +1794,11 @@ def export_recognition_metrics_report(report, output_stem, output_root=None):
         "det_csv": str(det_csv_path),
     }
     if pairwise_csv_exported:
-        export_paths["all_gallery_vs_all_probe_csv"] = str(pairwise_csv_path)
+        export_paths[f"{pairwise_tag}_csv"] = str(pairwise_csv_path)
     if cms_csv_exported:
-        export_paths["all_gallery_vs_all_probe_cms_csv"] = str(cms_csv_path)
+        export_paths[f"{pairwise_tag}_cms_csv"] = str(cms_csv_path)
     if preview_csv_exported:
-        export_paths["all_gallery_vs_all_probe_preview_csv"] = str(preview_csv_path)
+        export_paths[f"{pairwise_tag}_preview_csv"] = str(preview_csv_path)
     if doddington_csv_exported:
         export_paths["doddington_zoo_csv"] = str(doddington_csv_path)
     if srr_csv_exported:

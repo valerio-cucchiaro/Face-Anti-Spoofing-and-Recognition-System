@@ -5,15 +5,16 @@ Description:
 This module provides the dataset loading utilities used by the
 recognition training and evaluation pipeline.
 
-It supports the custom, ORL, and LFW recognition datasets and can
+It supports the custom, ORL, LFW, and Multi-PIE recognition datasets and can
 load them individually or combine them when required by an experiment.
-Gallery images are used for training, while the custom probe split is
-now separated into known and unknown identities for evaluation.
+Gallery images are used for training, while open-set evaluation data is
+separated into validation and test splits for threshold selection and
+final metrics.
 
 The supported experiment modes are intentionally explicit:
-- `custom`, `orl`, `lfw`: single-dataset runs
+- `custom`, `orl`, `lfw`, `multipie`: single-dataset runs
 - `custom_orl`: realistic mixed training setup without LFW
-- `all`: full mixed experiment including LFW, mainly useful for broad
+- `all`: full mixed experiment including LFW and Multi-PIE, mainly useful for broad
   comparisons and stress-style analysis
 """
 
@@ -48,14 +49,88 @@ DATASET_SPLIT_DIRS = {
     },
     "orl": {
         "gallery": RECOGNITION_ROOT / "orl" / "gallery",
-        "probe": RECOGNITION_ROOT / "orl" / "probe",
+        "validation_known": RECOGNITION_ROOT / "orl" / "validation_known",
+        "test_known": RECOGNITION_ROOT / "orl" / "test_known",
+        "validation_unknown": RECOGNITION_ROOT / "orl" / "validation_unknown",
+        "test_unknown": RECOGNITION_ROOT / "orl" / "test_unknown",
+        "probe_known": RECOGNITION_ROOT / "orl" / "probe_known",
+        "probe_unknown": RECOGNITION_ROOT / "orl" / "probe_unknown",
     },
     "lfw": {
         "gallery": RECOGNITION_ROOT / "lfw" / "gallery",
-        "probe": RECOGNITION_ROOT / "lfw" / "probe",
+        "validation_known": RECOGNITION_ROOT / "lfw" / "validation_known",
+        "test_known": RECOGNITION_ROOT / "lfw" / "test_known",
+        "validation_unknown": RECOGNITION_ROOT / "lfw" / "validation_unknown",
+        "test_unknown": RECOGNITION_ROOT / "lfw" / "test_unknown",
+        "probe_known": RECOGNITION_ROOT / "lfw" / "probe_known",
+        "probe_unknown": RECOGNITION_ROOT / "lfw" / "probe_unknown",
+    },
+    "multipie": {
+        "gallery": RECOGNITION_ROOT / "multipie" / "gallery",
+        "validation_known_hr": RECOGNITION_ROOT / "multipie" / "validation_known_hr",
+        "test_known_hr": RECOGNITION_ROOT / "multipie" / "test_known_hr",
+        "validation_unknown_hr": RECOGNITION_ROOT / "multipie" / "validation_unknown_hr",
+        "test_unknown_hr": RECOGNITION_ROOT / "multipie" / "test_unknown_hr",
+        "validation_known_lr": RECOGNITION_ROOT / "multipie" / "validation_known_lr",
+        "test_known_lr": RECOGNITION_ROOT / "multipie" / "test_known_lr",
+        "validation_unknown_lr": RECOGNITION_ROOT / "multipie" / "validation_unknown_lr",
+        "test_unknown_lr": RECOGNITION_ROOT / "multipie" / "test_unknown_lr",
+        "probe_known_hr": RECOGNITION_ROOT / "multipie" / "probe_known_hr",
+        "probe_known_lr": RECOGNITION_ROOT / "multipie" / "probe_known_lr",
+        "probe_unknown_hr": RECOGNITION_ROOT / "multipie" / "probe_unknown_hr",
+        "probe_unknown_lr": RECOGNITION_ROOT / "multipie" / "probe_unknown_lr",
     },
 }
 CUSTOM_PROBE_SPLITS = ("probe_known", "probe_unknown")
+VALIDATED_OPEN_SET_SPLITS = {
+    "validation": ("validation_known", "validation_unknown"),
+    "test": ("test_known", "test_unknown"),
+    "validation_known": ("validation_known",),
+    "test_known": ("test_known",),
+    "validation_unknown": ("validation_unknown",),
+    "test_unknown": ("test_unknown",),
+    "probe": ("test_known", "test_unknown"),
+    "probe_known": ("probe_known",),
+    "probe_unknown": ("probe_unknown",),
+}
+MULTIPIE_PROBE_SPLITS = {
+    "validation": (
+        "validation_known_hr",
+        "validation_unknown_hr",
+        "validation_known_lr",
+        "validation_unknown_lr",
+    ),
+    "test": (
+        "test_known_hr",
+        "test_unknown_hr",
+        "test_known_lr",
+        "test_unknown_lr",
+    ),
+    "validation_hr": ("validation_known_hr", "validation_unknown_hr"),
+    "test_hr": ("test_known_hr", "test_unknown_hr"),
+    "validation_lr": ("validation_known_lr", "validation_unknown_lr"),
+    "test_lr": ("test_known_lr", "test_unknown_lr"),
+    "probe": (
+        "test_known_hr",
+        "test_unknown_hr",
+        "test_known_lr",
+        "test_unknown_lr",
+    ),
+    "probe_hr": ("test_known_hr", "test_unknown_hr"),
+    "probe_lr": ("test_known_lr", "test_unknown_lr"),
+    "validation_known_hr": ("validation_known_hr",),
+    "test_known_hr": ("test_known_hr",),
+    "validation_unknown_hr": ("validation_unknown_hr",),
+    "test_unknown_hr": ("test_unknown_hr",),
+    "validation_known_lr": ("validation_known_lr",),
+    "test_known_lr": ("test_known_lr",),
+    "validation_unknown_lr": ("validation_unknown_lr",),
+    "test_unknown_lr": ("test_unknown_lr",),
+    "probe_known_hr": ("probe_known_hr",),
+    "probe_known_lr": ("probe_known_lr",),
+    "probe_unknown_hr": ("probe_unknown_hr",),
+    "probe_unknown_lr": ("probe_unknown_lr",),
+}
 VALID_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pgm"}
 IDENTITY_PROGRESS_STEP = 50
 CUSTOM_RAW_MIN_FACE_AREA = 8000
@@ -65,8 +140,9 @@ DATASET_MODE_MAP = {
     "custom": ["custom"],
     "orl": ["orl"],
     "lfw": ["lfw"],
+    "multipie": ["multipie"],
     "custom_orl": ["custom", "orl"],
-    "all": ["custom", "orl", "lfw"],
+    "all": ["custom", "orl", "lfw", "multipie"],
 }
 
 
@@ -108,7 +184,7 @@ def resolve_dataset_names(mode):
 
     raise ValueError(
         f"Unsupported recognition mode: {mode}. "
-        "Use 'custom', 'orl', 'lfw', 'custom_orl', or 'all'."
+        "Use 'custom', 'orl', 'lfw', 'multipie', 'custom_orl', or 'all'."
     )
 
 
@@ -166,7 +242,7 @@ def resolve_split_names(dataset_name, split):
     """
     Resolve one logical split into one or more concrete folder names.
 
-    The custom dataset now distinguishes known and unknown probe images
+    The custom dataset distinguishes known and unknown evaluation images
     explicitly. A generic ``probe`` request for custom data expands to
     both probe folders so older call sites keep working while the caller
     can migrate to the explicit split names.
@@ -182,8 +258,45 @@ def resolve_split_names(dataset_name, split):
             return [split]
 
         raise ValueError(
-            f"Unsupported split for custom dataset: {split}. "
+            f"Unsupported split for {dataset_name} dataset: {split}. "
             "Use 'gallery', 'probe_known', 'probe_unknown', or 'probe'."
+        )
+
+    if dataset_name in {"orl", "lfw"}:
+        if split == "gallery":
+            return ["gallery"]
+
+        if split in {None, "probe"}:
+            return list(VALIDATED_OPEN_SET_SPLITS["probe"])
+
+        if split in VALIDATED_OPEN_SET_SPLITS:
+            concrete_splits = list(VALIDATED_OPEN_SET_SPLITS[split])
+            missing_new_splits = [
+                concrete_split
+                for concrete_split in concrete_splits
+                if not DATASET_SPLIT_DIRS[dataset_name][concrete_split].exists()
+            ]
+            if missing_new_splits and split in {"probe_known", "probe_unknown"}:
+                return [split]
+            return concrete_splits
+
+        raise ValueError(
+            f"Unsupported split for {dataset_name} dataset: {split}. "
+            "Use 'gallery', 'validation', 'test', 'validation_known', "
+            "'test_known', 'validation_unknown', 'test_unknown', or 'probe'."
+        )
+
+    if dataset_name == "multipie":
+        if split == "gallery":
+            return ["gallery"]
+
+        if split in MULTIPIE_PROBE_SPLITS:
+            return list(MULTIPIE_PROBE_SPLITS[split])
+
+        raise ValueError(
+            f"Unsupported split for Multi-PIE dataset: {split}. "
+            "Use 'gallery', 'validation', 'test', 'validation_hr', 'test_hr', "
+            "'validation_lr', 'test_lr', or the concrete known/unknown HR/LR splits."
         )
 
     if split in {"gallery", "probe"}:
@@ -199,9 +312,8 @@ def get_split_directories(mode, split):
     """
     Resolve the selected datasets to their gallery or probe directories.
 
-    The custom dataset supports the explicit probe splits
-    ``probe_known`` and ``probe_unknown`` in addition to the generic
-    ``probe`` compatibility alias.
+    Open-set datasets support explicit validation/test splits in addition
+    to the generic ``probe`` compatibility alias.
     """
     dataset_dirs = []
 
@@ -398,10 +510,9 @@ def load_probe_dataset(
     """
     Load one or more probe datasets for recognition evaluation.
 
-    When ``split`` is ``probe`` the custom dataset is expanded into both
-    ``probe_known`` and ``probe_unknown`` so existing callers keep
-    working. Passing one of the explicit split names loads only that
-    branch.
+    For public open-set datasets, ``validation`` is used for threshold
+    selection and ``test`` is used for final metrics. Passing one of the
+    explicit split names loads only that branch.
     """
     probe_records = []
     dataset_counts = {}
@@ -422,8 +533,8 @@ def load_probe_dataset(
                 key=lambda path: path.name,
             )
 
-            print(f"Loading probe dataset: {dataset_name} ({split_name})")
-            print(f"Found {len(person_dirs)} probe identities")
+            print(f"Loading recognition evaluation split: {dataset_name} ({split_name})")
+            print(f"Found {len(person_dirs)} identities in split")
 
             for person_dir in person_dirs:
                 identity_name = build_identity_name(
@@ -461,7 +572,7 @@ def load_probe_dataset(
 
             elapsed = time.perf_counter() - start_time
             print(
-                f"Loaded {dataset_counts[split_key]} probe images "
+                f"Loaded {dataset_counts[split_key]} recognition images "
                 f"from {identity_count} identities in {elapsed:.2f}s"
             )
             if dataset_name == "lfw" and lfw_sample_ratio < 1.0:

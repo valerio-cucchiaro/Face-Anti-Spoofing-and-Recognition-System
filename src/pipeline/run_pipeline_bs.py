@@ -51,10 +51,10 @@ RECOGNITION_MIN_CONFIRMATIONS = 3
 RECOGNITION_RESET_AFTER_MISSES = 10
 RECOGNITION_RUN_INTERVAL = 3
 RUNTIME_RECOGNITION_THRESHOLD = 43.0
-# SRR is kept here as a prototype, but disabled for now because the
-# custom dataset is too small and the reliability gate collapses to
-# "Unknown" too often. Re-enable once more identities are added.
-RUNTIME_SRR_ENABLED = False
+# SRR is enabled here as a runtime experiment. Earlier notes kept it
+# disabled because the small custom gallery can make the reliability
+# gate too strict and push borderline matches to "Unknown".
+RUNTIME_SRR_ENABLED = True
 RUNTIME_SRR_VARIANT = "adaptive_density_ratio"
 RUNTIME_SRR_RELIABILITY_THRESHOLD = 0.50
 DISPLAY_KNOWN_ENTRY_VOTES = 3
@@ -271,17 +271,37 @@ def compute_runtime_srr(face_image, runtime_srr_reference, variant=RUNTIME_SRR_V
 
     probe_histogram = _extract_lbph_histogram(face_image, lbph_params)
     probe_distances = _chi_square_alt_distance_matrix(gallery_matrix, probe_histogram)
-    ranking = np.argsort(probe_distances, kind="mergesort")
-    sorted_distances = np.asarray(probe_distances, dtype=np.float64)[ranking]
+    identity_distances = {}
 
-    best_index = int(ranking[0])
-    second_index = int(ranking[1]) if len(ranking) > 1 else best_index
-    best_label = int(gallery_labels[best_index])
-    second_label = int(gallery_labels[second_index])
-    best_name = gallery_names[best_index]
-    second_name = gallery_names[second_index]
-    best_distance = float(sorted_distances[0])
-    second_distance = float(sorted_distances[1]) if len(sorted_distances) > 1 else best_distance
+    for template_index, distance in enumerate(probe_distances):
+        identity_name = gallery_names[template_index]
+        current_best = identity_distances.get(identity_name)
+
+        if current_best is None or float(distance) < current_best["distance"]:
+            identity_distances[identity_name] = {
+                "distance": float(distance),
+                "label": int(gallery_labels[template_index]),
+            }
+
+    ordered_identities = sorted(
+        identity_distances.items(),
+        key=lambda item: (item[1]["distance"], item[0]),
+    )
+    sorted_distances = np.asarray(
+        [item[1]["distance"] for item in ordered_identities],
+        dtype=np.float64,
+    )
+
+    best_name, best_match = ordered_identities[0]
+    if len(ordered_identities) > 1:
+        second_name, second_match = ordered_identities[1]
+    else:
+        second_name, second_match = best_name, best_match
+
+    best_label = best_match["label"]
+    second_label = second_match["label"]
+    best_distance = best_match["distance"]
+    second_distance = second_match["distance"]
     margin = float(second_distance - best_distance)
 
     if variant == "relative_distance":

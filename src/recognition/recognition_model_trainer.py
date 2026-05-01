@@ -57,7 +57,7 @@ def train_recognition_model(train_mode=None, lbph_params=None, lfw_sample_ratio=
 
     Training modes are defined by the shared dataset loader. The
     default project setup uses `custom`, while experiments may still
-    select `orl`, `lfw`, `custom_orl`, or `all`.
+    select `orl`, `lfw`, `multipie`, `custom_orl`, or `all`.
 
     LBPH hyperparameters can be overridden through ``lbph_params``.
     """
@@ -73,6 +73,10 @@ def train_recognition_model(train_mode=None, lbph_params=None, lfw_sample_ratio=
         f"normalization={preprocessing_config['normalization_mode']},",
         f"padding_ratio={preprocessing_config['crop_padding_ratio']:.3f}",
     )
+    print("Recognition protocol:")
+    print("- enrollment split: gallery")
+    print("- gallery images are used to train LBPH templates")
+    print("- validation/test images are not used during training")
     print("Loading gallery dataset...")
 
     load_start_time = time.perf_counter()

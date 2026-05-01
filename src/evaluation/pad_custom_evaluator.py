@@ -45,7 +45,7 @@ PAD_RUNTIME_ARTIFACT_PATHS = get_pad_artifact_paths("runtime")
 MODEL_PATH = PAD_RUNTIME_ARTIFACT_PATHS["model_path"]
 SCALER_PATH = PAD_RUNTIME_ARTIFACT_PATHS["scaler_path"]
 
-PAD_CUSTOM_RAW_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_custom_raw"
+PAD_CUSTOM_RAW_ROOT = Path(__file__).resolve().parents[2] / "data" / "pad_custom_raw"
 TEST_SPLIT_ROOT = PAD_CUSTOM_RAW_ROOT / "test"
 LIVE_PATH = TEST_SPLIT_ROOT / "live"
 SPOOF_PATH = TEST_SPLIT_ROOT / "spoof"

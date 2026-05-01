@@ -11,9 +11,9 @@ project can train one model and then evaluate it on one dataset or on
 all supported probe datasets.
 
 The mode vocabulary is shared across training and evaluation:
-- `custom`, `orl`, `lfw`: single-dataset runs
+- `custom`, `orl`, `lfw`, `multipie`: single-dataset runs
 - `custom_orl`: mixed setup without LFW
-- `all`: full combined setup including LFW
+- `all`: full combined setup including LFW and Multi-PIE
 
 LBPH hyperparameters can also be passed to the trainer through this
 runner so small tuning sweeps can reuse the same execution path.
@@ -27,12 +27,12 @@ from src.preprocessing.face_preprocessing import (
     get_recognition_preprocessing_config,
 )
 from src.recognition.recognition_model_trainer import train_recognition_model
-from src.recognition.recognition_model_evaluator import evaluate_recognition_model
+from src.evaluation.recognition_model_evaluator import evaluate_recognition_model
 
 
 # ----- CONSTANTS ----- #
-TRAIN_MODE = "custom"      # options: custom, orl, lfw, custom_orl, all
-EVAL_MODE = "custom"       # options: custom, orl, lfw, custom_orl, all
+TRAIN_MODE = "custom"      # options: custom, orl, lfw, multipie, custom_orl, all
+EVAL_MODE = "custom"       # options: custom, orl, lfw, multipie, custom_orl, all
 
 
 def run(train_mode=None, eval_mode=None, crop_padding_ratio=None, lfw_sample_ratio=None):
@@ -108,8 +108,14 @@ def build_arg_parser():
     parser = argparse.ArgumentParser(
         description="Run a recognition experiment with optional LBPH overrides."
     )
-    parser.add_argument("--train-mode", choices=["custom", "orl", "lfw", "custom_orl", "all"])
-    parser.add_argument("--eval-mode", choices=["custom", "orl", "lfw", "custom_orl", "all"])
+    parser.add_argument(
+        "--train-mode",
+        choices=["custom", "orl", "lfw", "multipie", "custom_orl", "all"],
+    )
+    parser.add_argument(
+        "--eval-mode",
+        choices=["custom", "orl", "lfw", "multipie", "custom_orl", "all"],
+    )
     parser.add_argument("--radius", type=int)
     parser.add_argument("--neighbors", type=int)
     parser.add_argument("--grid-x", type=int)

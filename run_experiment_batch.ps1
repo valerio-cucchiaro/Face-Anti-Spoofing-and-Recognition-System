@@ -9,7 +9,6 @@ $pythonExe = Join-Path $repoRoot "venv\Scripts\python.exe"
 $logDir = Join-Path $repoRoot "logs"
 $recognitionLog = Join-Path $logDir "recognition_runs.txt"
 $padLog = Join-Path $logDir "pad_runs.txt"
-$recognitionLfwSampleRatio = 0.15 # Set to 1.0 for full LFW runs.
 $shutdownDelaySeconds = 60 *3 # 3 minutes
 $maxRunAttempts = 2
 $retryDelaySeconds = 10
@@ -102,123 +101,36 @@ function Invoke-LoggedPythonRun {
 }
 
 Add-LogHeader -LogPath $recognitionLog -Title "RECOGNITION BATCH"
-Add-LogHeader -LogPath $padLog -Title "PAD BATCH"
 
 $recognitionRuns = @(
+    # @{
+    #     Label = "recognition | custom -> custom"
+    #     Args = @(
+    #         "-m", "src.recognition.recognition_experiment_runner",
+    #         "--train-mode", "custom",
+    #         "--eval-mode", "custom"
+    #     )
+    # },
+    # @{
+    #     Label = "recognition | orl -> orl"
+    #     Args = @(
+    #         "-m", "src.recognition.recognition_experiment_runner",
+    #         "--train-mode", "orl",
+    #         "--eval-mode", "orl"
+    #     )
+    # },
     @{
-        Label = "recognition | custom -> custom"
+        Label = "recognition | multipie -> multipie"
         Args = @(
             "-m", "src.recognition.recognition_experiment_runner",
-            "--train-mode", "custom",
-            "--eval-mode", "custom"
+            "--train-mode", "multipie",
+            "--eval-mode", "multipie"
         )
     }
 )
+
 foreach ($run in $recognitionRuns) {
     Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
-}
-
-# $recognitionRuns = @(
-#     @{
-#         Label = "recognition | all -> all"
-#         Args = @(
-#             "-m", "src.recognition.recognition_experiment_runner",
-#             "--train-mode", "all",
-#             "--eval-mode", "all",
-#             "--lfw-sample-ratio", "$recognitionLfwSampleRatio"
-#         )
-#     }
-# )
-# foreach ($run in $recognitionRuns) {
-#     Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
-# }
-
-# $recognitionRuns = @(
-#     @{
-#         Label = "recognition | custom_orl -> custom"
-#         Args = @(
-#             "-m", "src.recognition.recognition_experiment_runner",
-#             "--train-mode", "custom_orl",
-#             "--eval-mode", "custom"
-#         )
-#     },
-#     @{
-#         Label = "recognition | custom_orl -> orl"
-#         Args = @(
-#             "-m", "src.recognition.recognition_experiment_runner",
-#             "--train-mode", "custom_orl",
-#             "--eval-mode", "orl"
-#         )
-#     },
-#     @{
-#         Label = "recognition | orl -> orl"
-#         Args = @(
-#             "-m", "src.recognition.recognition_experiment_runner",
-#             "--train-mode", "orl",
-#             "--eval-mode", "orl"
-#         )
-#     }
-# )
-# foreach ($run in $recognitionRuns) {
-#     Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
-# }
-
-# PAD public-dataset runs are temporarily blocked while we test the recognition flow.
-# $padRuns = @(
-#     @{
-#         Label = "pad | casia -> casia | fast"
-#         Args = @(
-#             "-m", "src.antispoofing.training.pad_experiment_runner",
-#             "--experiment-speed", "fast",
-#             "--train-mode", "casia",
-#             "--eval-mode", "casia",
-#             "--log-live-false-negatives",
-#             "--live-false-negative-limit", "20"
-#         )
-#     },
-#     @{
-#         Label = "pad | replay -> replay | fast"
-#         Args = @(
-#             "-m", "src.antispoofing.training.pad_experiment_runner",
-#             "--experiment-speed", "fast",
-#             "--train-mode", "replay",
-#             "--eval-mode", "replay",
-#             "--log-live-false-negatives",
-#             "--live-false-negative-limit", "20"
-#         )
-#     }
-# )
-# foreach ($run in $padRuns) {
-#     Invoke-LoggedPythonRun -LogPath $padLog -Label $run.Label -Arguments $run.Args
-# }
-
-$padRuns = @(
-    @{
-        Label = "pad | custom -> custom | full"
-        Args = @(
-            "-m", "src.antispoofing.training.pad_experiment_runner",
-            "--experiment-speed", "full",
-            "--train-mode", "custom",
-            "--eval-mode", "custom",
-            "--log-live-false-negatives",
-            "--live-false-negative-limit", "20"
-        )
-    }
-    #@{
-    #    Label = "pad | combined_custom -> custom | full"
-    #    Args = @(
-    #        "-m", "src.antispoofing.training.pad_experiment_runner",
-    #        "--experiment-speed", "full",
-    #        "--train-mode", "combined_custom",
-    #        "--eval-mode", "custom",
-    #        "--log-live-false-negatives",
-    #        "--live-false-negative-limit", "20"
-    #    )
-    #}
-)
-
-foreach ($run in $padRuns) {
-    Invoke-LoggedPythonRun -LogPath $padLog -Label $run.Label -Arguments $run.Args
 }
 
 if ($ShutdownWhenDone) {
@@ -227,7 +139,6 @@ if ($ShutdownWhenDone) {
 
     Write-Output $shutdownMessage
     Write-LogLines -LogPath $recognitionLog -Lines @("", ">>> SHUTDOWN: $shutdownMessage")
-    Write-LogLines -LogPath $padLog -Lines @("", ">>> SHUTDOWN: $shutdownMessage")
 
     shutdown /s /f /t $shutdownDelaySeconds /c $shutdownMessage
 }
