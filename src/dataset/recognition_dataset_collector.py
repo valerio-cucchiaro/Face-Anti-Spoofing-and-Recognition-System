@@ -37,8 +37,8 @@ from src.preprocessing.frame_preprocessing import get_valid_face
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CUSTOM_RAW_ROOT = PROJECT_ROOT / "data" / "recognition" / "custom_raw"
 THRESHOLD_AREA = 8000
-PERSON = "francesca"
-MODE = "gallery"      # gallery, probe_known, probe_unknown
+PERSON = "matteo"
+MODE = "probe_unknown"      # gallery, probe_known, probe_unknown
 MAX_IMAGES_GALLERY = 30
 MAX_IMAGES_PROBE = 10
 

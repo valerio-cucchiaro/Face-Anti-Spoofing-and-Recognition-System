@@ -29,7 +29,15 @@ Thumbs.db
 *.temp
 
 # Datasets
-data/
+data/*
+!data/recognition/
+data/recognition/*
+!data/recognition/orl/
+data/recognition/orl/*
+!data/recognition/orl/raw/
+!data/recognition/orl/raw/**
+!data/recognition/custom_raw/
+!data/recognition/custom_raw/**
 
 # Python build
 build/

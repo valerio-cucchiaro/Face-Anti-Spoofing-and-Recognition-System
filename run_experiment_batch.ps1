@@ -103,14 +103,14 @@ function Invoke-LoggedPythonRun {
 Add-LogHeader -LogPath $recognitionLog -Title "RECOGNITION BATCH"
 
 $recognitionRuns = @(
-    # @{
-    #     Label = "recognition | custom -> custom"
-    #     Args = @(
-    #         "-m", "src.recognition.recognition_experiment_runner",
-    #         "--train-mode", "custom",
-    #         "--eval-mode", "custom"
-    #     )
-    # },
+     @{
+         Label = "recognition | custom -> custom"
+         Args = @(
+             "-m", "src.recognition.recognition_experiment_runner",
+             "--train-mode", "custom",
+             "--eval-mode", "custom"
+         )
+     }
     # @{
     #     Label = "recognition | orl -> orl"
     #     Args = @(
@@ -119,18 +119,35 @@ $recognitionRuns = @(
     #         "--eval-mode", "orl"
     #     )
     # },
-    @{
-        Label = "recognition | multipie -> multipie"
-        Args = @(
-            "-m", "src.recognition.recognition_experiment_runner",
-            "--train-mode", "multipie",
-            "--eval-mode", "multipie"
-        )
-    }
+    #@{
+    #    Label = "recognition | multipie -> multipie"
+    #    Args = @(
+    #        "-m", "src.recognition.recognition_experiment_runner",
+    #        "--train-mode", "multipie",
+    #        "--eval-mode", "multipie"
+    #    )
+    #}
 )
 
 foreach ($run in $recognitionRuns) {
     Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
+}
+
+Add-LogHeader -LogPath $padLog -Title "PAD BATCH"
+
+$padRuns = @(
+    @{
+        Label = "pad | custom -> custom"
+        Args = @(
+            "-m", "src.antispoofing.training.pad_experiment_runner",
+            "--train-mode", "custom",
+            "--eval-mode", "custom"
+        )
+    }
+)
+
+foreach ($run in $padRuns) {
+    Invoke-LoggedPythonRun -LogPath $padLog -Label $run.Label -Arguments $run.Args
 }
 
 if ($ShutdownWhenDone) {
