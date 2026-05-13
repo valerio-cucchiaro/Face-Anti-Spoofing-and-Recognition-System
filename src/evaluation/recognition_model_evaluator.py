@@ -8,8 +8,10 @@ sequentially.
 
 Evaluation uses the single recognition model currently stored on disk,
 which is overwritten every time a new training run is executed. For
-selected evaluation pairs, it also stores an offline threshold
-reference derived from the current score distributions.
+selected evaluation pairs, it also stores the threshold reference used
+by offline system evaluation. This saved threshold is not consumed by
+the live webcam runtime, whose image quality and operating conditions
+are handled separately.
 
 Besides the global accuracy summary, the evaluator also reports:
 - score statistics for genuine and impostor predictions
@@ -40,7 +42,6 @@ from src.preprocessing.pose_statistics import (
     format_pose_summary,
     merge_pose_summaries,
 )
-from src.recognition.face_recognizer import DEFAULT_PREDICTION_THRESHOLD
 from src.recognition.recognition_dataset_loader import (
     load_probe_dataset,
     normalize_identity_name,
@@ -55,9 +56,11 @@ from src.evaluation.recognition_metrics import (
     evaluate_recognition_decisions,
     export_recognition_metrics_report,
     evaluate_recognition_at_threshold,
+    rewrite_recognition_metrics_json,
     sweep_recognition_thresholds,
 )
 from src.evaluation.recognition_threshold_calibration import (
+    calibrate_open_set_distance_threshold,
     calibrate_open_set_reliability_thresholds,
 )
 from src.recognition.recognition_decision import (
@@ -70,7 +73,15 @@ from src.recognition.recognition_decision import (
 RECOGNITION_MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models" / "recognition"
 MODEL_PATH = RECOGNITION_MODELS_ROOT / "lbph_model.xml"
 LABEL_MAP_PATH = RECOGNITION_MODELS_ROOT / "label_map.pkl"
-RECOGNITION_CONFIG_PATH = RECOGNITION_MODELS_ROOT / "recognition_config.json"
+RECOGNIZER_CONFIG_FILENAME = "recognizer_config.json"
+RECOGNIZER_CONFIG_PATH = RECOGNITION_MODELS_ROOT / RECOGNIZER_CONFIG_FILENAME
+SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH = (
+    RECOGNITION_MODELS_ROOT / "system_recognition_threshold_config.json"
+)
+# Evaluator-only fallback used when no valid validation threshold can be
+# selected. It is kept local to avoid implying that offline reports and
+# live webcam runtime must share the same operating threshold.
+OFFLINE_FALLBACK_RECOGNITION_THRESHOLD = 44.0
 EVAL_MODE = "custom"
 PROBE_PROGRESS_STEP = 100
 DEBUG_LABEL_MAP_PREVIEW_LIMIT = 10
@@ -85,6 +96,14 @@ def _default_recognition_metrics_root():
     """
 
     return Path(__file__).resolve().parents[2] / "logs" / "metrics" / "recognition"
+
+
+def _recognition_official_metrics_root():
+    """
+    Return the official recognition metrics export directory.
+    """
+
+    return _default_recognition_metrics_root() / "official"
 
 
 def build_probe_prediction_decision(is_known, true_id, predicted_id, accepted):
@@ -126,7 +145,7 @@ def export_recognition_predictions(
     """
 
     if output_root is None:
-        output_root = _default_recognition_metrics_root()
+        output_root = _recognition_official_metrics_root()
     else:
         output_root = Path(output_root)
 
@@ -167,15 +186,34 @@ def _build_lfw_sample_suffix(lfw_sample_ratio):
     return f"_lfw_r{ratio_tag}"
 
 
+def _build_preprocessing_suffix(preprocessing_config):
+    """
+    Build a compact export suffix for non-default preprocessing variants.
+    """
+    return ""
+
+
 def load_trained_recognition_model():
     """
     Load the trained recognition model and label map from disk.
     """
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"Recognition model not found: {MODEL_PATH}")
-
     if not LABEL_MAP_PATH.exists():
         raise FileNotFoundError(f"Recognition label map not found: {LABEL_MAP_PATH}")
+
+    recognizer_config = None
+    if RECOGNIZER_CONFIG_PATH.exists():
+        with open(RECOGNIZER_CONFIG_PATH, "r", encoding="utf-8") as file:
+            recognizer_config = json.load(file)
+
+    recognizer_type = "lbph_single"
+    if recognizer_config is not None:
+        recognizer_type = recognizer_config.get("recognizer_type", "lbph_single")
+
+    if recognizer_type != "lbph_single":
+        raise ValueError(f"Unsupported recognition model type: {recognizer_type}")
+
+    if not MODEL_PATH.exists():
+        raise FileNotFoundError(f"Recognition model not found: {MODEL_PATH}")
 
     recognizer = cv2.face.LBPHFaceRecognizer_create()
     recognizer.read(str(MODEL_PATH))
@@ -186,28 +224,40 @@ def load_trained_recognition_model():
     return recognizer, label_map
 
 
-def save_recognition_config(config_data):
+def save_system_recognition_threshold_config(config_data):
     """
-    Save the recognition evaluation configuration to disk as JSON.
-    """
-    RECOGNITION_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    Save the recognition threshold configuration used by system evaluation.
 
-    with open(RECOGNITION_CONFIG_PATH, "w", encoding="utf-8") as file:
+    This artifact is intentionally named as a system-evaluation config:
+    it calibrates offline PAD+recognition reports, not the live webcam
+    demo thresholds.
+    """
+    SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(
+        SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH,
+        "w",
+        encoding="utf-8",
+    ) as file:
         json.dump(config_data, file, indent=4)
 
 
-def load_evaluation_threshold_config():
+def load_system_recognition_threshold_config():
     """
-    Load the currently saved offline threshold configuration, if any.
+    Load the recognition threshold configuration used by system evaluation.
 
-    This is used only for reporting purposes inside the evaluator so the
-    current run can be compared against the last persisted offline
-    threshold reference.
+    This is not consumed by the live webcam runtime. It is used by
+    system-level offline evaluation and by the recognition evaluator
+    when reporting the last persisted system threshold reference.
     """
-    if not RECOGNITION_CONFIG_PATH.exists():
+    if not SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH.exists():
         return None
 
-    with open(RECOGNITION_CONFIG_PATH, "r", encoding="utf-8") as file:
+    with open(
+        SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH,
+        "r",
+        encoding="utf-8",
+    ) as file:
         return json.load(file)
 
 
@@ -226,8 +276,6 @@ def should_save_evaluation_threshold(
     """
     valid_pairs = {
         ("custom", "custom"),
-        ("orl", "orl"),
-        ("custom_orl", "orl"),
     }
     return allow_config_update and (train_mode, eval_mode) in valid_pairs
 
@@ -265,8 +313,9 @@ def build_all_gallery_vs_all_probe_analysis(
     probe_records,
     recognizer,
     label_map,
-    threshold=DEFAULT_PREDICTION_THRESHOLD,
+    threshold=OFFLINE_FALLBACK_RECOGNITION_THRESHOLD,
     evaluation_scope="probe",
+    preserve_identity_namespace=False,
 ):
     """
     Build the all gallery vs all probe analysis for the current recognizer.
@@ -301,7 +350,10 @@ def build_all_gallery_vs_all_probe_analysis(
     pairwise_probe_histograms = []
 
     for record in probe_records:
-        true_identity = normalize_identity_name(record["identity"])
+        true_identity = normalize_identity_name(
+            record["identity"],
+            preserve_namespace=preserve_identity_namespace,
+        )
         split_name = record["split"]
         pairwise_probe_records.append(
             {
@@ -329,7 +381,7 @@ def build_all_gallery_vs_all_probe_analysis(
 
 def compute_score_statistics(scores):
     """
-    Compute compact descriptive statistics for a list of confidence scores.
+    Compute compact descriptive statistics for LBPH distances.
     """
     if not scores:
         return None
@@ -408,8 +460,7 @@ def compute_open_set_threshold(known_scores, unknown_scores):
     Compute a threshold suggestion for an open-set evaluation.
 
     The goal is to separate accepted known identities from rejected
-    unknown identities using the LBPH confidence score, where lower is
-    better.
+    unknown identities using the LBPH distance, where lower is better.
     """
     if not known_scores:
         return None, "unavailable"
@@ -451,9 +502,9 @@ def evaluate_threshold_candidates(records, candidates):
     """
     Evaluate a few threshold candidates on the collected records.
 
-    For LBPH, lower confidence is better:
-    - confidence < threshold  -> accepted as the predicted identity
-    - confidence >= threshold -> rejected as Unknown
+    For LBPH, lower distance is better:
+    - distance < threshold  -> accepted as the predicted identity
+    - distance >= threshold -> rejected as Unknown
     """
     threshold_results = []
 
@@ -505,7 +556,7 @@ def evaluate_open_set_threshold_candidates(records, candidates):
       (other probe splits are treated as known)
     - ``identity``: ground-truth identity
     - ``predicted_identity``: best-match identity produced by LBPH
-    - ``confidence``: LBPH confidence score
+    - ``confidence``: LBPH distance returned by OpenCV
     """
     threshold_results = []
 
@@ -780,12 +831,53 @@ def print_reliability_gated_report(reliability_report):
     )
 
 
+def print_reliability_gate_impact(selected_metrics, reliability_report):
+    """
+    Print how much the diagnostic reliability gate changes decisions.
+
+    Positive "blocked" values mean the gate prevented accepts that the
+    distance-only threshold would have allowed. Positive "lost" values
+    mean correct known accepts were also blocked by the reliability gate.
+    """
+
+    if not selected_metrics or not reliability_report:
+        return
+
+    gated_metrics = reliability_report.get("metrics")
+    if not gated_metrics:
+        return
+
+    blocked_false_accepts = (
+        selected_metrics["false_accept"] - gated_metrics["false_accept"]
+    )
+    blocked_misidentifications = (
+        selected_metrics["misidentification"] - gated_metrics["misidentification"]
+    )
+    lost_correct_accepts = (
+        selected_metrics["correct_identification"]
+        - gated_metrics["correct_identification"]
+    )
+    extra_known_rejects = gated_metrics["false_reject"] - selected_metrics["false_reject"]
+
+    print(
+        "Reliability gate impact:",
+        (
+            f"blocked_false_accepts={blocked_false_accepts} | "
+            f"blocked_misidentifications={blocked_misidentifications} | "
+            f"lost_correct_accepts={lost_correct_accepts} | "
+            f"extra_known_rejects={extra_known_rejects}"
+        ),
+    )
+
+
 def compute_recognition_evaluation_metrics(
     records,
     selected_threshold,
     output_stem=None,
     threshold_source=None,
     evaluation_scope="probe",
+    export_curves=False,
+    debug_recognition=False,
 ):
     """
     Compute the official recognition metrics used by the project reports.
@@ -815,6 +907,8 @@ def compute_recognition_evaluation_metrics(
             report,
             output_stem,
             evaluation_scope=evaluation_scope,
+            export_curves=export_curves,
+            debug_recognition=debug_recognition,
         )
 
     return report
@@ -855,14 +949,14 @@ def log_recognition_evaluation_diagnostics(
     eer_results = metrics_report["eer_results"]
 
     if open_set:
-        print("Final test samples:", total_count if total_count is not None else 0)
-        print(f"Validation/test loading completed in {load_elapsed:.2f}s")
+        print("Final probe samples:", total_count if total_count is not None else 0)
+        print(f"Validation/probe loading completed in {load_elapsed:.2f}s")
         if known_count is not None:
-            print("known test samples:", known_count)
+            print("known probe samples:", known_count)
         if unknown_count is not None:
-            print("unknown test samples:", unknown_count)
+            print("unknown probe samples:", unknown_count)
         if pose_summary is not None:
-            print(format_pose_summary(pose_summary, title="Final test pose summary:"))
+            print(format_pose_summary(pose_summary, title="Final probe pose summary:"))
         print(f"Using evaluation threshold: {selected_metrics['threshold']:.2f}")
         print("Known accepted correctly:", selected_metrics["correct_identification"])
         print("Known rejected as unknown:", selected_metrics["false_reject"])
@@ -931,9 +1025,9 @@ def log_recognition_evaluation_diagnostics(
             print(f"- {row}")
 
     if known_stats is not None:
-        print("Mean known confidence:", known_stats["mean"])
+        print("Mean known distance:", known_stats["mean"])
     if unknown_stats is not None:
-        print("Mean unknown confidence:", unknown_stats["mean"])
+        print("Mean unknown distance:", unknown_stats["mean"])
     if identity_stats is not None:
         print_identity_breakdown(identity_stats, limit=5)
     if validation_threshold is not None:
@@ -1001,7 +1095,9 @@ def log_recognition_evaluation_diagnostics(
     srr_analysis = metrics_report.get("srr_analysis")
     if srr_analysis is not None:
         print_system_response_reliability_analysis(srr_analysis)
-    print_reliability_gated_report(metrics_report.get("reliability_gated_report"))
+    reliability_report = metrics_report.get("reliability_gated_report")
+    print_reliability_gated_report(reliability_report)
+    print_reliability_gate_impact(selected_metrics, reliability_report)
 
     if evaluation_elapsed is not None:
         print(f"Evaluation completed in {evaluation_elapsed:.2f}s")
@@ -1010,8 +1106,10 @@ def log_recognition_evaluation_diagnostics(
         print("Recognition metric exports:")
         print(f"- json: {export_paths['json']}")
         print(f"- summary_csv: {export_paths['summary_csv']}")
-        print(f"- roc_csv: {export_paths['roc_csv']}")
-        print(f"- det_csv: {export_paths['det_csv']}")
+        if "roc_csv" in export_paths:
+            print(f"- roc_csv: {export_paths['roc_csv']}")
+        if "det_csv" in export_paths:
+            print(f"- det_csv: {export_paths['det_csv']}")
         for export_name in sorted(export_paths):
             if export_name in {"json", "summary_csv", "roc_csv", "det_csv"}:
                 continue
@@ -1026,6 +1124,7 @@ def collect_open_set_predictions(
     threshold,
     threshold_source,
     preview=False,
+    preserve_identity_namespace=False,
 ):
     """
     Predict one open-set record collection at a fixed threshold.
@@ -1039,8 +1138,14 @@ def collect_open_set_predictions(
 
     for index, record in enumerate(records, start=1):
         label, confidence = recognizer.predict(record["image"])
-        predicted_name = normalize_identity_name(label_map[label])
-        true_name = normalize_identity_name(record["identity"])
+        predicted_name = normalize_identity_name(
+            label_map[label],
+            preserve_namespace=preserve_identity_namespace,
+        )
+        true_name = normalize_identity_name(
+            record["identity"],
+            preserve_namespace=preserve_identity_namespace,
+        )
         is_known_split = not is_unknown_recognition_split(record["split"])
         accepted = confidence < threshold
         decision = build_probe_prediction_decision(
@@ -1097,7 +1202,7 @@ def collect_open_set_predictions(
                 f"true_norm={true_name}",
                 f"predicted_label={label}",
                 f"predicted_norm={predicted_name}",
-                f"confidence={confidence:.4f}",
+                f"distance={confidence:.4f}",
             )
 
         if index % PROBE_PROGRESS_STEP == 0:
@@ -1116,8 +1221,11 @@ def load_open_set_split_pair(
     dataset_name,
     known_split,
     unknown_split,
+    namespace_identities=False,
     collect_pose_metrics=True,
     lfw_sample_ratio=None,
+    quality_filter_mode="report_only",
+    debug_quality=False,
 ):
     """
     Load known and unknown branches for one open-set evaluation phase.
@@ -1126,16 +1234,20 @@ def load_open_set_split_pair(
     known_records, known_dataset_counts, known_pose_summary = load_probe_dataset(
         dataset_name,
         split=known_split,
-        namespace_identities=False,
+        namespace_identities=namespace_identities,
         collect_pose_metrics=collect_pose_metrics,
         lfw_sample_ratio=lfw_sample_ratio if lfw_sample_ratio is not None else 1.0,
+        quality_filter_mode=quality_filter_mode,
+        debug_quality=debug_quality,
     )
     unknown_records, unknown_dataset_counts, unknown_pose_summary = load_probe_dataset(
         dataset_name,
         split=unknown_split,
-        namespace_identities=False,
+        namespace_identities=namespace_identities,
         collect_pose_metrics=collect_pose_metrics,
         lfw_sample_ratio=lfw_sample_ratio if lfw_sample_ratio is not None else 1.0,
+        quality_filter_mode=quality_filter_mode,
+        debug_quality=debug_quality,
     )
 
     return {
@@ -1156,18 +1268,24 @@ def evaluate_custom_open_set_dataset(
     dataset_name="custom",
     validation_known_split="probe_known",
     validation_unknown_split="probe_unknown",
-    test_known_split="probe_known",
-    test_unknown_split="probe_unknown",
+    final_known_split="probe_known",
+    final_unknown_split="probe_unknown",
     evaluation_label="CUSTOM OPEN SET",
     report_mode_name="custom_open_set",
     known_description="enrolled live identities",
     unknown_description="non-enrolled live identities / biometric impostors",
+    quality_filter_mode="report_only",
+    export_curves=False,
+    debug_recognition=False,
+    debug_quality=False,
+    namespace_identities=False,
+    enable_reliability_diagnostics=False,
 ):
     """
     Evaluate one recognition dataset as an open-set problem.
 
     Open-set layouts use validation branches to select the LBPH
-    accept/reject threshold and test branches for final metrics.
+    accept/reject threshold and final probe branches for final metrics.
     """
     print(f"=== RECOGNITION EVALUATION MODE: {evaluation_label} ===")
     preprocessing_config = get_recognition_preprocessing_config()
@@ -1179,11 +1297,12 @@ def evaluate_custom_open_set_dataset(
     print("Recognition protocol:")
     print("- enrollment split: gallery")
     print(f"- validation splits: {validation_known_split} + {validation_unknown_split}")
-    print(f"- test splits: {test_known_split} + {test_unknown_split}")
+    print(f"- final probe splits: {final_known_split} + {final_unknown_split}")
     print(f"- known identities: {known_description}")
     print(f"- unknown identities: {unknown_description}")
     print("- validation images select the threshold")
-    print("- test images are used only for final evaluation")
+    print("- final probe images are used only for final evaluation")
+    print(f"- quality filter mode: {quality_filter_mode}")
     if lfw_sample_ratio is not None and lfw_sample_ratio < 1.0:
         print(f"LFW sample ratio: {lfw_sample_ratio:.3f}")
 
@@ -1192,8 +1311,11 @@ def evaluate_custom_open_set_dataset(
         dataset_name,
         validation_known_split,
         validation_unknown_split,
+        namespace_identities=namespace_identities,
         collect_pose_metrics=True,
         lfw_sample_ratio=lfw_sample_ratio,
+        quality_filter_mode=quality_filter_mode,
+        debug_quality=debug_quality,
     )
     validation_load_elapsed = time.perf_counter() - load_start_time
 
@@ -1207,22 +1329,33 @@ def evaluate_custom_open_set_dataset(
     for label_index, identity_name in sorted(label_map.items())[:DEBUG_LABEL_MAP_PREVIEW_LIMIT]:
         print(f"- {label_index} -> {identity_name}")
 
+    # This threshold only tags validation previews; official threshold
+    # selection below sweeps the validation predictions and optimizes the
+    # open-set DIR/FAR/MisID tradeoff.
     validation_predictions = collect_open_set_predictions(
         validation_records,
         recognizer,
         label_map,
-        DEFAULT_PREDICTION_THRESHOLD,
+        OFFLINE_FALLBACK_RECOGNITION_THRESHOLD,
         "validation_scoring_only",
         preview=True,
+        preserve_identity_namespace=namespace_identities,
     )
-    validation_threshold, validation_threshold_rule = compute_open_set_threshold(
-        validation_predictions["known_scores"],
-        validation_predictions["unknown_scores"],
+    distance_calibration = calibrate_open_set_distance_threshold(
+        validation_predictions["normalized_records"],
     )
+    validation_threshold = distance_calibration["threshold"]
+    validation_threshold_rule = distance_calibration["threshold_rule"]
 
     if validation_threshold is None:
-        validation_threshold = DEFAULT_PREDICTION_THRESHOLD
-        validation_threshold_rule = "runtime_default_fallback"
+        validation_threshold, validation_threshold_rule = compute_open_set_threshold(
+            validation_predictions["known_scores"],
+            validation_predictions["unknown_scores"],
+        )
+
+    if validation_threshold is None:
+        validation_threshold = OFFLINE_FALLBACK_RECOGNITION_THRESHOLD
+        validation_threshold_rule = "offline_fallback_threshold"
 
     threshold_source = f"{train_mode}_to_{dataset_name}_validation"
     print("Selected validation threshold:", validation_threshold)
@@ -1234,36 +1367,67 @@ def evaluate_custom_open_set_dataset(
         label_map,
         threshold=validation_threshold,
         evaluation_scope="validation",
+        preserve_identity_namespace=namespace_identities,
     )
-    reliability_calibrations = calibrate_open_set_reliability_thresholds(
-        validation_pairwise_analysis,
-        distance_threshold=validation_threshold,
-        reliability_modes=[DEFAULT_RELIABILITY_MODE],
-    )
-    selected_reliability_calibration = reliability_calibrations[
-        DEFAULT_RELIABILITY_MODE
-    ]
-    print(
-        "Selected validation reliability threshold:",
-        selected_reliability_calibration["reliability_threshold"],
-    )
-    print(
-        "Selected validation reliability rule:",
-        selected_reliability_calibration["threshold_rule"],
-    )
+    selected_reliability_calibration = None
+    if enable_reliability_diagnostics:
+        # Reliability/margin analysis is diagnostic-only. It is not part
+        # of the official distance-threshold decision and is not used by
+        # the live runtime pipeline, which intentionally keeps a simpler
+        # threshold + temporal voting policy.
+        reliability_calibrations = calibrate_open_set_reliability_thresholds(
+            validation_pairwise_analysis,
+            distance_threshold=validation_threshold,
+            reliability_modes=[DEFAULT_RELIABILITY_MODE],
+        )
+        selected_reliability_calibration = reliability_calibrations[
+            DEFAULT_RELIABILITY_MODE
+        ]
+        print(
+            "Selected validation reliability threshold:",
+            selected_reliability_calibration["reliability_threshold"],
+        )
+        print(
+            "Selected validation reliability rule:",
+            selected_reliability_calibration["threshold_rule"],
+        )
 
-    if allow_config_update:
+    can_update_system_threshold = should_save_evaluation_threshold(
+        train_mode,
+        dataset_name,
+        allow_config_update=allow_config_update,
+    )
+    has_validation_scores = (
+        bool(validation_predictions["known_scores"])
+        and bool(validation_predictions["unknown_scores"])
+    )
+    non_fallback_rule = validation_threshold_rule != "offline_fallback_threshold"
+
+    if can_update_system_threshold and has_validation_scores and non_fallback_rule:
+        # Persist only calibrated custom-to-custom thresholds for offline
+        # system evaluation. Live runtime code does not read this file.
         config_data = {
+            "config_type": "system_recognition_threshold",
             "unknown_threshold": validation_threshold,
             "threshold_source": threshold_source,
             "train_mode": train_mode,
             "eval_mode": dataset_name,
+            "saved_by": "save_system_threshold",
+            "preprocessing": preprocessing_config,
             "validation_known_split": validation_known_split,
             "validation_unknown_split": validation_unknown_split,
-            "test_known_split": test_known_split,
-            "test_unknown_split": test_unknown_split,
+            "final_known_split": final_known_split,
+            "final_unknown_split": final_unknown_split,
+            "quality_filter_mode": quality_filter_mode,
             "validation_known_samples": len(validation_predictions["known_scores"]),
             "validation_unknown_samples": len(validation_predictions["unknown_scores"]),
+            "validation_threshold_candidate_count": distance_calibration[
+                "candidate_count"
+            ],
+            "validation_threshold_misidentification_weight": (
+                distance_calibration.get("misidentification_weight")
+            ),
+            "validation_threshold_metrics": distance_calibration["metrics"],
             "mean_validation_known_confidence": (
                 statistics.fmean(validation_predictions["known_scores"])
                 if validation_predictions["known_scores"]
@@ -1275,6 +1439,123 @@ def evaluate_custom_open_set_dataset(
                 else None
             ),
             "threshold_rule": validation_threshold_rule,
+        }
+        if selected_reliability_calibration is not None:
+            config_data.update(
+                {
+                    "reliability_mode": selected_reliability_calibration[
+                        "reliability_mode"
+                    ],
+                    "reliability_threshold": selected_reliability_calibration[
+                        "reliability_threshold"
+                    ],
+                    "reliability_threshold_rule": selected_reliability_calibration[
+                        "threshold_rule"
+                    ],
+                }
+            )
+        save_system_recognition_threshold_config(config_data)
+        print(
+            "System recognition threshold config saved to:",
+            SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH,
+        )
+    elif allow_config_update:
+        if not can_update_system_threshold:
+            print(
+                "System recognition threshold not updated: "
+                "only custom-to-custom calibration runs may save it."
+            )
+        elif not has_validation_scores:
+            print(
+                "System recognition threshold not updated: validation does not "
+                "contain both known and unknown scores."
+            )
+        elif not non_fallback_rule:
+            print(
+                "System recognition threshold not updated: fallback threshold rule "
+                "is not allowed for system threshold calibration."
+            )
+
+    probe_load_start_time = time.perf_counter()
+    probe_data = load_open_set_split_pair(
+        dataset_name,
+        final_known_split,
+        final_unknown_split,
+        namespace_identities=namespace_identities,
+        collect_pose_metrics=True,
+        lfw_sample_ratio=lfw_sample_ratio,
+        quality_filter_mode=quality_filter_mode,
+        debug_quality=debug_quality,
+    )
+    probe_load_elapsed = time.perf_counter() - probe_load_start_time
+    load_elapsed = validation_load_elapsed + probe_load_elapsed
+    probe_records = probe_data["records"]
+
+    if not probe_records:
+        print("No valid final probe images found for evaluation.")
+        print()
+        return
+
+    probe_predictions = collect_open_set_predictions(
+        probe_records,
+        recognizer,
+        label_map,
+        validation_threshold,
+        threshold_source,
+        preview=False,
+        preserve_identity_namespace=namespace_identities,
+    )
+
+    preprocessing_suffix = _build_preprocessing_suffix(preprocessing_config)
+    report_stem = output_stem or (
+        f"{train_mode}_{report_mode_name}"
+        f"{preprocessing_suffix}"
+        f"{_build_lfw_sample_suffix(lfw_sample_ratio)}"
+    )
+
+    metrics_report = compute_recognition_evaluation_metrics(
+        probe_predictions["normalized_records"],
+        validation_threshold,
+        output_stem=None,
+        threshold_source=threshold_source,
+        evaluation_scope="probe",
+        export_curves=export_curves,
+        debug_recognition=debug_recognition,
+    )
+    pairwise_analysis = build_all_gallery_vs_all_probe_analysis(
+        probe_records,
+        recognizer,
+        label_map,
+        threshold=validation_threshold,
+        evaluation_scope="probe",
+        preserve_identity_namespace=namespace_identities,
+    )
+    metrics_report["pairwise_analysis"] = pairwise_analysis
+    metrics_report["doddington_analysis"] = build_doddington_zoo_analysis(
+        pairwise_analysis,
+        threshold=validation_threshold,
+    )
+    if enable_reliability_diagnostics and selected_reliability_calibration is not None:
+        # Optional diagnostic report: estimates how much a margin/reliability
+        # gate would change decisions. It is intentionally opt-in so default
+        # experiment output matches the official distance-threshold system.
+        metrics_report["srr_analysis"] = build_system_response_reliability_analysis(
+            pairwise_analysis,
+            threshold=validation_threshold,
+        )
+        reliability_probe_decisions = build_open_set_decisions_from_pairwise(
+            pairwise_analysis,
+            distance_threshold=validation_threshold,
+            reliability_threshold=selected_reliability_calibration[
+                "reliability_threshold"
+            ],
+            reliability_mode=selected_reliability_calibration["reliability_mode"],
+        )
+        metrics_report["reliability_gated_report"] = {
+            "usage": "diagnostic_only_not_runtime",
+            "source": threshold_source,
+            "distance_threshold": validation_threshold,
+            "distance_threshold_rule": validation_threshold_rule,
             "reliability_mode": selected_reliability_calibration["reliability_mode"],
             "reliability_threshold": selected_reliability_calibration[
                 "reliability_threshold"
@@ -1282,96 +1563,25 @@ def evaluate_custom_open_set_dataset(
             "reliability_threshold_rule": selected_reliability_calibration[
                 "threshold_rule"
             ],
+            "validation_metrics": selected_reliability_calibration["metrics"],
+            "metrics": evaluate_recognition_decisions(reliability_probe_decisions),
         }
-        save_recognition_config(config_data)
-        print(f"Recognition validation threshold config saved to: {RECOGNITION_CONFIG_PATH}")
-
-    test_load_start_time = time.perf_counter()
-    test_data = load_open_set_split_pair(
-        dataset_name,
-        test_known_split,
-        test_unknown_split,
-        collect_pose_metrics=True,
-        lfw_sample_ratio=lfw_sample_ratio,
-    )
-    test_load_elapsed = time.perf_counter() - test_load_start_time
-    load_elapsed = validation_load_elapsed + test_load_elapsed
-    test_records = test_data["records"]
-
-    if not test_records:
-        print("No valid test images found for evaluation.")
-        print()
-        return
-
-    test_predictions = collect_open_set_predictions(
-        test_records,
-        recognizer,
-        label_map,
-        validation_threshold,
-        threshold_source,
-        preview=False,
-    )
-
-    report_stem = output_stem or f"{train_mode}_{report_mode_name}{_build_lfw_sample_suffix(lfw_sample_ratio)}"
-
-    metrics_report = compute_recognition_evaluation_metrics(
-        test_predictions["normalized_records"],
-        validation_threshold,
-        output_stem=None,
-        threshold_source=threshold_source,
-        evaluation_scope="test",
-    )
-    pairwise_analysis = build_all_gallery_vs_all_probe_analysis(
-        test_records,
-        recognizer,
-        label_map,
-        threshold=validation_threshold,
-        evaluation_scope="test",
-    )
-    metrics_report["pairwise_analysis"] = pairwise_analysis
-    metrics_report["doddington_analysis"] = build_doddington_zoo_analysis(
-        pairwise_analysis,
-        threshold=validation_threshold,
-    )
-    metrics_report["srr_analysis"] = build_system_response_reliability_analysis(
-        pairwise_analysis,
-        threshold=validation_threshold,
-    )
-    reliability_test_decisions = build_open_set_decisions_from_pairwise(
-        pairwise_analysis,
-        distance_threshold=validation_threshold,
-        reliability_threshold=selected_reliability_calibration[
-            "reliability_threshold"
-        ],
-        reliability_mode=selected_reliability_calibration["reliability_mode"],
-    )
-    metrics_report["reliability_gated_report"] = {
-        "source": threshold_source,
-        "distance_threshold": validation_threshold,
-        "distance_threshold_rule": validation_threshold_rule,
-        "reliability_mode": selected_reliability_calibration["reliability_mode"],
-        "reliability_threshold": selected_reliability_calibration[
-            "reliability_threshold"
-        ],
-        "reliability_threshold_rule": selected_reliability_calibration[
-            "threshold_rule"
-        ],
-        "validation_metrics": selected_reliability_calibration["metrics"],
-        "metrics": evaluate_recognition_decisions(reliability_test_decisions),
-    }
     metrics_report["export_paths"] = export_recognition_metrics_report(
         metrics_report,
         report_stem,
-        evaluation_scope="test",
+        evaluation_scope="probe",
+        export_curves=export_curves,
+        debug_recognition=debug_recognition,
     )
-    metrics_report["export_paths"]["test_predictions_csv"] = export_recognition_predictions(
-        test_predictions["probe_prediction_records"],
+    metrics_report["export_paths"]["probe_predictions_csv"] = export_recognition_predictions(
+        probe_predictions["probe_prediction_records"],
         report_stem,
-        evaluation_scope="test",
+        evaluation_scope="probe",
     )
+    rewrite_recognition_metrics_json(metrics_report)
 
-    known_stats = compute_score_statistics(test_predictions["known_scores"])
-    unknown_stats = compute_score_statistics(test_predictions["unknown_scores"])
+    known_stats = compute_score_statistics(probe_predictions["known_scores"])
+    unknown_stats = compute_score_statistics(probe_predictions["unknown_scores"])
 
     conservative_threshold = None
     if validation_predictions["unknown_scores"]:
@@ -1387,12 +1597,12 @@ def evaluate_custom_open_set_dataset(
             "threshold": conservative_threshold,
         },
         {
-            "label": "runtime_default_reference",
-            "threshold": DEFAULT_PREDICTION_THRESHOLD,
+            "label": "offline_fallback_reference",
+            "threshold": OFFLINE_FALLBACK_RECOGNITION_THRESHOLD,
         },
     ]
     threshold_results = evaluate_open_set_threshold_candidates(
-        test_predictions["evaluation_records"],
+        probe_predictions["evaluation_records"],
         threshold_candidates,
     )
 
@@ -1405,13 +1615,13 @@ def evaluate_custom_open_set_dataset(
         threshold_results=threshold_results,
         validation_threshold=validation_threshold,
         validation_threshold_source=threshold_source,
-        total_count=len(test_records),
-        known_count=test_data["known_count"],
-        unknown_count=test_data["unknown_count"],
+        total_count=len(probe_records),
+        known_count=probe_data["known_count"],
+        unknown_count=probe_data["unknown_count"],
         evaluation_elapsed=time.perf_counter() - load_start_time,
         open_set=True,
         pairwise_analysis=pairwise_analysis,
-        pose_summary=test_data["pose_summary"],
+        pose_summary=probe_data["pose_summary"],
     )
 
     return
@@ -1426,6 +1636,11 @@ def evaluate_single_recognition_dataset(
     allow_config_update=False,
     output_stem=None,
     lfw_sample_ratio=None,
+    quality_filter_mode="report_only",
+    export_curves=False,
+    debug_recognition=False,
+    debug_quality=False,
+    enable_reliability_diagnostics=False,
 ):
     """
     Evaluate the trained recognition model on one selected probe dataset.
@@ -1442,6 +1657,12 @@ def evaluate_single_recognition_dataset(
             allow_config_update=allow_config_update,
             output_stem=output_stem,
             lfw_sample_ratio=lfw_sample_ratio,
+            quality_filter_mode=quality_filter_mode,
+            export_curves=export_curves,
+            debug_recognition=debug_recognition,
+            debug_quality=debug_quality,
+            namespace_identities=namespace_identities,
+            enable_reliability_diagnostics=enable_reliability_diagnostics,
         )
         return
 
@@ -1457,12 +1678,18 @@ def evaluate_single_recognition_dataset(
             dataset_name=eval_mode,
             validation_known_split="validation_known",
             validation_unknown_split="validation_unknown",
-            test_known_split="test_known",
-            test_unknown_split="test_unknown",
+            final_known_split="probe_known",
+            final_unknown_split="probe_unknown",
             evaluation_label=f"{dataset_label} OPEN SET",
             report_mode_name=f"{eval_mode}_open_set",
             known_description=f"enrolled {dataset_label} identities",
             unknown_description=f"non-enrolled {dataset_label} identities / biometric impostors",
+            quality_filter_mode=quality_filter_mode,
+            export_curves=export_curves,
+            debug_recognition=debug_recognition,
+            debug_quality=debug_quality,
+            namespace_identities=namespace_identities,
+            enable_reliability_diagnostics=enable_reliability_diagnostics,
         )
         return
 
@@ -1480,12 +1707,18 @@ def evaluate_single_recognition_dataset(
             dataset_name="multipie",
             validation_known_split="validation_known_hr",
             validation_unknown_split="validation_unknown_hr",
-            test_known_split="test_known_hr",
-            test_unknown_split="test_unknown_hr",
+            final_known_split="probe_known_hr",
+            final_unknown_split="probe_unknown_hr",
             evaluation_label="MULTI-PIE HR OPEN SET",
             report_mode_name="multipie_hr_open_set",
             known_description="enrolled Multi-PIE identities, HR probes",
             unknown_description="non-enrolled Multi-PIE identities, HR probes",
+            quality_filter_mode=quality_filter_mode,
+            export_curves=export_curves,
+            debug_recognition=debug_recognition,
+            debug_quality=debug_quality,
+            namespace_identities=namespace_identities,
+            enable_reliability_diagnostics=enable_reliability_diagnostics,
         )
         evaluate_custom_open_set_dataset(
             train_mode,
@@ -1497,12 +1730,18 @@ def evaluate_single_recognition_dataset(
             dataset_name="multipie",
             validation_known_split="validation_known_lr",
             validation_unknown_split="validation_unknown_lr",
-            test_known_split="test_known_lr",
-            test_unknown_split="test_unknown_lr",
+            final_known_split="probe_known_lr",
+            final_unknown_split="probe_unknown_lr",
             evaluation_label="MULTI-PIE LR OPEN SET",
             report_mode_name="multipie_lr_open_set",
             known_description="enrolled Multi-PIE identities, LR probes",
             unknown_description="non-enrolled Multi-PIE identities, LR probes",
+            quality_filter_mode=quality_filter_mode,
+            export_curves=export_curves,
+            debug_recognition=debug_recognition,
+            debug_quality=debug_quality,
+            namespace_identities=namespace_identities,
+            enable_reliability_diagnostics=enable_reliability_diagnostics,
         )
         return
 
@@ -1527,6 +1766,8 @@ def evaluate_single_recognition_dataset(
         namespace_identities=namespace_identities,
         collect_pose_metrics=True,
         lfw_sample_ratio=lfw_sample_ratio if lfw_sample_ratio is not None else 1.0,
+        quality_filter_mode=quality_filter_mode,
+        debug_quality=debug_quality,
     )
     load_elapsed = time.perf_counter() - load_start_time
 
@@ -1543,13 +1784,19 @@ def evaluate_single_recognition_dataset(
     correct = 0
     total = 0
     evaluation_start_time = time.perf_counter()
-    evaluation_threshold = DEFAULT_PREDICTION_THRESHOLD
-    threshold_source = "runtime_default"
+    evaluation_threshold = OFFLINE_FALLBACK_RECOGNITION_THRESHOLD
+    threshold_source = "offline_fallback"
 
     for index, record in enumerate(probe_records, start=1):
         label, confidence = recognizer.predict(record["image"])
-        predicted_name = normalize_identity_name(label_map[label])
-        true_name = normalize_identity_name(record["identity"])
+        predicted_name = normalize_identity_name(
+            label_map[label],
+            preserve_namespace=namespace_identities,
+        )
+        true_name = normalize_identity_name(
+            record["identity"],
+            preserve_namespace=namespace_identities,
+        )
         accepted = confidence < evaluation_threshold
         decision = build_probe_prediction_decision(
             True,
@@ -1604,7 +1851,12 @@ def evaluate_single_recognition_dataset(
     genuine_stats = compute_score_statistics(genuine_scores)
     impostor_stats = compute_score_statistics(impostor_scores)
     identity_stats = compute_identity_accuracy(evaluation_records)
-    report_stem = output_stem or f"{train_mode}_{eval_mode}{_build_lfw_sample_suffix(lfw_sample_ratio)}"
+    preprocessing_suffix = _build_preprocessing_suffix(preprocessing_config)
+    report_stem = output_stem or (
+        f"{train_mode}_{eval_mode}"
+        f"{preprocessing_suffix}"
+        f"{_build_lfw_sample_suffix(lfw_sample_ratio)}"
+    )
 
     metrics_report = compute_recognition_evaluation_metrics(
         normalized_records,
@@ -1612,32 +1864,42 @@ def evaluate_single_recognition_dataset(
         output_stem=None,
         threshold_source=threshold_source,
         evaluation_scope="probe",
+        export_curves=export_curves,
+        debug_recognition=debug_recognition,
     )
     pairwise_analysis = build_all_gallery_vs_all_probe_analysis(
         probe_records,
         recognizer,
         label_map,
         threshold=evaluation_threshold,
+        preserve_identity_namespace=namespace_identities,
     )
     metrics_report["pairwise_analysis"] = pairwise_analysis
     metrics_report["doddington_analysis"] = build_doddington_zoo_analysis(
         pairwise_analysis,
         threshold=evaluation_threshold,
     )
-    metrics_report["srr_analysis"] = build_system_response_reliability_analysis(
-        pairwise_analysis,
-        threshold=evaluation_threshold,
-    )
+    if enable_reliability_diagnostics:
+        # Diagnostic-only SRR output for closed/probe-style runs. The
+        # default report stays aligned with the official distance-only
+        # recognition decision.
+        metrics_report["srr_analysis"] = build_system_response_reliability_analysis(
+            pairwise_analysis,
+            threshold=evaluation_threshold,
+        )
     metrics_report["export_paths"] = export_recognition_metrics_report(
         metrics_report,
         report_stem,
+        export_curves=export_curves,
+        debug_recognition=debug_recognition,
     )
     metrics_report["export_paths"]["probe_predictions_csv"] = export_recognition_predictions(
         probe_prediction_records,
         report_stem,
     )
+    rewrite_recognition_metrics_json(metrics_report)
 
-    current_evaluation_config = load_evaluation_threshold_config()
+    current_evaluation_config = load_system_recognition_threshold_config()
     stored_threshold_reference = None
     stored_threshold_reference_source = None
     if current_evaluation_config is not None:
@@ -1694,16 +1956,20 @@ def evaluate_single_recognition_dataset(
             "threshold_source": f"{train_mode}_to_{eval_mode}",
             "train_mode": train_mode,
             "eval_mode": eval_mode,
+            "preprocessing": preprocessing_config,
             "genuine_matches": len(genuine_scores),
             "impostor_matches": len(impostor_scores),
             "mean_genuine_confidence": genuine_stats["mean"] if genuine_stats else None,
             "mean_impostor_confidence": impostor_stats["mean"] if impostor_stats else None,
             "suggested_threshold_rule": suggested_threshold_rule,
         }
-        save_recognition_config(config_data)
+        save_system_recognition_threshold_config(config_data)
         stored_threshold_reference = suggested_threshold
         stored_threshold_reference_source = f"{train_mode}_to_{eval_mode}"
-        print(f"Recognition evaluation config saved to: {RECOGNITION_CONFIG_PATH}")
+        print(
+            "System recognition threshold config saved to:",
+            SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH,
+        )
     elif allow_config_update:
         if not can_update_evaluation_threshold:
             print(
@@ -1743,7 +2009,17 @@ def evaluate_single_recognition_dataset(
     )
 
 
-def evaluate_recognition_model(train_mode=None, eval_mode=None, lfw_sample_ratio=None):
+def evaluate_recognition_model(
+    train_mode=None,
+    eval_mode=None,
+    lfw_sample_ratio=None,
+    quality_filter_mode="report_only",
+    export_curves=False,
+    debug_recognition=False,
+    debug_quality=False,
+    save_system_threshold=False,
+    enable_reliability_diagnostics=False,
+):
     """
     Evaluate the recognition model on one dataset or on all supported
     datasets sequentially.
@@ -1769,6 +2045,11 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None, lfw_sample_ratio
                 namespace_identities=namespace_identities,
                 allow_config_update=False,
                 lfw_sample_ratio=selected_lfw_sample_ratio,
+                quality_filter_mode=quality_filter_mode,
+                export_curves=export_curves,
+                debug_recognition=debug_recognition,
+                debug_quality=debug_quality,
+                enable_reliability_diagnostics=enable_reliability_diagnostics,
             )
         print(f"Total evaluation time: {time.perf_counter() - total_start_time:.2f}s")
         return
@@ -1779,8 +2060,13 @@ def evaluate_recognition_model(train_mode=None, eval_mode=None, lfw_sample_ratio
         recognizer,
         label_map,
         namespace_identities=namespace_identities,
-        allow_config_update=True,
+        allow_config_update=save_system_threshold,
         lfw_sample_ratio=selected_lfw_sample_ratio,
+        quality_filter_mode=quality_filter_mode,
+        export_curves=export_curves,
+        debug_recognition=debug_recognition,
+        debug_quality=debug_quality,
+        enable_reliability_diagnostics=enable_reliability_diagnostics,
     )
     print(f"Total evaluation time: {time.perf_counter() - total_start_time:.2f}s")
 

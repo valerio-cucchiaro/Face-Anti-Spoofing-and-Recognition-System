@@ -2,14 +2,15 @@
 Module: recognition_dataset_collector
 
 Description:
-This module is responsible for collecting face crops used to
+This module is responsible for collecting BGR face crops used to
 build the custom recognition dataset.
 
 The script captures frames from the webcam, detects and validates a
 face with MediaPipe, and stores the cropped face region in the selected
 ``custom_raw`` split directory when the user requests a capture. The
-actual recognition preprocessing is deferred to the loader and runtime
-pipeline.
+saved crop is not resized, converted to grayscale, histogram-equalized,
+or otherwise preprocessed for LBPH recognition; that recognition
+preprocessing is deferred to the loader and runtime pipeline.
 
 The custom dataset is organized as:
 - ``gallery``
@@ -37,8 +38,8 @@ from src.preprocessing.frame_preprocessing import get_valid_face
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CUSTOM_RAW_ROOT = PROJECT_ROOT / "data" / "recognition" / "custom_raw"
 THRESHOLD_AREA = 8000
-PERSON = "matteo"
-MODE = "probe_unknown"      # gallery, probe_known, probe_unknown
+PERSON = "carlo"
+MODE = "gallery"      # gallery, probe_known, probe_unknown
 MAX_IMAGES_GALLERY = 30
 MAX_IMAGES_PROBE = 10
 
@@ -51,11 +52,34 @@ MAX_IMAGES_BY_SPLIT = {
 
 def resolve_dataset_dir(split_name, person_name):
     """
-    Resolve the raw custom recognition dataset directory for one split
+    Resolve the custom recognition dataset directory for one split
     and one identity.
     """
 
     return CUSTOM_RAW_ROOT / split_name / person_name
+
+
+def validate_custom_identity_split(person_name, split_name):
+    """
+    Prevent manual custom open-set identity contamination.
+    """
+
+    gallery_identity_dir = resolve_dataset_dir("gallery", person_name)
+    unknown_identity_dir = resolve_dataset_dir("probe_unknown", person_name)
+
+    if split_name == "probe_unknown" and gallery_identity_dir.exists():
+        raise ValueError(
+            "Invalid custom recognition split: "
+            f"'{person_name}' is already enrolled in gallery and cannot be "
+            "collected as probe_unknown."
+        )
+
+    if split_name == "gallery" and unknown_identity_dir.exists():
+        raise ValueError(
+            "Invalid custom recognition split: "
+            f"'{person_name}' already exists in probe_unknown and cannot be "
+            "collected as an enrolled gallery identity."
+        )
 
 
 def collect_dataset(person_name=PERSON, split_name=MODE):
@@ -63,15 +87,16 @@ def collect_dataset(person_name=PERSON, split_name=MODE):
     Collect webcam face samples for the custom recognition dataset.
 
     The function detects the largest valid face in each frame through
-    the shared MediaPipe-based validation helper and stores the raw
-    frame in the selected ``custom_raw`` split when the user presses
-    the capture key.
+    the shared MediaPipe-based validation helper and stores the BGR
+    face crop in the selected ``custom_raw`` split when the user
+    presses the capture key.
     """
 
     if split_name not in VALID_SPLITS:
         raise ValueError(
             f"Unsupported split: {split_name}. Use one of: {sorted(VALID_SPLITS)}"
         )
+    validate_custom_identity_split(person_name, split_name)
 
     dataset_dir = resolve_dataset_dir(split_name, person_name)
     dataset_dir.mkdir(parents=True, exist_ok=True)
@@ -178,7 +203,7 @@ def collect_dataset(person_name=PERSON, split_name=MODE):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Collect raw recognition dataset samples."
+        description="Collect unprocessed BGR face-crop recognition samples."
     )
     parser.add_argument("--person", default=PERSON)
     parser.add_argument(

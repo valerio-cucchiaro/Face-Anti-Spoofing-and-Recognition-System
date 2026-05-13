@@ -14,15 +14,55 @@ corresponding output folder.
 import cv2
 from pathlib import Path
 import os
+from contextlib import contextmanager
 
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;quiet"
-cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+
+
+def silence_opencv_logs():
+    """
+    Silence OpenCV/FFmpeg logs when the installed cv2 build exposes a
+    compatible logging API.
+    """
+    if hasattr(cv2, "utils") and hasattr(cv2.utils, "logging"):
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+        return
+
+    if hasattr(cv2, "setLogLevel"):
+        cv2.setLogLevel(3)
+
+
+silence_opencv_logs()
 
 # ----- CONSTANTS ----- #
-REPLAY_PATH = Path("data/replay_attack_raw")
-OUTPUT_PATH = Path("data/replay_attack_pad")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+REPLAY_PATH = PROJECT_ROOT / "data" / "pad" / "replay_attack_raw"
+OUTPUT_PATH = PROJECT_ROOT / "data" / "pad" / "replay_attack_pad"
 FRAME_STEP = 10
 VIDEO_EXTENSIONS = {".mov", ".avi", ".mp4"}
+
+
+@contextmanager
+def suppress_native_stderr():
+    """
+    Temporarily silence native FFmpeg/OpenCV stderr messages.
+
+    Some Replay-Attack videos cannot be decoded by the local OpenCV
+    build because its FFmpeg lacks zlib support. The extractor reports
+    those files as skipped, so the low-level repeated header errors are
+    hidden to keep the split log readable.
+    """
+    stderr_fd = 2
+    saved_stderr_fd = os.dup(stderr_fd)
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+
+    try:
+        os.dup2(devnull_fd, stderr_fd)
+        yield
+    finally:
+        os.dup2(saved_stderr_fd, stderr_fd)
+        os.close(saved_stderr_fd)
+        os.close(devnull_fd)
 
 
 def get_output_split(video_path: Path) -> str:
@@ -80,18 +120,21 @@ def extract_frames(video_path: Path, output_dir: Path, step: int = 10):
     # Create the output directory if it does not already exist
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Open the input video file
-    cap = cv2.VideoCapture(str(video_path))
+    # Open the input video file. Native FFmpeg errors are suppressed here
+    # and summarized through the explicit skipped-video count in main().
+    with suppress_native_stderr():
+        cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         print(f"[SKIP] Cannot open video: {video_path}")
-        return
+        return 0
 
     frame_idx = 0
     saved_idx = 0
     output_stem = build_output_stem(video_path)
 
     while True:
-        ret, frame = cap.read()
+        with suppress_native_stderr():
+            ret, frame = cap.read()
 
         if not ret or frame is None:
             break
@@ -105,14 +148,20 @@ def extract_frames(video_path: Path, output_dir: Path, step: int = 10):
 
     # Release the video handle when extraction is complete
     cap.release()
+    return saved_idx
 
 
 def main():
     """
     Extract Replay-Attack frames and organize them in PAD format.
     """
+    print("====== START REPLAY-ATTACK FRAME EXTRACTION ======")
     if not REPLAY_PATH.exists():
         raise FileNotFoundError(f"Missing dataset folder: {REPLAY_PATH}")
+
+    processed_videos = 0
+    skipped_videos = 0
+    saved_frames = 0
 
     for video_path in REPLAY_PATH.rglob("*"):
         if video_path.suffix.lower() not in VIDEO_EXTENSIONS:
@@ -124,7 +173,18 @@ def main():
         label = get_output_label(video_path)
 
         output_dir = OUTPUT_PATH / split / label
-        extract_frames(video_path, output_dir, step=FRAME_STEP)
+        extracted_count = extract_frames(video_path, output_dir, step=FRAME_STEP)
+        if extracted_count == 0:
+            skipped_videos += 1
+        else:
+            processed_videos += 1
+            saved_frames += extracted_count
+
+    print("Replay-Attack extraction completed")
+    print(f"Processed videos: {processed_videos}")
+    print(f"Skipped videos: {skipped_videos}")
+    print(f"Saved frames: {saved_frames}")
+    print("====== END REPLAY-ATTACK FRAME EXTRACTION ======")
 
 
 if __name__ == "__main__":

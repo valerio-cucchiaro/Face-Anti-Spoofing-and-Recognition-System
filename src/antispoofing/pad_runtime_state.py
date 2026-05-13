@@ -9,6 +9,11 @@ The state manager receives the PAD result of the current frame together
 with frame usability and face-missing information. It updates the
 temporal history, applies hysteresis on the averaged live probability,
 and returns the current and final PAD outputs used by the pipeline.
+
+This runtime decision is intentionally different from the offline PAD
+metrics path: offline APCER/BPCER use one live-score threshold per frame,
+while the webcam runtime waits for a full usable-frame window and applies
+enter/exit thresholds to stabilize the displayed PAD state.
 """
 
 from collections import deque
@@ -17,6 +22,9 @@ from collections import deque
 class PadRuntimeState:
     """
     Runtime PAD state manager with temporal smoothing and hysteresis.
+
+    The thresholds here are runtime stability thresholds, not the
+    frame-level PAD threshold used by offline/system evaluators.
     """
 
     def __init__(
@@ -72,8 +80,14 @@ class PadRuntimeState:
         current_label = pad_result["label"]
         current_score = pad_result["score"]
 
+        # Keep the current frame prediction reportable even when the frame
+        # is too blurry or unstable to update the temporal decision. Runtime
+        # decisions must use final_label, while current_label/current_score
+        # are diagnostic values for the latest PAD inference.
         if current_status == "ok":
-            if current_label == "live":
+            if pad_result.get("live_score") is not None:
+                live_probability = pad_result["live_score"]
+            elif current_label == "live":
                 live_probability = current_score
             elif current_label == "spoof":
                 live_probability = 1.0 - current_score

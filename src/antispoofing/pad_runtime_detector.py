@@ -27,6 +27,9 @@ from src.antispoofing.pad_model_config import (
     get_pad_artifact_paths,
     load_pad_model_config,
 )
+from src.antispoofing.pad_probability_utils import (
+    get_pad_class_probability_indices,
+)
 
 
 # ----- CONSTANTS ----- #
@@ -56,6 +59,7 @@ class AntiSpoofingDetector:
             expected_feature_dim=self.expected_feature_dim
         )
         configure_pad_feature_extractor_from_config(self.pad_config)
+        self.pad_class_indices = get_pad_class_probability_indices(self.classifier)
 
     def predict(self, face_image):
         """
@@ -100,13 +104,21 @@ class AntiSpoofingDetector:
         # Run PAD classifier
         prediction = self.classifier.predict(features_scaled)[0]
         probabilities = self.classifier.predict_proba(features_scaled)[0]
+        pad_class_indices = getattr(
+            self,
+            "pad_class_indices",
+            get_pad_class_probability_indices(self.classifier),
+        )
+        live_score = float(probabilities[pad_class_indices["live"]])
+        probability_label = "live" if live_score >= 0.5 else "spoof"
 
         if prediction == 1:
             label = "live"
-            score = probabilities[1]
+            score = probabilities[pad_class_indices["live"]]
         else:
             label = "spoof"
-            score = probabilities[0]
+            score = probabilities[pad_class_indices["spoof"]]
+        prediction_label = label
 
         # Dictionary containing the PAD inference result
         return {
@@ -114,8 +126,35 @@ class AntiSpoofingDetector:
             "prediction": int(prediction),
             "label": label,
             "score": float(score),
+            "live_score": live_score,
+            "prediction_label": prediction_label,
+            "probability_label": probability_label,
+            "prediction_probability_mismatch": prediction_label != probability_label,
             "timings_ms": {
                 **feature_timings,
                 "total_predict": extraction_elapsed_ms,
             },
         }
+
+    def predict_safe(self, face_image):
+        """
+        Runtime-safe PAD prediction.
+
+        The strict ``predict`` method remains useful for tests and
+        offline debugging because it exposes inconsistent model or
+        feature states immediately. Webcam runtimes should use this
+        wrapper instead: technical failures become an explicit unknown
+        PAD result that can be logged without closing the session.
+        """
+
+        try:
+            return self.predict(face_image)
+        except Exception as exc:
+            return {
+                "status": "predict_failed",
+                "prediction": None,
+                "label": "unknown",
+                "score": None,
+                "error": str(exc),
+                "timings_ms": {},
+            }

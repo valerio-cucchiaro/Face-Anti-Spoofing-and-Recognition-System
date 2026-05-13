@@ -5,7 +5,7 @@ Description:
 This module prepares the Multi-PIE HR/LR dataset for recognition
 experiments. It reads the original flat HR and LR folders from the raw
 dataset directory and copies a limited, reproducible subset into
-gallery, validation, and test partitions.
+gallery, validation, and final probe partitions.
 
 The split keeps gallery images high-resolution only and separates
 known probes from unknown probes at subject level:
@@ -19,34 +19,31 @@ import shutil
 
 
 # ----- CONSTANTS ----- #
-MULTIPIE_ROOT = Path("data/recognition/multipie")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MULTIPIE_ROOT = PROJECT_ROOT / "data" / "recognition" / "multipie"
 RAW_HR_DIR = MULTIPIE_ROOT / "raw" / "HR_128"
 RAW_LR_DIR = MULTIPIE_ROOT / "raw" / "LR_4x_Nearest"
 
 GALLERY_DIR = MULTIPIE_ROOT / "gallery"
 VALIDATION_KNOWN_HR_DIR = MULTIPIE_ROOT / "validation_known_hr"
-TEST_KNOWN_HR_DIR = MULTIPIE_ROOT / "test_known_hr"
-VALIDATION_KNOWN_LR_DIR = MULTIPIE_ROOT / "validation_known_lr"
-TEST_KNOWN_LR_DIR = MULTIPIE_ROOT / "test_known_lr"
-VALIDATION_UNKNOWN_HR_DIR = MULTIPIE_ROOT / "validation_unknown_hr"
-TEST_UNKNOWN_HR_DIR = MULTIPIE_ROOT / "test_unknown_hr"
-VALIDATION_UNKNOWN_LR_DIR = MULTIPIE_ROOT / "validation_unknown_lr"
-TEST_UNKNOWN_LR_DIR = MULTIPIE_ROOT / "test_unknown_lr"
 PROBE_KNOWN_HR_DIR = MULTIPIE_ROOT / "probe_known_hr"
+VALIDATION_KNOWN_LR_DIR = MULTIPIE_ROOT / "validation_known_lr"
 PROBE_KNOWN_LR_DIR = MULTIPIE_ROOT / "probe_known_lr"
+VALIDATION_UNKNOWN_HR_DIR = MULTIPIE_ROOT / "validation_unknown_hr"
 PROBE_UNKNOWN_HR_DIR = MULTIPIE_ROOT / "probe_unknown_hr"
+VALIDATION_UNKNOWN_LR_DIR = MULTIPIE_ROOT / "validation_unknown_lr"
 PROBE_UNKNOWN_LR_DIR = MULTIPIE_ROOT / "probe_unknown_lr"
 
 OUTPUT_DIRS = (
     GALLERY_DIR,
     VALIDATION_KNOWN_HR_DIR,
-    TEST_KNOWN_HR_DIR,
+    PROBE_KNOWN_HR_DIR,
     VALIDATION_KNOWN_LR_DIR,
-    TEST_KNOWN_LR_DIR,
+    PROBE_KNOWN_LR_DIR,
     VALIDATION_UNKNOWN_HR_DIR,
-    TEST_UNKNOWN_HR_DIR,
+    PROBE_UNKNOWN_HR_DIR,
     VALIDATION_UNKNOWN_LR_DIR,
-    TEST_UNKNOWN_LR_DIR,
+    PROBE_UNKNOWN_LR_DIR,
 )
 
 VALID_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
@@ -57,6 +54,8 @@ UNKNOWN_SUBJECTS = 10
 VALIDATION_UNKNOWN_SUBJECTS = 5
 GALLERY_PER_SUBJECT = 5
 PROBE_PER_SUBJECT = 30
+KNOWN_REQUIRED_HR_IMAGES = GALLERY_PER_SUBJECT + PROBE_PER_SUBJECT
+UNKNOWN_REQUIRED_HR_IMAGES = PROBE_PER_SUBJECT
 
 
 def parse_multipie_filename(image_path):
@@ -154,16 +153,6 @@ def reset_output_directories():
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    for legacy_dir in (
-        PROBE_KNOWN_HR_DIR,
-        PROBE_KNOWN_LR_DIR,
-        PROBE_UNKNOWN_HR_DIR,
-        PROBE_UNKNOWN_LR_DIR,
-    ):
-        if legacy_dir.exists():
-            shutil.rmtree(legacy_dir)
-
-
 def copy_image(image_path, destination_dir):
     """
     Copy one image into an identity split directory.
@@ -186,9 +175,114 @@ def copy_lr_match(hr_path, destination_dir):
     return True
 
 
+def validate_hr_count(subject_id, image_paths, required_count, role):
+    """
+    Ensure one selected subject can fill the expected HR split quota.
+    """
+
+    if len(image_paths) < required_count:
+        raise ValueError(
+            "Incomplete Multi-PIE HR subject split: "
+            f"subject=s{subject_id}, role={role}, found={len(image_paths)}, "
+            f"required={required_count}."
+        )
+
+
+def validate_lr_matches(subject_id, hr_paths, role):
+    """
+    Ensure every selected HR evaluation image has its LR counterpart.
+    """
+
+    missing_lr_paths = [
+        RAW_LR_DIR / hr_path.name
+        for hr_path in hr_paths
+        if not (RAW_LR_DIR / hr_path.name).exists()
+    ]
+
+    if missing_lr_paths:
+        preview = ", ".join(path.name for path in missing_lr_paths[:5])
+        if len(missing_lr_paths) > 5:
+            preview += ", ..."
+        raise ValueError(
+            "Incomplete Multi-PIE LR subject split: "
+            f"subject=s{subject_id}, role={role}, "
+            f"missing_lr={len(missing_lr_paths)} | {preview}"
+        )
+
+
+def validate_selected_subjects(known_subjects, unknown_subjects, grouped_paths):
+    """
+    Validate all selected subjects before deleting generated split folders.
+    """
+
+    for subject_id in known_subjects:
+        image_paths = grouped_paths[subject_id]
+        validate_hr_count(
+            subject_id,
+            image_paths,
+            KNOWN_REQUIRED_HR_IMAGES,
+            role="known",
+        )
+        evaluation_paths = image_paths[
+            GALLERY_PER_SUBJECT:GALLERY_PER_SUBJECT + PROBE_PER_SUBJECT
+        ]
+        validate_lr_matches(subject_id, evaluation_paths, role="known")
+
+    for subject_id in unknown_subjects:
+        image_paths = grouped_paths[subject_id]
+        validate_hr_count(
+            subject_id,
+            image_paths,
+            UNKNOWN_REQUIRED_HR_IMAGES,
+            role="unknown",
+        )
+        validate_lr_matches(
+            subject_id,
+            image_paths[:PROBE_PER_SUBJECT],
+            role="unknown",
+        )
+
+
+def validate_generated_totals(totals):
+    """
+    Fail if generated split counts differ from the intended protocol.
+    """
+
+    validation_known_per_subject = PROBE_PER_SUBJECT // 2
+    probe_known_per_subject = PROBE_PER_SUBJECT - validation_known_per_subject
+    expected_totals = {
+        "gallery": KNOWN_SUBJECTS * GALLERY_PER_SUBJECT,
+        "validation_known_hr": KNOWN_SUBJECTS * validation_known_per_subject,
+        "probe_known_hr": KNOWN_SUBJECTS * probe_known_per_subject,
+        "validation_known_lr": KNOWN_SUBJECTS * validation_known_per_subject,
+        "probe_known_lr": KNOWN_SUBJECTS * probe_known_per_subject,
+        "validation_unknown_hr": VALIDATION_UNKNOWN_SUBJECTS * PROBE_PER_SUBJECT,
+        "probe_unknown_hr": (
+            UNKNOWN_SUBJECTS - VALIDATION_UNKNOWN_SUBJECTS
+        ) * PROBE_PER_SUBJECT,
+        "validation_unknown_lr": VALIDATION_UNKNOWN_SUBJECTS * PROBE_PER_SUBJECT,
+        "probe_unknown_lr": (
+            UNKNOWN_SUBJECTS - VALIDATION_UNKNOWN_SUBJECTS
+        ) * PROBE_PER_SUBJECT,
+        "missing_lr": 0,
+    }
+
+    mismatches = [
+        f"{key}: expected={expected_value}, actual={totals.get(key)}"
+        for key, expected_value in expected_totals.items()
+        if totals.get(key) != expected_value
+    ]
+
+    if mismatches:
+        raise ValueError(
+            "Generated Multi-PIE split counts do not match the expected "
+            "protocol: " + "; ".join(mismatches)
+        )
+
+
 def copy_known_subject_split(subject_id, image_paths):
     """
-    Copy gallery, known HR/LR validation, and known HR/LR test images for one subject.
+    Copy gallery, known HR/LR validation, and known HR/LR final probe images.
     """
 
     identity_dir_name = f"s{subject_id}"
@@ -198,14 +292,14 @@ def copy_known_subject_split(subject_id, image_paths):
     ]
     validation_count = len(evaluation_paths) // 2
     validation_paths = evaluation_paths[:validation_count]
-    test_paths = evaluation_paths[validation_count:]
+    probe_paths = evaluation_paths[validation_count:]
 
     copied = {
         "gallery": 0,
         "validation_known_hr": 0,
-        "test_known_hr": 0,
+        "probe_known_hr": 0,
         "validation_known_lr": 0,
-        "test_known_lr": 0,
+        "probe_known_lr": 0,
         "missing_lr": 0,
     }
 
@@ -222,12 +316,12 @@ def copy_known_subject_split(subject_id, image_paths):
         else:
             copied["missing_lr"] += 1
 
-    for image_path in test_paths:
-        copy_image(image_path, TEST_KNOWN_HR_DIR / identity_dir_name)
-        copied["test_known_hr"] += 1
+    for image_path in probe_paths:
+        copy_image(image_path, PROBE_KNOWN_HR_DIR / identity_dir_name)
+        copied["probe_known_hr"] += 1
 
-        if copy_lr_match(image_path, TEST_KNOWN_LR_DIR / identity_dir_name):
-            copied["test_known_lr"] += 1
+        if copy_lr_match(image_path, PROBE_KNOWN_LR_DIR / identity_dir_name):
+            copied["probe_known_lr"] += 1
         else:
             copied["missing_lr"] += 1
 
@@ -265,22 +359,24 @@ def prepare_multipie_gallery_probe():
     Create Multi-PIE gallery and known/unknown HR/LR probe splits.
     """
 
+    print("====== START MULTI-PIE DATASET SPLIT ======")
     grouped_paths = group_hr_images_by_subject()
     known_subjects, unknown_subjects = select_known_unknown_subjects(
         grouped_paths.keys()
     )
+    validate_selected_subjects(known_subjects, unknown_subjects, grouped_paths)
     reset_output_directories()
 
     totals = {
         "gallery": 0,
         "validation_known_hr": 0,
-        "test_known_hr": 0,
+        "probe_known_hr": 0,
         "validation_known_lr": 0,
-        "test_known_lr": 0,
+        "probe_known_lr": 0,
         "validation_unknown_hr": 0,
-        "test_unknown_hr": 0,
+        "probe_unknown_hr": 0,
         "validation_unknown_lr": 0,
-        "test_unknown_lr": 0,
+        "probe_unknown_lr": 0,
         "missing_lr": 0,
     }
 
@@ -290,7 +386,7 @@ def prepare_multipie_gallery_probe():
             totals[key] += value
 
     validation_unknown_subjects = unknown_subjects[:VALIDATION_UNKNOWN_SUBJECTS]
-    test_unknown_subjects = unknown_subjects[VALIDATION_UNKNOWN_SUBJECTS:]
+    probe_unknown_subjects = unknown_subjects[VALIDATION_UNKNOWN_SUBJECTS:]
 
     for subject_id in validation_unknown_subjects:
         copied = copy_unknown_subject_split(
@@ -303,30 +399,33 @@ def prepare_multipie_gallery_probe():
         totals["validation_unknown_lr"] += copied["unknown_lr"]
         totals["missing_lr"] += copied["missing_lr"]
 
-    for subject_id in test_unknown_subjects:
+    for subject_id in probe_unknown_subjects:
         copied = copy_unknown_subject_split(
             subject_id,
             grouped_paths[subject_id],
-            TEST_UNKNOWN_HR_DIR,
-            TEST_UNKNOWN_LR_DIR,
+            PROBE_UNKNOWN_HR_DIR,
+            PROBE_UNKNOWN_LR_DIR,
         )
-        totals["test_unknown_hr"] += copied["unknown_hr"]
-        totals["test_unknown_lr"] += copied["unknown_lr"]
+        totals["probe_unknown_hr"] += copied["unknown_hr"]
+        totals["probe_unknown_lr"] += copied["unknown_lr"]
         totals["missing_lr"] += copied["missing_lr"]
+
+    validate_generated_totals(totals)
 
     print("Multi-PIE split completed")
     print(f"Known subjects: {len(known_subjects)}")
     print(f"Unknown subjects: {len(unknown_subjects)}")
     print(f"Gallery images: {totals['gallery']}")
     print(f"Validation known HR images: {totals['validation_known_hr']}")
-    print(f"Test known HR images: {totals['test_known_hr']}")
+    print(f"Final probe known HR images: {totals['probe_known_hr']}")
     print(f"Validation known LR images: {totals['validation_known_lr']}")
-    print(f"Test known LR images: {totals['test_known_lr']}")
+    print(f"Final probe known LR images: {totals['probe_known_lr']}")
     print(f"Validation unknown HR images: {totals['validation_unknown_hr']}")
-    print(f"Test unknown HR images: {totals['test_unknown_hr']}")
+    print(f"Final probe unknown HR images: {totals['probe_unknown_hr']}")
     print(f"Validation unknown LR images: {totals['validation_unknown_lr']}")
-    print(f"Test unknown LR images: {totals['test_unknown_lr']}")
+    print(f"Final probe unknown LR images: {totals['probe_unknown_lr']}")
     print(f"Missing LR matches: {totals['missing_lr']}")
+    print("====== END MULTI-PIE DATASET SPLIT ======")
 
 
 def main():

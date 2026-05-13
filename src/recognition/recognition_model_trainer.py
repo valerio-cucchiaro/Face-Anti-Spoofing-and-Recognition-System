@@ -14,9 +14,11 @@ logic itself.
 """
 
 import cv2
+import json
 import pickle
 from pathlib import Path
 import time
+from datetime import datetime, timezone
 
 from src.preprocessing.face_preprocessing import get_recognition_preprocessing_config
 from src.recognition.recognition_dataset_loader import load_gallery_dataset
@@ -27,6 +29,8 @@ from src.preprocessing.pose_statistics import format_pose_summary
 RECOGNITION_MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models" / "recognition"
 MODEL_PATH = RECOGNITION_MODELS_ROOT / "lbph_model.xml"
 LABEL_MAP_PATH = RECOGNITION_MODELS_ROOT / "label_map.pkl"
+RECOGNIZER_CONFIG_FILENAME = "recognizer_config.json"
+RECOGNIZER_CONFIG_PATH = RECOGNITION_MODELS_ROOT / RECOGNIZER_CONFIG_FILENAME
 TRAIN_MODE = "custom"
 DEFAULT_LBPH_PARAMS = {
     "radius": 1,
@@ -51,7 +55,25 @@ def resolve_lbph_params(lbph_params=None):
     return resolved_params
 
 
-def train_recognition_model(train_mode=None, lbph_params=None, lfw_sample_ratio=None):
+def save_recognizer_config(config_data):
+    """
+    Save the recognition model type and LBPH parameters used for training.
+    """
+
+    RECOGNIZER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RECOGNIZER_CONFIG_PATH.write_text(
+        json.dumps(config_data, indent=4) + "\n",
+        encoding="utf-8",
+    )
+
+
+def train_recognition_model(
+    train_mode=None,
+    lbph_params=None,
+    lfw_sample_ratio=None,
+    quality_filter_mode="report_only",
+    debug_quality=False,
+):
     """
     Train the recognition model using the selected gallery configuration.
 
@@ -77,6 +99,7 @@ def train_recognition_model(train_mode=None, lbph_params=None, lfw_sample_ratio=
     print("- enrollment split: gallery")
     print("- gallery images are used to train LBPH templates")
     print("- validation/test images are not used during training")
+    print(f"- quality filter mode: {quality_filter_mode}")
     print("Loading gallery dataset...")
 
     load_start_time = time.perf_counter()
@@ -84,6 +107,8 @@ def train_recognition_model(train_mode=None, lbph_params=None, lfw_sample_ratio=
         selected_mode,
         collect_pose_metrics=True,
         lfw_sample_ratio=selected_lfw_sample_ratio,
+        quality_filter_mode=quality_filter_mode,
+        debug_quality=debug_quality,
     )
     load_elapsed = time.perf_counter() - load_start_time
 
@@ -113,12 +138,33 @@ def train_recognition_model(train_mode=None, lbph_params=None, lfw_sample_ratio=
         grid_x=selected_lbph_params["grid_x"],
         grid_y=selected_lbph_params["grid_y"],
     )
+
     training_start_time = time.perf_counter()
     recognizer.train(faces, labels)
     training_elapsed = time.perf_counter() - training_start_time
 
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     recognizer.save(str(MODEL_PATH))
+    save_recognizer_config(
+        {
+            "config_version": 2,
+            "recognizer_type": "lbph_single",
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "train_mode": selected_mode,
+            "lbph_params": {
+                "radius": selected_lbph_params["radius"],
+                "neighbors": selected_lbph_params["neighbors"],
+                "grid_x": selected_lbph_params["grid_x"],
+                "grid_y": selected_lbph_params["grid_y"],
+            },
+            "preprocessing": preprocessing_config,
+            "quality_filter_mode": quality_filter_mode,
+            "lfw_sample_ratio": selected_lfw_sample_ratio,
+            "dataset_counts": dataset_counts,
+            "loaded_faces": len(faces),
+            "loaded_identities": len(label_map),
+        }
+    )
 
     with open(LABEL_MAP_PATH, "wb") as file:
         pickle.dump(label_map, file)
@@ -126,6 +172,7 @@ def train_recognition_model(train_mode=None, lbph_params=None, lfw_sample_ratio=
     print("Recognition model trained and saved successfully")
     print("Model path:", MODEL_PATH)
     print("Label map path:", LABEL_MAP_PATH)
+    print("Recognizer config path:", RECOGNIZER_CONFIG_PATH)
     print(f"LBPH training completed in {training_elapsed:.2f}s")
     print(f"Total training time: {time.perf_counter() - total_start_time:.2f}s")
 

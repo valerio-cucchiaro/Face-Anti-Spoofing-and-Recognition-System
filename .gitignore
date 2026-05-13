@@ -30,14 +30,6 @@ Thumbs.db
 
 # Datasets
 data/*
-!data/recognition/
-data/recognition/*
-!data/recognition/orl/
-data/recognition/orl/*
-!data/recognition/orl/raw/
-!data/recognition/orl/raw/**
-!data/recognition/custom_raw/
-!data/recognition/custom_raw/**
 
 # Python build
 build/
@@ -45,11 +37,7 @@ dist/
 *.egg-info/
 
 # Generated model artifacts and local runtime configs
-models/recognition/*.pkl
-models/recognition/*.xml
-models/recognition/*.json
-models/pad/*.joblib
-models/pad/*.json
+models/*
 
 # Runtime logs
-logs/
+logs/*

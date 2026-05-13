@@ -5,7 +5,7 @@ Description:
 This module prepares the LFW face dataset for recognition experiments.
 It reads the original identity folders from the raw dataset directory,
 filters out identities with too few images, and copies the remaining
-images into separate gallery, validation, and test partitions.
+images into separate gallery, validation, and final probe partitions.
 
 Known subjects are enrolled in the gallery. Unknown subjects never
 appear in the gallery and are used only as biometric impostors.
@@ -17,15 +17,14 @@ import shutil
 
 
 # ----- CONSTANTS ----- #
-LFW_RAW_DIR = Path("data/recognition/lfw/raw")
-LFW_GALLERY_DIR = Path("data/recognition/lfw/gallery")
-LFW_VALIDATION_KNOWN_DIR = Path("data/recognition/lfw/validation_known")
-LFW_TEST_KNOWN_DIR = Path("data/recognition/lfw/test_known")
-LFW_VALIDATION_UNKNOWN_DIR = Path("data/recognition/lfw/validation_unknown")
-LFW_TEST_UNKNOWN_DIR = Path("data/recognition/lfw/test_unknown")
-LFW_PROBE_KNOWN_DIR = Path("data/recognition/lfw/probe_known")
-LFW_PROBE_UNKNOWN_DIR = Path("data/recognition/lfw/probe_unknown")
-LFW_LEGACY_PROBE_DIR = Path("data/recognition/lfw/probe")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+LFW_ROOT = PROJECT_ROOT / "data" / "recognition" / "lfw"
+LFW_RAW_DIR = LFW_ROOT / "raw"
+LFW_GALLERY_DIR = LFW_ROOT / "gallery"
+LFW_VALIDATION_KNOWN_DIR = LFW_ROOT / "validation_known"
+LFW_PROBE_KNOWN_DIR = LFW_ROOT / "probe_known"
+LFW_VALIDATION_UNKNOWN_DIR = LFW_ROOT / "validation_unknown"
+LFW_PROBE_UNKNOWN_DIR = LFW_ROOT / "probe_unknown"
 VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 MIN_IMAGES_PER_IDENTITY = 3
 KNOWN_SUBJECT_RATIO = 0.8
@@ -34,9 +33,9 @@ RANDOM_SEED = 42
 OUTPUT_DIRS = (
     LFW_GALLERY_DIR,
     LFW_VALIDATION_KNOWN_DIR,
-    LFW_TEST_KNOWN_DIR,
+    LFW_PROBE_KNOWN_DIR,
     LFW_VALIDATION_UNKNOWN_DIR,
-    LFW_TEST_UNKNOWN_DIR,
+    LFW_PROBE_UNKNOWN_DIR,
 )
 
 
@@ -71,26 +70,26 @@ def split_identity_images(image_paths):
     remaining_paths = image_paths[gallery_count:]
     validation_count = max(1, len(remaining_paths) // 2)
     validation_paths = remaining_paths[:validation_count]
-    test_paths = remaining_paths[validation_count:]
+    probe_paths = remaining_paths[validation_count:]
 
-    if not test_paths:
-        test_paths = validation_paths[-1:]
+    if not probe_paths:
+        probe_paths = validation_paths[-1:]
         validation_paths = validation_paths[:-1]
 
-    return gallery_paths, validation_paths, test_paths
+    return gallery_paths, validation_paths, probe_paths
 
 
-def copy_known_identity_split(identity_name, gallery_paths, validation_paths, test_paths):
+def copy_known_identity_split(identity_name, gallery_paths, validation_paths, probe_paths):
     """
-    Copy one known LFW identity into gallery, validation, and test splits.
+    Copy one known LFW identity into gallery, validation, and final probe splits.
     """
     gallery_dir = LFW_GALLERY_DIR / identity_name
     validation_dir = LFW_VALIDATION_KNOWN_DIR / identity_name
-    test_dir = LFW_TEST_KNOWN_DIR / identity_name
+    probe_dir = LFW_PROBE_KNOWN_DIR / identity_name
 
     gallery_dir.mkdir(parents=True, exist_ok=True)
     validation_dir.mkdir(parents=True, exist_ok=True)
-    test_dir.mkdir(parents=True, exist_ok=True)
+    probe_dir.mkdir(parents=True, exist_ok=True)
 
     for image_path in gallery_paths:
         shutil.copy2(image_path, gallery_dir / image_path.name)
@@ -98,8 +97,8 @@ def copy_known_identity_split(identity_name, gallery_paths, validation_paths, te
     for image_path in validation_paths:
         shutil.copy2(image_path, validation_dir / image_path.name)
 
-    for image_path in test_paths:
-        shutil.copy2(image_path, test_dir / image_path.name)
+    for image_path in probe_paths:
+        shutil.copy2(image_path, probe_dir / image_path.name)
 
 
 def copy_unknown_identity_split(identity_name, image_paths, output_root):
@@ -143,18 +142,11 @@ def reset_output_directories():
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    if LFW_LEGACY_PROBE_DIR.exists():
-        shutil.rmtree(LFW_LEGACY_PROBE_DIR)
-    if LFW_PROBE_KNOWN_DIR.exists():
-        shutil.rmtree(LFW_PROBE_KNOWN_DIR)
-    if LFW_PROBE_UNKNOWN_DIR.exists():
-        shutil.rmtree(LFW_PROBE_UNKNOWN_DIR)
-
-
 def prepare_lfw_gallery_probe():
     """
     Create gallery and known/unknown probe splits from the raw LFW dataset.
     """
+    print("====== START LFW DATASET SPLIT ======")
     if not LFW_RAW_DIR.exists():
         raise FileNotFoundError(f"Missing LFW raw dataset directory: {LFW_RAW_DIR}")
 
@@ -183,43 +175,44 @@ def prepare_lfw_gallery_probe():
 
     known_gallery_images = 0
     validation_known_images = 0
-    test_known_images = 0
+    probe_known_images = 0
     validation_unknown_images = 0
-    test_unknown_images = 0
+    probe_unknown_images = 0
 
     for identity_name, image_paths in known_records:
-        gallery_paths, validation_paths, test_paths = split_identity_images(image_paths)
+        gallery_paths, validation_paths, probe_paths = split_identity_images(image_paths)
 
-        if not gallery_paths or not validation_paths or not test_paths:
-            print(f"[WARNING] Skipping {identity_name}: split did not produce gallery, validation, and test")
+        if not gallery_paths or not validation_paths or not probe_paths:
+            print(f"[WARNING] Skipping {identity_name}: split did not produce gallery, validation, and final probe")
             skipped_identities += 1
             continue
 
-        copy_known_identity_split(identity_name, gallery_paths, validation_paths, test_paths)
+        copy_known_identity_split(identity_name, gallery_paths, validation_paths, probe_paths)
         known_gallery_images += len(gallery_paths)
         validation_known_images += len(validation_paths)
-        test_known_images += len(test_paths)
+        probe_known_images += len(probe_paths)
 
     unknown_midpoint = len(unknown_records) // 2
     validation_unknown_records = unknown_records[:unknown_midpoint]
-    test_unknown_records = unknown_records[unknown_midpoint:]
+    probe_unknown_records = unknown_records[unknown_midpoint:]
 
     for identity_name, image_paths in validation_unknown_records:
         copy_unknown_identity_split(identity_name, image_paths, LFW_VALIDATION_UNKNOWN_DIR)
         validation_unknown_images += len(image_paths)
 
-    for identity_name, image_paths in test_unknown_records:
-        copy_unknown_identity_split(identity_name, image_paths, LFW_TEST_UNKNOWN_DIR)
-        test_unknown_images += len(image_paths)
+    for identity_name, image_paths in probe_unknown_records:
+        copy_unknown_identity_split(identity_name, image_paths, LFW_PROBE_UNKNOWN_DIR)
+        probe_unknown_images += len(image_paths)
 
     print(f"Known identities: {len(known_records)}")
     print(f"Unknown identities: {len(unknown_records)}")
     print(f"Gallery images: {known_gallery_images}")
     print(f"Validation known images: {validation_known_images}")
-    print(f"Test known images: {test_known_images}")
+    print(f"Final probe known images: {probe_known_images}")
     print(f"Validation unknown images: {validation_unknown_images}")
-    print(f"Test unknown images: {test_unknown_images}")
+    print(f"Final probe unknown images: {probe_unknown_images}")
     print(f"Skipped identities: {skipped_identities}")
+    print("====== END LFW DATASET SPLIT ======")
 
 
 def main():

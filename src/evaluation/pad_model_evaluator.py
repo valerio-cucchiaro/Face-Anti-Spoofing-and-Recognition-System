@@ -32,6 +32,9 @@ from src.antispoofing.pad_model_config import (
     get_pad_artifact_paths,
     load_pad_model_config,
 )
+from src.antispoofing.pad_probability_utils import (
+    get_pad_class_probability_indices,
+)
 from src.evaluation.pad_metrics import (
     build_pad_threshold_summary,
     compute_pad_eer,
@@ -97,7 +100,8 @@ def get_live_score_details(classifier, X_test_scaled):
     if hasattr(classifier, "predict_proba"):
         probabilities = classifier.predict_proba(X_test_scaled)
         if probabilities.ndim == 2 and probabilities.shape[1] >= 2:
-            return probabilities[:, 1], "live_prob"
+            live_index = get_pad_class_probability_indices(classifier)["live"]
+            return probabilities[:, live_index], "live_prob"
 
     if hasattr(classifier, "decision_function"):
         decision = classifier.decision_function(X_test_scaled)
@@ -107,11 +111,54 @@ def get_live_score_details(classifier, X_test_scaled):
     return None, None
 
 
+def build_prediction_probability_mismatch_summary(y_pred, score_values, score_label):
+    """
+    Compare hard PAD predictions with probability-threshold labels.
+
+    This is diagnostic only. It helps decide whether runtime should keep
+    using ``classifier.predict`` for current labels or rely only on the
+    live probability used by official PAD metrics.
+    """
+
+    if score_label != "live_prob" or score_values is None:
+        return None
+
+    y_pred = np.asarray(y_pred, dtype=np.int32).reshape(-1)
+    live_scores = np.asarray(score_values, dtype=np.float64).reshape(-1)
+    probability_labels = (live_scores >= 0.5).astype(np.int32)
+    mismatch_mask = y_pred != probability_labels
+    mismatch_count = int(np.sum(mismatch_mask))
+    total = int(y_pred.size)
+    near_threshold_mask = np.abs(live_scores - 0.5) <= 0.05
+    near_threshold_mismatches = int(np.sum(mismatch_mask & near_threshold_mask))
+
+    if mismatch_count > 0:
+        mismatch_scores = live_scores[mismatch_mask]
+        min_score = float(np.min(mismatch_scores))
+        max_score = float(np.max(mismatch_scores))
+        mean_score = float(np.mean(mismatch_scores))
+    else:
+        min_score = None
+        max_score = None
+        mean_score = None
+
+    return {
+        "total": total,
+        "mismatch_count": mismatch_count,
+        "mismatch_rate": mismatch_count / total if total > 0 else 0.0,
+        "near_threshold_mismatches": near_threshold_mismatches,
+        "min_live_score": min_score,
+        "max_live_score": max_score,
+        "mean_live_score": mean_score,
+    }
+
+
 def compute_pad_evaluation_metrics(
     y_test,
     score_values,
     score_label,
     output_stem=None,
+    export_curves=False,
 ):
     """
     Compute the official PAD metrics used by the project reports.
@@ -144,7 +191,11 @@ def compute_pad_evaluation_metrics(
     }
 
     if output_stem is not None:
-        report["export_paths"] = export_pad_metrics_report(report, output_stem)
+        report["export_paths"] = export_pad_metrics_report(
+            report,
+            output_stem,
+            export_curves=export_curves,
+        )
 
     return report
 
@@ -159,6 +210,7 @@ def log_pad_evaluation_diagnostics(
     load_elapsed,
     evaluation_elapsed,
     metrics_report,
+    mismatch_summary=None,
     pose_summary=None,
     log_live_false_negatives=False,
     live_false_negative_limit=LIVE_FALSE_NEGATIVE_LOG_LIMIT,
@@ -193,13 +245,36 @@ def log_pad_evaluation_diagnostics(
     precision = precision_score(y_test, y_pred, zero_division=0)
     recall = recall_score(y_test, y_pred, zero_division=0)
     f1 = f1_score(y_test, y_pred, zero_division=0)
-    conf_matrix = confusion_matrix(y_test, y_pred)
+    conf_matrix = confusion_matrix(y_test, y_pred, labels=[0, 1])
 
+    print(
+        "PAD project logs are diagnostic hard-label metrics; "
+        "official PAD metrics use live_score thresholding."
+    )
     print(
         "PAD project logs:",
         f"accuracy={accuracy:.4f} | precision={precision:.4f} | recall={recall:.4f} | f1={f1:.4f}",
     )
-    print("PAD confusion matrix:\n", conf_matrix)
+    print("PAD confusion matrix: rows=true, cols=predicted, order=[spoof(0), live(1)]\n", conf_matrix)
+    if mismatch_summary is not None:
+        min_score = mismatch_summary["min_live_score"]
+        max_score = mismatch_summary["max_live_score"]
+        mean_score = mismatch_summary["mean_live_score"]
+        score_range = (
+            "n/a"
+            if min_score is None
+            else f"min={min_score:.4f} | mean={mean_score:.4f} | max={max_score:.4f}"
+        )
+        print(
+            "PAD predict/proba diagnostic:",
+            (
+                f"mismatch={mismatch_summary['mismatch_count']}/"
+                f"{mismatch_summary['total']} "
+                f"({mismatch_summary['mismatch_rate']:.4f}) | "
+                f"near_0.5={mismatch_summary['near_threshold_mismatches']} | "
+                f"mismatch_live_score={score_range}"
+            ),
+        )
     print(
         "PAD official metrics:",
         (
@@ -226,8 +301,10 @@ def log_pad_evaluation_diagnostics(
         print("PAD metric exports:")
         print(f"- json: {export_paths['json']}")
         print(f"- summary_csv: {export_paths['summary_csv']}")
-        print(f"- roc_csv: {export_paths['roc_csv']}")
-        print(f"- det_csv: {export_paths['det_csv']}")
+        if "roc_csv" in export_paths:
+            print(f"- roc_csv: {export_paths['roc_csv']}")
+        if "det_csv" in export_paths:
+            print(f"- det_csv: {export_paths['det_csv']}")
 
     summary_rows = []
     for label in ("low", "mid", "high"):
@@ -426,6 +503,7 @@ def evaluate_single_pad_dataset(
     log_live_false_negatives=False,
     live_false_negative_limit=LIVE_FALSE_NEGATIVE_LOG_LIMIT,
     output_stem=None,
+    export_curves=False,
 ):
     """
     Evaluate the trained PAD model on one selected PAD test dataset.
@@ -463,6 +541,7 @@ def evaluate_single_pad_dataset(
         score_values,
         score_label,
         output_stem=output_stem,
+        export_curves=export_curves,
     )
 
     log_pad_evaluation_diagnostics(
@@ -475,6 +554,11 @@ def evaluate_single_pad_dataset(
         load_elapsed,
         time.perf_counter() - evaluation_start_time,
         metrics_report,
+        mismatch_summary=build_prediction_probability_mismatch_summary(
+            y_pred,
+            score_values,
+            score_label,
+        ),
         pose_summary=pose_summary,
         log_live_false_negatives=log_live_false_negatives and eval_mode == "custom",
         live_false_negative_limit=live_false_negative_limit,
@@ -486,6 +570,7 @@ def evaluate_pad_model(
     artifact_profile="runtime",
     log_live_false_negatives=False,
     live_false_negative_limit=LIVE_FALSE_NEGATIVE_LOG_LIMIT,
+    export_curves=False,
 ):
     """
     Evaluate the trained PAD model on one dataset or on all supported
@@ -535,6 +620,7 @@ def evaluate_pad_model(
                 log_live_false_negatives=log_live_false_negatives,
                 live_false_negative_limit=live_false_negative_limit,
                 output_stem=f"{artifact_profile}_{mode}",
+                export_curves=export_curves,
             )
         print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
         return
@@ -546,6 +632,7 @@ def evaluate_pad_model(
         log_live_false_negatives=log_live_false_negatives,
         live_false_negative_limit=live_false_negative_limit,
         output_stem=f"{artifact_profile}_{selected_mode}",
+        export_curves=export_curves,
     )
     print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
 

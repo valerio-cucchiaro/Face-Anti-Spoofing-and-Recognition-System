@@ -46,6 +46,7 @@ class FaceLandmarksResult:
 
 
 def load_mediapipe_face_mesh(
+    static_image_mode=False,
     max_num_faces=FACE_MESH_MAX_NUM_FACES,
     min_detection_confidence=FACE_MESH_MIN_DETECTION_CONFIDENCE,
     min_tracking_confidence=FACE_MESH_MIN_TRACKING_CONFIDENCE,
@@ -59,7 +60,7 @@ def load_mediapipe_face_mesh(
 
     mp_face_mesh = mp.solutions.face_mesh
     return mp_face_mesh.FaceMesh(
-        static_image_mode=False,
+        static_image_mode=static_image_mode,
         max_num_faces=max_num_faces,
         refine_landmarks=True,
         min_detection_confidence=min_detection_confidence,

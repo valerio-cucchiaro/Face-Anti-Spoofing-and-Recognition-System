@@ -7,7 +7,7 @@ dataset collected from the real webcam scenario.
 
 The test dataset must be organized as:
 
-data/pad_custom_raw/
+data/pad/pad_custom_raw/
     test/
         live/
         spoof/
@@ -36,6 +36,9 @@ from src.antispoofing.pad_model_config import (
     get_pad_artifact_paths,
     load_pad_model_config,
 )
+from src.antispoofing.pad_probability_utils import (
+    get_pad_class_probability_indices,
+)
 from src.antispoofing.training.pad_dataset_loader import load_custom_pad_test_dataset
 from src.preprocessing.pose_statistics import format_pose_summary
 
@@ -45,7 +48,7 @@ PAD_RUNTIME_ARTIFACT_PATHS = get_pad_artifact_paths("runtime")
 MODEL_PATH = PAD_RUNTIME_ARTIFACT_PATHS["model_path"]
 SCALER_PATH = PAD_RUNTIME_ARTIFACT_PATHS["scaler_path"]
 
-PAD_CUSTOM_RAW_ROOT = Path(__file__).resolve().parents[2] / "data" / "pad_custom_raw"
+PAD_CUSTOM_RAW_ROOT = Path(__file__).resolve().parents[2] / "data" / "pad" / "pad_custom_raw"
 TEST_SPLIT_ROOT = PAD_CUSTOM_RAW_ROOT / "test"
 LIVE_PATH = TEST_SPLIT_ROOT / "live"
 SPOOF_PATH = TEST_SPLIT_ROOT / "spoof"
@@ -97,9 +100,10 @@ def evaluate_folder(folder_path, true_label, scaler, classifier):
 
         prediction = int(classifier.predict(features_scaled)[0])
         probabilities = classifier.predict_proba(features_scaled)[0]
+        pad_class_indices = get_pad_class_probability_indices(classifier)
 
-        prob_spoof = float(probabilities[0])
-        prob_live = float(probabilities[1])
+        prob_spoof = float(probabilities[pad_class_indices["spoof"]])
+        prob_live = float(probabilities[pad_class_indices["live"]])
 
         if prediction == 1:
             predicted_label = "live"

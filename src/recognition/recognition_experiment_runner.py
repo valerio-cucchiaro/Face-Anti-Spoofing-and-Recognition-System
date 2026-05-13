@@ -35,7 +35,18 @@ TRAIN_MODE = "custom"      # options: custom, orl, lfw, multipie, custom_orl, al
 EVAL_MODE = "custom"       # options: custom, orl, lfw, multipie, custom_orl, all
 
 
-def run(train_mode=None, eval_mode=None, crop_padding_ratio=None, lfw_sample_ratio=None):
+def run(
+    train_mode=None,
+    eval_mode=None,
+    crop_padding_ratio=None,
+    lfw_sample_ratio=None,
+    quality_filter_mode="report_only",
+    export_curves=False,
+    debug_recognition=False,
+    debug_quality=False,
+    save_system_threshold=False,
+    enable_reliability_diagnostics=False,
+):
     """
     Execute one full recognition experiment.
 
@@ -48,6 +59,12 @@ def run(train_mode=None, eval_mode=None, crop_padding_ratio=None, lfw_sample_rat
         lbph_params=None,
         crop_padding_ratio=crop_padding_ratio,
         lfw_sample_ratio=lfw_sample_ratio,
+        quality_filter_mode=quality_filter_mode,
+        export_curves=export_curves,
+        debug_recognition=debug_recognition,
+        debug_quality=debug_quality,
+        save_system_threshold=save_system_threshold,
+        enable_reliability_diagnostics=enable_reliability_diagnostics,
     )
 
 
@@ -57,6 +74,12 @@ def run_with_lbph_params(
     lbph_params=None,
     crop_padding_ratio=None,
     lfw_sample_ratio=None,
+    quality_filter_mode="report_only",
+    export_curves=False,
+    debug_recognition=False,
+    debug_quality=False,
+    save_system_threshold=False,
+    enable_reliability_diagnostics=False,
 ):
     """
     Execute a full recognition experiment with optional LBPH overrides.
@@ -72,7 +95,9 @@ def run_with_lbph_params(
     total_start_time = time.perf_counter()
     selected_lfw_sample_ratio = 1.0 if lfw_sample_ratio is None else lfw_sample_ratio
 
-    configure_recognition_preprocessing(crop_padding_ratio=crop_padding_ratio)
+    configure_recognition_preprocessing(
+        crop_padding_ratio=crop_padding_ratio,
+    )
     preprocessing_config = get_recognition_preprocessing_config()
 
     print(
@@ -87,6 +112,8 @@ def run_with_lbph_params(
         selected_train_mode,
         lbph_params=lbph_params,
         lfw_sample_ratio=selected_lfw_sample_ratio,
+        quality_filter_mode=quality_filter_mode,
+        debug_quality=debug_quality,
     )
 
     print(f"=== EVALUATION ({selected_eval_mode}) ===")
@@ -94,6 +121,12 @@ def run_with_lbph_params(
         selected_train_mode,
         selected_eval_mode,
         lfw_sample_ratio=selected_lfw_sample_ratio,
+        quality_filter_mode=quality_filter_mode,
+        export_curves=export_curves,
+        debug_recognition=debug_recognition,
+        debug_quality=debug_quality,
+        save_system_threshold=save_system_threshold,
+        enable_reliability_diagnostics=enable_reliability_diagnostics,
     )
     print(f"=== TOTAL EXPERIMENT TIME: {time.perf_counter() - total_start_time:.2f}s ===")
 
@@ -122,6 +155,38 @@ def build_arg_parser():
     parser.add_argument("--grid-y", type=int)
     parser.add_argument("--preprocess-padding-ratio", type=float)
     parser.add_argument("--lfw-sample-ratio", type=float)
+    parser.add_argument(
+        "--quality-filter-mode",
+        choices=[
+            "none",
+            "report_only",
+            "probe_only",
+        ],
+        default="report_only",
+    )
+    parser.add_argument("--export-curves", action="store_true")
+    parser.add_argument("--debug-recognition", action="store_true")
+    parser.add_argument("--debug-quality", action="store_true")
+    parser.add_argument(
+        "--enable-reliability-diagnostics",
+        action="store_true",
+        help=(
+            "Enable optional offline SRR/margin diagnostics. These reports are "
+            "not used by the live runtime decision and are disabled by default."
+        ),
+    )
+    # Preferred name reflects the actual consumer: offline system
+    # evaluation. The old runtime wording remains accepted for older notes.
+    parser.add_argument(
+        "--save-system-threshold",
+        "--save-runtime-threshold",
+        dest="save_system_threshold",
+        action="store_true",
+        help=(
+            "Save the custom-to-custom recognition threshold for offline system "
+            "evaluation. --save-runtime-threshold is kept as a legacy alias."
+        ),
+    )
     return parser
 
 
@@ -150,4 +215,10 @@ if __name__ == "__main__":
         lbph_params=lbph_params_from_args(cli_args),
         crop_padding_ratio=cli_args.preprocess_padding_ratio,
         lfw_sample_ratio=cli_args.lfw_sample_ratio,
+        quality_filter_mode=cli_args.quality_filter_mode,
+        export_curves=cli_args.export_curves,
+        debug_recognition=cli_args.debug_recognition,
+        debug_quality=cli_args.debug_quality,
+        save_system_threshold=cli_args.save_system_threshold,
+        enable_reliability_diagnostics=cli_args.enable_reliability_diagnostics,
     )

@@ -5,8 +5,11 @@ Description:
 This module implements shared quality checks for the PAD crop and the
 runtime-only stability checks used during online acquisition.
 
-The crop-quality evaluation verifies whether the crop is structurally
-valid and visually reliable enough to be used by the PAD pipeline.
+The crop-quality evaluation exposes both structural validity and
+sharpness. Offline training/evaluation loaders use the structural
+validity fields to reject malformed crops before feature extraction.
+Runtime smoothing uses the stricter history flag, which also requires
+the crop to be sharp enough.
 
 The checks include:
 - crop existence
@@ -42,12 +45,13 @@ def evaluate_pad_crop_quality(
     max_aspect_ratio=PAD_MAX_ASPECT_RATIO,
 ):
     """
-    Evaluate whether the PAD crop is structurally valid and sharp enough
-    to be used by the PAD pipeline.
+    Evaluate PAD crop structure and sharpness.
 
     The returned ``is_frame_usable_for_history`` flag combines the
-    geometric checks and the sharpness check; callers can use the
-    individual fields if they need a weaker or stricter policy.
+    geometric checks and the sharpness check for runtime temporal
+    smoothing. Offline feature extraction may intentionally use only
+    ``is_valid_crop`` so blurry but structurally valid crops remain part
+    of frame-level PAD evaluation.
     """
 
     if pad_face_crop is None or pad_face_crop.size == 0:

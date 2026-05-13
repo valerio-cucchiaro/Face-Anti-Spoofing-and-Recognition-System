@@ -40,6 +40,7 @@ class RuntimeSessionState:
         self.missing_face_counter = 0
         self.locked_movement_counter = 0
         self.locked_invalid_crop_counter = 0
+        self.locked_spoof_counter = 0
         self.live_lock_started_at = None
         self.last_stable_identity = "Unknown"
         self.last_recognition_result = {
@@ -136,6 +137,18 @@ class RuntimeSessionState:
 
         return self.locked_invalid_crop_counter
 
+    def register_locked_spoof_evidence(self, is_spoof):
+        """
+        Update the counter used by the hidden PAD re-check after live lock.
+        """
+
+        if is_spoof:
+            self.locked_spoof_counter += 1
+        else:
+            self.locked_spoof_counter = 0
+
+        return self.locked_spoof_counter
+
     def store_pad_result(self, pad_result):
         """
         Save the latest PAD state result.
@@ -167,6 +180,7 @@ class RuntimeSessionState:
         self.missing_face_counter = 0
         self.locked_movement_counter = 0
         self.locked_invalid_crop_counter = 0
+        self.locked_spoof_counter = 0
         self.live_lock_started_at = None
         self.last_stable_identity = "Unknown"
         self.last_recognition_result = {

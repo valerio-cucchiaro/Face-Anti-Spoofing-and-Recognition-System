@@ -5,7 +5,7 @@ Description:
 This module prepares the ORL face dataset for recognition experiments.
 It reads the original identity folders from the raw dataset directory
 and copies a reproducible subject-level open-set split into gallery,
-validation, and test partitions.
+validation, and final probe partitions.
 
 Known subjects are enrolled in the gallery. Unknown subjects never
 appear in the gallery and are used only as biometric impostors.
@@ -17,19 +17,18 @@ import shutil
 
 
 # ----- CONSTANTS ----- #
-ORL_RAW_DIR = Path("data/recognition/orl/raw")
-ORL_GALLERY_DIR = Path("data/recognition/orl/gallery")
-ORL_VALIDATION_KNOWN_DIR = Path("data/recognition/orl/validation_known")
-ORL_TEST_KNOWN_DIR = Path("data/recognition/orl/test_known")
-ORL_VALIDATION_UNKNOWN_DIR = Path("data/recognition/orl/validation_unknown")
-ORL_TEST_UNKNOWN_DIR = Path("data/recognition/orl/test_unknown")
-ORL_PROBE_KNOWN_DIR = Path("data/recognition/orl/probe_known")
-ORL_PROBE_UNKNOWN_DIR = Path("data/recognition/orl/probe_unknown")
-ORL_LEGACY_PROBE_DIR = Path("data/recognition/orl/probe")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ORL_ROOT = PROJECT_ROOT / "data" / "recognition" / "orl"
+ORL_RAW_DIR = ORL_ROOT / "raw"
+ORL_GALLERY_DIR = ORL_ROOT / "gallery"
+ORL_VALIDATION_KNOWN_DIR = ORL_ROOT / "validation_known"
+ORL_PROBE_KNOWN_DIR = ORL_ROOT / "probe_known"
+ORL_VALIDATION_UNKNOWN_DIR = ORL_ROOT / "validation_unknown"
+ORL_PROBE_UNKNOWN_DIR = ORL_ROOT / "probe_unknown"
 IMAGE_EXTENSION = ".pgm"
 GALLERY_IMAGE_IDS = {1, 2, 3, 4, 5}
 VALIDATION_KNOWN_IMAGE_IDS = {6, 7}
-TEST_KNOWN_IMAGE_IDS = {8, 9, 10}
+PROBE_KNOWN_IMAGE_IDS = {8, 9, 10}
 UNKNOWN_PROBE_IMAGE_IDS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 RANDOM_SEED = 42
 KNOWN_SUBJECTS = 30
@@ -39,9 +38,9 @@ VALIDATION_UNKNOWN_SUBJECTS = 5
 OUTPUT_DIRS = (
     ORL_GALLERY_DIR,
     ORL_VALIDATION_KNOWN_DIR,
-    ORL_TEST_KNOWN_DIR,
+    ORL_PROBE_KNOWN_DIR,
     ORL_VALIDATION_UNKNOWN_DIR,
-    ORL_TEST_UNKNOWN_DIR,
+    ORL_PROBE_UNKNOWN_DIR,
 )
 
 
@@ -72,15 +71,15 @@ def get_identity_id(identity_dir: Path) -> int:
 
 def copy_known_identity_split(identity_dir: Path):
     """
-    Copy one known ORL identity into gallery, validation, and test splits.
+    Copy one known ORL identity into gallery, validation, and final probe splits.
     """
     gallery_dir = ORL_GALLERY_DIR / identity_dir.name
     validation_dir = ORL_VALIDATION_KNOWN_DIR / identity_dir.name
-    test_dir = ORL_TEST_KNOWN_DIR / identity_dir.name
+    probe_dir = ORL_PROBE_KNOWN_DIR / identity_dir.name
 
     gallery_dir.mkdir(parents=True, exist_ok=True)
     validation_dir.mkdir(parents=True, exist_ok=True)
-    test_dir.mkdir(parents=True, exist_ok=True)
+    probe_dir.mkdir(parents=True, exist_ok=True)
 
     image_paths = sorted(
         [path for path in identity_dir.iterdir() if path.is_file() and path.suffix.lower() == IMAGE_EXTENSION],
@@ -98,8 +97,8 @@ def copy_known_identity_split(identity_dir: Path):
             destination = gallery_dir / image_path.name
         elif image_id in VALIDATION_KNOWN_IMAGE_IDS:
             destination = validation_dir / image_path.name
-        elif image_id in TEST_KNOWN_IMAGE_IDS:
-            destination = test_dir / image_path.name
+        elif image_id in PROBE_KNOWN_IMAGE_IDS:
+            destination = probe_dir / image_path.name
         else:
             print(f"[WARNING] Skipping unexpected ORL image id: {image_path}")
             continue
@@ -161,18 +160,11 @@ def reset_output_directories():
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    if ORL_LEGACY_PROBE_DIR.exists():
-        shutil.rmtree(ORL_LEGACY_PROBE_DIR)
-    if ORL_PROBE_KNOWN_DIR.exists():
-        shutil.rmtree(ORL_PROBE_KNOWN_DIR)
-    if ORL_PROBE_UNKNOWN_DIR.exists():
-        shutil.rmtree(ORL_PROBE_UNKNOWN_DIR)
-
-
 def prepare_orl_gallery_probe():
     """
     Create gallery and known/unknown probe splits from the raw ORL dataset.
     """
+    print("====== START ORL DATASET SPLIT ======")
     if not ORL_RAW_DIR.exists():
         raise FileNotFoundError(f"Missing ORL raw dataset directory: {ORL_RAW_DIR}")
 
@@ -197,21 +189,22 @@ def prepare_orl_gallery_probe():
         copy_known_identity_split(identity_dir)
 
     validation_unknown_dirs = unknown_dirs[:VALIDATION_UNKNOWN_SUBJECTS]
-    test_unknown_dirs = unknown_dirs[VALIDATION_UNKNOWN_SUBJECTS:]
+    probe_unknown_dirs = unknown_dirs[VALIDATION_UNKNOWN_SUBJECTS:]
 
     for identity_dir in validation_unknown_dirs:
         copy_unknown_identity_split(identity_dir, ORL_VALIDATION_UNKNOWN_DIR)
 
-    for identity_dir in test_unknown_dirs:
-        copy_unknown_identity_split(identity_dir, ORL_TEST_UNKNOWN_DIR)
+    for identity_dir in probe_unknown_dirs:
+        copy_unknown_identity_split(identity_dir, ORL_PROBE_UNKNOWN_DIR)
 
     print(f"Known identities: {len(known_dirs)}")
     print(f"Unknown identities: {len(unknown_dirs)}")
     print(f"Gallery images: {len(known_dirs) * len(GALLERY_IMAGE_IDS)}")
     print(f"Validation known images: {len(known_dirs) * len(VALIDATION_KNOWN_IMAGE_IDS)}")
-    print(f"Test known images: {len(known_dirs) * len(TEST_KNOWN_IMAGE_IDS)}")
+    print(f"Final probe known images: {len(known_dirs) * len(PROBE_KNOWN_IMAGE_IDS)}")
     print(f"Validation unknown images: {len(validation_unknown_dirs) * len(UNKNOWN_PROBE_IMAGE_IDS)}")
-    print(f"Test unknown images: {len(test_unknown_dirs) * len(UNKNOWN_PROBE_IMAGE_IDS)}")
+    print(f"Final probe unknown images: {len(probe_unknown_dirs) * len(UNKNOWN_PROBE_IMAGE_IDS)}")
+    print("====== END ORL DATASET SPLIT ======")
 
 
 def main():

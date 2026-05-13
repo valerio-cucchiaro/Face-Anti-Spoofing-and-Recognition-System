@@ -14,6 +14,7 @@ class DummyClassifier:
     def __init__(self, prediction, probabilities):
         self._prediction = prediction
         self._probabilities = probabilities
+        self.classes_ = np.array([0, 1])
 
     def predict(self, features):
         return [self._prediction]
@@ -32,6 +33,21 @@ def build_detector(prediction=1, probabilities=(0.1, 0.9), expected_dim=124):
         "pad_lft_mode": "ggd_light",
     }
     return detector
+
+
+def assert_prediction_result_contract(result):
+    required_keys = {
+        "status",
+        "prediction",
+        "label",
+        "score",
+        "timings_ms",
+        "live_score",
+        "prediction_label",
+        "probability_label",
+        "prediction_probability_mismatch",
+    }
+    assert required_keys.issubset(result.keys())
 
 
 def test_predict_returns_invalid_input_for_empty_features(monkeypatch):
@@ -78,7 +94,11 @@ def test_predict_returns_live_label(monkeypatch):
     assert result["label"] == "live"
     assert result["prediction"] == 1
     assert result["score"] == pytest.approx(0.8)
-    assert set(result.keys()) == {"status", "prediction", "label", "score", "timings_ms"}
+    assert_prediction_result_contract(result)
+    assert result["live_score"] == pytest.approx(0.8)
+    assert result["prediction_label"] == "live"
+    assert result["probability_label"] == "live"
+    assert result["prediction_probability_mismatch"] is False
 
 
 def test_predict_returns_spoof_label(monkeypatch):
@@ -96,7 +116,11 @@ def test_predict_returns_spoof_label(monkeypatch):
     assert result["label"] == "spoof"
     assert result["prediction"] == 0
     assert result["score"] == pytest.approx(0.9)
-    assert set(result.keys()) == {"status", "prediction", "label", "score", "timings_ms"}
+    assert_prediction_result_contract(result)
+    assert result["live_score"] == pytest.approx(0.1)
+    assert result["prediction_label"] == "spoof"
+    assert result["probability_label"] == "spoof"
+    assert result["prediction_probability_mismatch"] is False
 
 
 def test_predict_propagates_feature_extractor_error(monkeypatch):
@@ -115,6 +139,46 @@ def test_predict_propagates_feature_extractor_error(monkeypatch):
         detector.predict(face_image=np.zeros((128, 128), dtype=np.uint8))
 
 
+def test_predict_safe_returns_unknown_on_feature_extractor_error(monkeypatch):
+    detector = build_detector()
+
+    def raising_extractor(face_image):
+        raise RuntimeError("feature extraction failed")
+
+    monkeypatch.setattr(
+        detector_module,
+        "extract_pad_features_from_crop_with_timing",
+        raising_extractor,
+    )
+
+    result = detector.predict_safe(face_image=np.zeros((128, 128), dtype=np.uint8))
+
+    assert result["status"] == "predict_failed"
+    assert result["prediction"] is None
+    assert result["label"] == "unknown"
+    assert result["score"] is None
+    assert result["error"] == "feature extraction failed"
+    assert result["timings_ms"] == {}
+
+
+def test_predict_safe_returns_unknown_on_feature_dim_mismatch(monkeypatch):
+    detector = build_detector(expected_dim=126)
+
+    monkeypatch.setattr(
+        detector_module,
+        "extract_pad_features_from_crop_with_timing",
+        lambda face_image: (np.array([1.0] * 124, dtype=np.float32), {"feature_total": 1.0}),
+    )
+
+    result = detector.predict_safe(face_image=None)
+
+    assert result["status"] == "predict_failed"
+    assert result["prediction"] is None
+    assert result["label"] == "unknown"
+    assert result["score"] is None
+    assert "feature mismatch" in result["error"]
+
+
 def test_predict_with_real_feature_extractor_and_dummy_model(sharp_gray_face):
     detector = build_detector(prediction=1, probabilities=(0.2, 0.8))
 
@@ -124,4 +188,8 @@ def test_predict_with_real_feature_extractor_and_dummy_model(sharp_gray_face):
     assert result["label"] == "live"
     assert result["prediction"] == 1
     assert result["score"] == pytest.approx(0.8)
-    assert set(result.keys()) == {"status", "prediction", "label", "score", "timings_ms"}
+    assert_prediction_result_contract(result)
+    assert result["live_score"] == pytest.approx(0.8)
+    assert result["prediction_label"] == "live"
+    assert result["probability_label"] == "live"
+    assert result["prediction_probability_mismatch"] is False

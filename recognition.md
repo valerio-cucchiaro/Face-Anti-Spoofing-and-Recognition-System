@@ -21,9 +21,9 @@
   - normalizzazione: `equalize`
   - crop padding ratio: `0.10`
 - artefatti canonici:
-  - `models/lbph_model.xml`
-  - `models/label_map.pkl`
-  - `models/recognition_config.json`
+  - `models/recognition/lbph_model.xml`
+  - `models/recognition/label_map.pkl`
+  - `models/recognition/system_recognition_threshold_config.json`
 
 ### Threshold attuali
 
@@ -37,11 +37,11 @@
   - vengono scelte sui branch `validation_known` / `validation_unknown`
     del dataset valutato
   - vengono poi applicate solo ai branch `test_known` / `test_unknown`
-- ultima soglia offline salvata in `models/recognition_config.json`:
-  - distance threshold: `27.7370`
+- ultima soglia system-evaluation salvata in `models/recognition/system_recognition_threshold_config.json`:
+  - distance threshold: `30.6934`
   - reliability mode: `margin`
-  - margin threshold: `3.0204`
-  - source: `orl_to_orl_validation`
+  - margin threshold: `6.3704`
+  - source: `custom_to_custom_validation`
 
 Nota:
 

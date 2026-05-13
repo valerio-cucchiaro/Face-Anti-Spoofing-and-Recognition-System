@@ -389,6 +389,18 @@ def _default_recognition_metrics_root():
     return Path(__file__).resolve().parents[2] / "logs" / "metrics" / "recognition"
 
 
+def _recognition_official_root(output_root):
+    return Path(output_root) / "official"
+
+
+def _recognition_curves_root(output_root):
+    return Path(output_root) / "curves"
+
+
+def _recognition_debug_root(output_root):
+    return Path(output_root) / "debug"
+
+
 def _json_ready_report(report):
     """
     Convert the in-memory recognition report into a JSON-serializable object.
@@ -418,6 +430,7 @@ def _json_ready_report(report):
         "doddington_analysis": doddington_analysis,
         "srr_analysis": srr_analysis,
         "reliability_gated_report": reliability_gated_report,
+        "export_paths": report.get("export_paths"),
         "sweep_results": {
             "thresholds": report.get("sweep_results", {}).get("thresholds", []),
             "roc_points": report.get("sweep_results", {}).get("roc_points", []),
@@ -432,6 +445,22 @@ def _write_csv(path, rows, fieldnames):
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def rewrite_recognition_metrics_json(report):
+    """
+    Rewrite the recognition JSON after late export paths are attached.
+    """
+
+    export_paths = report.get("export_paths", {})
+    json_path = export_paths.get("json")
+    if not json_path:
+        return None
+
+    with open(json_path, "w", encoding="utf-8") as file:
+        json.dump(_json_ready_report(report), file, indent=2)
+
+    return json_path
 
 
 def _chi_square_alt_distance_matrix(gallery_matrix, probe_histogram):
@@ -1540,6 +1569,8 @@ def export_recognition_metrics_report(
     output_stem,
     output_root=None,
     evaluation_scope="probe",
+    export_curves=False,
+    debug_recognition=False,
 ):
     """
     Export report-ready recognition metrics as JSON and CSV artifacts.
@@ -1555,19 +1586,19 @@ def export_recognition_metrics_report(
     else:
         output_root = Path(output_root)
 
-    output_root.mkdir(parents=True, exist_ok=True)
+    official_root = _recognition_official_root(output_root)
+    curves_root = _recognition_curves_root(output_root)
+    debug_root = _recognition_debug_root(output_root)
+    official_root.mkdir(parents=True, exist_ok=True)
 
-    json_path = output_root / f"{output_stem}_metrics_report.json"
-    summary_csv_path = output_root / f"{output_stem}_threshold_summary.csv"
-    roc_csv_path = output_root / f"{output_stem}_roc_points.csv"
-    det_csv_path = output_root / f"{output_stem}_det_points.csv"
+    json_path = official_root / f"{output_stem}_metrics_report.json"
+    summary_csv_path = official_root / f"{output_stem}_threshold_summary.csv"
+    roc_csv_path = curves_root / f"{output_stem}_roc_points.csv"
+    det_csv_path = curves_root / f"{output_stem}_det_points.csv"
     pairwise_tag = f"all_gallery_vs_all_{evaluation_scope}"
-    pairwise_csv_path = output_root / f"{output_stem}_{pairwise_tag}_matrix.csv"
-    doddington_csv_path = output_root / f"{output_stem}_doddington_zoo.csv"
-    srr_csv_path = output_root / f"{output_stem}_system_response_reliability.csv"
-
-    with open(json_path, "w", encoding="utf-8") as file:
-        json.dump(_json_ready_report(report), file, indent=2)
+    pairwise_csv_path = debug_root / f"{output_stem}_{pairwise_tag}_matrix.csv"
+    doddington_csv_path = debug_root / f"{output_stem}_doddington_zoo.csv"
+    srr_csv_path = debug_root / f"{output_stem}_system_response_reliability.csv"
 
     summary_rows = []
     threshold_summary = report.get("threshold_summary", {})
@@ -1610,16 +1641,18 @@ def export_recognition_metrics_report(
         ],
     )
 
-    _write_csv(
-        roc_csv_path,
-        report.get("sweep_results", {}).get("roc_points", []),
-        ["threshold", "far", "gar"],
-    )
-    _write_csv(
-        det_csv_path,
-        report.get("sweep_results", {}).get("det_points", []),
-        ["threshold", "far", "frr"],
-    )
+    if export_curves:
+        curves_root.mkdir(parents=True, exist_ok=True)
+        _write_csv(
+            roc_csv_path,
+            report.get("sweep_results", {}).get("roc_points", []),
+            ["threshold", "far", "gar"],
+        )
+        _write_csv(
+            det_csv_path,
+            report.get("sweep_results", {}).get("det_points", []),
+            ["threshold", "far", "frr"],
+        )
 
     pairwise_analysis = report.get("pairwise_analysis", {})
     pairwise_rows = pairwise_analysis.get("rows", []) if pairwise_analysis else []
@@ -1628,7 +1661,8 @@ def export_recognition_metrics_report(
     preview_csv_exported = False
     doddington_csv_exported = False
     srr_csv_exported = False
-    if pairwise_analysis.get("available") and pairwise_rows:
+    if debug_recognition and pairwise_analysis.get("available") and pairwise_rows:
+        debug_root.mkdir(parents=True, exist_ok=True)
         identity_columns = pairwise_analysis.get("identity_columns", [])
         pairwise_fieldnames = [
             "probe_index",
@@ -1652,7 +1686,7 @@ def export_recognition_metrics_report(
 
     cms_curve = pairwise_analysis.get("cms_curve", {}) if pairwise_analysis else {}
     cms_points = cms_curve.get("points", []) if cms_curve else []
-    cms_csv_path = output_root / f"{output_stem}_{pairwise_tag}_cms_points.csv"
+    cms_csv_path = official_root / f"{output_stem}_{pairwise_tag}_cms_points.csv"
     if cms_curve.get("available") and cms_points:
         _write_csv(
             cms_csv_path,
@@ -1662,8 +1696,9 @@ def export_recognition_metrics_report(
         cms_csv_exported = True
 
     preview_rows = pairwise_analysis.get("preview_rows", []) if pairwise_analysis else []
-    preview_csv_path = output_root / f"{output_stem}_{pairwise_tag}_preview.csv"
-    if pairwise_analysis.get("available") and preview_rows:
+    preview_csv_path = debug_root / f"{output_stem}_{pairwise_tag}_preview.csv"
+    if debug_recognition and pairwise_analysis.get("available") and preview_rows:
+        debug_root.mkdir(parents=True, exist_ok=True)
         _write_csv(
             preview_csv_path,
             preview_rows,
@@ -1691,7 +1726,8 @@ def export_recognition_metrics_report(
     doddington_rows = (
         doddington_analysis.get("per_identity", []) if doddington_analysis else []
     )
-    if doddington_analysis.get("available") and doddington_rows:
+    if debug_recognition and doddington_analysis.get("available") and doddington_rows:
+        debug_root.mkdir(parents=True, exist_ok=True)
         _write_csv(
             doddington_csv_path,
             [
@@ -1758,7 +1794,8 @@ def export_recognition_metrics_report(
 
     srr_analysis = report.get("srr_analysis") or {}
     srr_rows = srr_analysis.get("per_probe", []) if srr_analysis else []
-    if srr_analysis.get("available") and srr_rows:
+    if debug_recognition and srr_analysis.get("available") and srr_rows:
+        debug_root.mkdir(parents=True, exist_ok=True)
         _write_csv(
             srr_csv_path,
             srr_rows,
@@ -1790,9 +1827,10 @@ def export_recognition_metrics_report(
     export_paths = {
         "json": str(json_path),
         "summary_csv": str(summary_csv_path),
-        "roc_csv": str(roc_csv_path),
-        "det_csv": str(det_csv_path),
     }
+    if export_curves:
+        export_paths["roc_csv"] = str(roc_csv_path)
+        export_paths["det_csv"] = str(det_csv_path)
     if pairwise_csv_exported:
         export_paths[f"{pairwise_tag}_csv"] = str(pairwise_csv_path)
     if cms_csv_exported:
@@ -1803,5 +1841,8 @@ def export_recognition_metrics_report(
         export_paths["doddington_zoo_csv"] = str(doddington_csv_path)
     if srr_csv_exported:
         export_paths["system_response_reliability_csv"] = str(srr_csv_path)
+
+    report["export_paths"] = export_paths
+    rewrite_recognition_metrics_json(report)
 
     return export_paths

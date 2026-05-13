@@ -38,7 +38,7 @@ from src.preprocessing.frame_preprocessing import get_valid_face
 
 
 # ----- CASIA DATASET ----- #
-CASIA_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "casia_pad"
+CASIA_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad" / "casia_pad"
 
 TRAIN_LIVE_PATH = CASIA_ROOT / "train" / "live"
 TRAIN_SPOOF_PATH = CASIA_ROOT / "train" / "spoof"
@@ -46,7 +46,7 @@ TEST_LIVE_PATH = CASIA_ROOT / "test" / "live"
 TEST_SPOOF_PATH = CASIA_ROOT / "test" / "spoof"
 
 # ----- REPLAY ATTACK DATASET ----- #
-REPLAY_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "replay_attack_pad"
+REPLAY_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad" / "replay_attack_pad"
 
 REPLAY_TRAIN_LIVE_PATH = REPLAY_ROOT / "train" / "live"
 REPLAY_TRAIN_SPOOF_PATH = REPLAY_ROOT / "train" / "spoof"
@@ -54,7 +54,7 @@ REPLAY_TEST_LIVE_PATH = REPLAY_ROOT / "test" / "live"
 REPLAY_TEST_SPOOF_PATH = REPLAY_ROOT / "test" / "spoof"
 
 # ----- CUSTOM PAD DATASET ----- #
-PAD_CUSTOM_RAW_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad_custom_raw"
+PAD_CUSTOM_RAW_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pad" / "pad_custom_raw"
 
 CUSTOM_TRAIN_LIVE_PATH = PAD_CUSTOM_RAW_ROOT / "train" / "live"
 CUSTOM_TRAIN_SPOOF_PATH = PAD_CUSTOM_RAW_ROOT / "train" / "spoof"
@@ -656,9 +656,10 @@ def load_pad_split_dataset(
     filtering, and feature extraction the final valid sample counts
     can still become unbalanced.
 
-    The shared quality gate applies only to the crop loading path
-    selected by ``apply_quality_gate``; it does not duplicate the
-    live pipeline history gate.
+    The shared quality gate applies only to structural crop validity in
+    the loading path selected by ``apply_quality_gate``; it does not
+    duplicate the runtime history gate, which also requires sharpness and
+    bounding-box stability before updating temporal smoothing.
     """
 
     features = []

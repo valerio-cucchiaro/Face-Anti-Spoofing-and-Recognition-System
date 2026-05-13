@@ -8,8 +8,8 @@ recognition training and evaluation pipeline.
 It supports the custom, ORL, LFW, and Multi-PIE recognition datasets and can
 load them individually or combine them when required by an experiment.
 Gallery images are used for training, while open-set evaluation data is
-separated into validation and test splits for threshold selection and
-final metrics.
+separated into validation and final probe splits for threshold selection
+and final metrics.
 
 The supported experiment modes are intentionally explicit:
 - `custom`, `orl`, `lfw`, `multipie`: single-dataset runs
@@ -36,6 +36,18 @@ from src.preprocessing.face_preprocessing import (
     preprocess_face_for_recognition,
     preprocess_loaded_face_for_recognition,
 )
+from src.recognition.recognition_quality_filter import (
+    assess_recognition_sample_quality,
+    build_quality_record,
+    export_quality_debug_record,
+    export_quality_threshold_summary,
+    export_quality_records,
+    export_quality_split_summary,
+    format_quality_summary,
+    normalize_quality_filter_mode,
+    save_quality_debug_image,
+    should_reject_quality_record,
+)
 
 
 # ----- CONSTANTS ----- #
@@ -50,46 +62,35 @@ DATASET_SPLIT_DIRS = {
     "orl": {
         "gallery": RECOGNITION_ROOT / "orl" / "gallery",
         "validation_known": RECOGNITION_ROOT / "orl" / "validation_known",
-        "test_known": RECOGNITION_ROOT / "orl" / "test_known",
-        "validation_unknown": RECOGNITION_ROOT / "orl" / "validation_unknown",
-        "test_unknown": RECOGNITION_ROOT / "orl" / "test_unknown",
         "probe_known": RECOGNITION_ROOT / "orl" / "probe_known",
+        "validation_unknown": RECOGNITION_ROOT / "orl" / "validation_unknown",
         "probe_unknown": RECOGNITION_ROOT / "orl" / "probe_unknown",
     },
     "lfw": {
         "gallery": RECOGNITION_ROOT / "lfw" / "gallery",
         "validation_known": RECOGNITION_ROOT / "lfw" / "validation_known",
-        "test_known": RECOGNITION_ROOT / "lfw" / "test_known",
-        "validation_unknown": RECOGNITION_ROOT / "lfw" / "validation_unknown",
-        "test_unknown": RECOGNITION_ROOT / "lfw" / "test_unknown",
         "probe_known": RECOGNITION_ROOT / "lfw" / "probe_known",
+        "validation_unknown": RECOGNITION_ROOT / "lfw" / "validation_unknown",
         "probe_unknown": RECOGNITION_ROOT / "lfw" / "probe_unknown",
     },
     "multipie": {
         "gallery": RECOGNITION_ROOT / "multipie" / "gallery",
         "validation_known_hr": RECOGNITION_ROOT / "multipie" / "validation_known_hr",
-        "test_known_hr": RECOGNITION_ROOT / "multipie" / "test_known_hr",
-        "validation_unknown_hr": RECOGNITION_ROOT / "multipie" / "validation_unknown_hr",
-        "test_unknown_hr": RECOGNITION_ROOT / "multipie" / "test_unknown_hr",
-        "validation_known_lr": RECOGNITION_ROOT / "multipie" / "validation_known_lr",
-        "test_known_lr": RECOGNITION_ROOT / "multipie" / "test_known_lr",
-        "validation_unknown_lr": RECOGNITION_ROOT / "multipie" / "validation_unknown_lr",
-        "test_unknown_lr": RECOGNITION_ROOT / "multipie" / "test_unknown_lr",
         "probe_known_hr": RECOGNITION_ROOT / "multipie" / "probe_known_hr",
-        "probe_known_lr": RECOGNITION_ROOT / "multipie" / "probe_known_lr",
+        "validation_unknown_hr": RECOGNITION_ROOT / "multipie" / "validation_unknown_hr",
         "probe_unknown_hr": RECOGNITION_ROOT / "multipie" / "probe_unknown_hr",
+        "validation_known_lr": RECOGNITION_ROOT / "multipie" / "validation_known_lr",
+        "probe_known_lr": RECOGNITION_ROOT / "multipie" / "probe_known_lr",
+        "validation_unknown_lr": RECOGNITION_ROOT / "multipie" / "validation_unknown_lr",
         "probe_unknown_lr": RECOGNITION_ROOT / "multipie" / "probe_unknown_lr",
     },
 }
 CUSTOM_PROBE_SPLITS = ("probe_known", "probe_unknown")
 VALIDATED_OPEN_SET_SPLITS = {
     "validation": ("validation_known", "validation_unknown"),
-    "test": ("test_known", "test_unknown"),
     "validation_known": ("validation_known",),
-    "test_known": ("test_known",),
     "validation_unknown": ("validation_unknown",),
-    "test_unknown": ("test_unknown",),
-    "probe": ("test_known", "test_unknown"),
+    "probe": ("probe_known", "probe_unknown"),
     "probe_known": ("probe_known",),
     "probe_unknown": ("probe_unknown",),
 }
@@ -100,35 +101,23 @@ MULTIPIE_PROBE_SPLITS = {
         "validation_known_lr",
         "validation_unknown_lr",
     ),
-    "test": (
-        "test_known_hr",
-        "test_unknown_hr",
-        "test_known_lr",
-        "test_unknown_lr",
-    ),
     "validation_hr": ("validation_known_hr", "validation_unknown_hr"),
-    "test_hr": ("test_known_hr", "test_unknown_hr"),
     "validation_lr": ("validation_known_lr", "validation_unknown_lr"),
-    "test_lr": ("test_known_lr", "test_unknown_lr"),
     "probe": (
-        "test_known_hr",
-        "test_unknown_hr",
-        "test_known_lr",
-        "test_unknown_lr",
+        "probe_known_hr",
+        "probe_unknown_hr",
+        "probe_known_lr",
+        "probe_unknown_lr",
     ),
-    "probe_hr": ("test_known_hr", "test_unknown_hr"),
-    "probe_lr": ("test_known_lr", "test_unknown_lr"),
+    "probe_hr": ("probe_known_hr", "probe_unknown_hr"),
+    "probe_lr": ("probe_known_lr", "probe_unknown_lr"),
     "validation_known_hr": ("validation_known_hr",),
-    "test_known_hr": ("test_known_hr",),
     "validation_unknown_hr": ("validation_unknown_hr",),
-    "test_unknown_hr": ("test_unknown_hr",),
     "validation_known_lr": ("validation_known_lr",),
-    "test_known_lr": ("test_known_lr",),
     "validation_unknown_lr": ("validation_unknown_lr",),
-    "test_unknown_lr": ("test_unknown_lr",),
     "probe_known_hr": ("probe_known_hr",),
-    "probe_known_lr": ("probe_known_lr",),
     "probe_unknown_hr": ("probe_unknown_hr",),
+    "probe_known_lr": ("probe_known_lr",),
     "probe_unknown_lr": ("probe_unknown_lr",),
 }
 VALID_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pgm"}
@@ -225,17 +214,22 @@ def build_identity_name(dataset_name, person_name, namespace_identities=False):
     return person_name
 
 
-def normalize_identity_name(identity_name):
+def normalize_identity_name(identity_name, preserve_namespace=False):
     """
     Normalize an identity label to its canonical comparison form.
 
-    Dataset prefixes such as ``custom:`` are removed so identities can
-    be compared consistently across training and evaluation.
+    Single-dataset experiments keep the historical behavior and remove
+    dataset prefixes. Combined experiments can preserve the namespace so
+    labels such as ``orl:s1`` and ``custom:s1`` remain distinct.
     """
     if identity_name is None:
         return None
 
-    return identity_name.split(":", 1)[-1].strip().lower()
+    normalized_identity_name = identity_name.strip().lower()
+    if preserve_namespace:
+        return normalized_identity_name
+
+    return normalized_identity_name.split(":", 1)[-1]
 
 
 def resolve_split_names(dataset_name, split):
@@ -271,19 +265,12 @@ def resolve_split_names(dataset_name, split):
 
         if split in VALIDATED_OPEN_SET_SPLITS:
             concrete_splits = list(VALIDATED_OPEN_SET_SPLITS[split])
-            missing_new_splits = [
-                concrete_split
-                for concrete_split in concrete_splits
-                if not DATASET_SPLIT_DIRS[dataset_name][concrete_split].exists()
-            ]
-            if missing_new_splits and split in {"probe_known", "probe_unknown"}:
-                return [split]
             return concrete_splits
 
         raise ValueError(
             f"Unsupported split for {dataset_name} dataset: {split}. "
-            "Use 'gallery', 'validation', 'test', 'validation_known', "
-            "'test_known', 'validation_unknown', 'test_unknown', or 'probe'."
+            "Use 'gallery', 'validation', 'validation_known', "
+            "'validation_unknown', 'probe', 'probe_known', or 'probe_unknown'."
         )
 
     if dataset_name == "multipie":
@@ -295,8 +282,8 @@ def resolve_split_names(dataset_name, split):
 
         raise ValueError(
             f"Unsupported split for Multi-PIE dataset: {split}. "
-            "Use 'gallery', 'validation', 'test', 'validation_hr', 'test_hr', "
-            "'validation_lr', 'test_lr', or the concrete known/unknown HR/LR splits."
+            "Use 'gallery', 'validation', 'validation_hr', 'validation_lr', "
+            "'probe', 'probe_hr', 'probe_lr', or the concrete known/unknown HR/LR splits."
         )
 
     if split in {"gallery", "probe"}:
@@ -312,8 +299,8 @@ def get_split_directories(mode, split):
     """
     Resolve the selected datasets to their gallery or probe directories.
 
-    Open-set datasets support explicit validation/test splits in addition
-    to the generic ``probe`` compatibility alias.
+    Open-set datasets support explicit validation splits and final probe
+    splits in addition to the generic ``probe`` alias.
     """
     dataset_dirs = []
 
@@ -334,17 +321,24 @@ def get_split_directories(mode, split):
 def load_images_from_identity_dir(
     identity_dir,
     dataset_name,
+    split_name="gallery",
     detector=None,
     collect_pose_metrics=False,
     pose_summary=None,
     face_mesh=None,
     sample_ratio=1.0,
     sample_seed=None,
+    quality_records=None,
+    quality_debug_counts=None,
+    quality_filter_mode="report_only",
+    debug_quality=False,
 ):
     """
     Load all valid images from one identity directory.
     """
-    images = []
+    candidates = []
+    normalized_quality_filter_mode = normalize_quality_filter_mode(quality_filter_mode)
+    quality_enabled = normalized_quality_filter_mode != "none"
     image_paths = [
         image_path
         for image_path in sorted(identity_dir.iterdir(), key=lambda path: path.name)
@@ -358,7 +352,7 @@ def load_images_from_identity_dir(
             seed=sample_seed,
         )
 
-    for image_path in image_paths:
+    for image_index, image_path in enumerate(image_paths, start=1):
 
         if dataset_name == "custom":
             image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
@@ -390,29 +384,71 @@ def load_images_from_identity_dir(
                 w,
                 h,
             )
-            if collect_pose_metrics:
-                pose_metrics = _compute_pose_metrics_for_loaded_image(
-                    dataset_name,
-                    image,
-                    face_mesh,
-                    face_rect=face_rect,
-                )
-                update_pose_summary(pose_summary, pose_metrics)
+            pose_face_rect = face_rect
         else:
-            preprocessed_image = preprocess_loaded_face_for_recognition(image)
-            if collect_pose_metrics:
-                pose_metrics = _compute_pose_metrics_for_loaded_image(
-                    dataset_name,
+            preprocessed_image = preprocess_loaded_face_for_recognition(
+                image,
+            )
+            pose_face_rect = None
+
+        pose_metrics = None
+        if collect_pose_metrics:
+            pose_metrics = _compute_pose_metrics_for_loaded_image(
+                dataset_name,
+                image,
+                face_mesh,
+                face_rect=pose_face_rect,
+            )
+            update_pose_summary(pose_summary, pose_metrics)
+
+        quality_record = None
+        if quality_enabled:
+            quality_result = assess_recognition_sample_quality(image, pose_metrics)
+            quality_record = build_quality_record(
+                dataset_name,
+                split_name,
+                identity_dir.name,
+                image_index,
+                image_path,
+                quality_result,
+            )
+            if quality_records is not None:
+                quality_records.append(quality_record)
+            if debug_quality and quality_debug_counts is not None:
+                debug_image_path = save_quality_debug_image(
+                    quality_record,
                     image,
-                    face_mesh,
+                    quality_debug_counts,
                 )
-                update_pose_summary(pose_summary, pose_metrics)
+                export_quality_debug_record(quality_record, debug_image_path)
+
         if preprocessed_image is None:
             continue
+        candidates.append(
+            {
+                "path": image_path,
+                "image": preprocessed_image,
+                "quality_record": quality_record,
+            }
+        )
 
-        images.append((image_path, preprocessed_image))
+    if quality_enabled:
+        kept_candidates = [
+            candidate
+            for candidate in candidates
+            if not should_reject_quality_record(
+                candidate["quality_record"],
+                mode=normalized_quality_filter_mode,
+                split_name=split_name,
+            )
+        ]
+    else:
+        kept_candidates = candidates
 
-    return images
+    return [
+        (candidate["path"], candidate["image"])
+        for candidate in kept_candidates
+    ]
 
 
 def load_gallery_dataset(
@@ -420,6 +456,8 @@ def load_gallery_dataset(
     collect_pose_metrics=False,
     lfw_sample_ratio=LFW_SAMPLE_RATIO,
     lfw_sample_seed=TRAIN_SAMPLING_SEED,
+    quality_filter_mode="report_only",
+    debug_quality=False,
 ):
     """
     Load one or more gallery datasets for recognition training.
@@ -430,10 +468,18 @@ def load_gallery_dataset(
     label_map = {}
     dataset_counts = {}
     pose_summary = create_pose_summary() if collect_pose_metrics else None
+    normalized_quality_filter_mode = normalize_quality_filter_mode(quality_filter_mode)
+    quality_enabled = normalized_quality_filter_mode != "none"
+    quality_records = [] if quality_enabled else None
+    quality_debug_counts = {} if quality_enabled and debug_quality else None
     custom_detector = (
         load_mediapipe_detector() if "custom" in resolve_dataset_names(mode) else None
     )
-    face_mesh = load_mediapipe_face_mesh() if collect_pose_metrics else None
+    face_mesh = (
+        load_mediapipe_face_mesh(static_image_mode=True)
+        if collect_pose_metrics
+        else None
+    )
 
     try:
         for dataset_name, _split_name, gallery_dir in get_split_directories(mode, "gallery"):
@@ -454,17 +500,25 @@ def load_gallery_dataset(
                     person_dir.name,
                     namespace_identities=namespace_identities,
                 )
-                normalized_identity_name = normalize_identity_name(identity_name)
+                normalized_identity_name = normalize_identity_name(
+                    identity_name,
+                    preserve_namespace=namespace_identities,
+                )
 
                 identity_images = load_images_from_identity_dir(
                     person_dir,
                     dataset_name=dataset_name,
+                    split_name="gallery",
                     detector=custom_detector,
                     collect_pose_metrics=collect_pose_metrics,
                     pose_summary=pose_summary,
                     face_mesh=face_mesh,
                     sample_ratio=lfw_sample_ratio,
                     sample_seed=lfw_sample_seed,
+                    quality_records=quality_records,
+                    quality_debug_counts=quality_debug_counts,
+                    quality_filter_mode=quality_filter_mode,
+                    debug_quality=debug_quality,
                 )
 
                 if not identity_images:
@@ -493,6 +547,22 @@ def load_gallery_dataset(
                     f"seed={lfw_sample_seed}"
                 )
     finally:
+        if quality_enabled:
+            split_summary_path = export_quality_split_summary(
+                quality_records,
+                quality_filter_mode=quality_filter_mode,
+            )
+            report_path = export_quality_records(quality_records) if debug_quality else None
+            threshold_summary_path = (
+                export_quality_threshold_summary() if debug_quality else None
+            )
+            print(format_quality_summary(quality_records, title="Gallery quality summary:"))
+            if report_path is not None:
+                print("Recognition quality report:", report_path)
+            if split_summary_path is not None:
+                print("Recognition quality split summary:", split_summary_path)
+            if threshold_summary_path is not None:
+                print("Recognition quality thresholds:", threshold_summary_path)
         if face_mesh is not None and hasattr(face_mesh, "close"):
             face_mesh.close()
 
@@ -506,21 +576,31 @@ def load_probe_dataset(
     collect_pose_metrics=False,
     lfw_sample_ratio=LFW_SAMPLE_RATIO,
     lfw_sample_seed=TRAIN_SAMPLING_SEED,
+    quality_filter_mode="report_only",
+    debug_quality=False,
 ):
     """
     Load one or more probe datasets for recognition evaluation.
 
     For public open-set datasets, ``validation`` is used for threshold
-    selection and ``test`` is used for final metrics. Passing one of the
+    selection and ``probe`` is used for final metrics. Passing one of the
     explicit split names loads only that branch.
     """
     probe_records = []
     dataset_counts = {}
     pose_summary = create_pose_summary() if collect_pose_metrics else None
+    normalized_quality_filter_mode = normalize_quality_filter_mode(quality_filter_mode)
+    quality_enabled = normalized_quality_filter_mode != "none"
+    quality_records = [] if quality_enabled else None
+    quality_debug_counts = {} if quality_enabled and debug_quality else None
     custom_detector = (
         load_mediapipe_detector() if "custom" in resolve_dataset_names(mode) else None
     )
-    face_mesh = load_mediapipe_face_mesh() if collect_pose_metrics else None
+    face_mesh = (
+        load_mediapipe_face_mesh(static_image_mode=True)
+        if collect_pose_metrics
+        else None
+    )
 
     try:
         for dataset_name, split_name, probe_dir in get_split_directories(mode, split):
@@ -546,12 +626,17 @@ def load_probe_dataset(
                 identity_images = load_images_from_identity_dir(
                     person_dir,
                     dataset_name=dataset_name,
+                    split_name=split_name,
                     detector=custom_detector,
                     collect_pose_metrics=collect_pose_metrics,
                     pose_summary=pose_summary,
                     face_mesh=face_mesh,
                     sample_ratio=lfw_sample_ratio,
                     sample_seed=lfw_sample_seed,
+                    quality_records=quality_records,
+                    quality_debug_counts=quality_debug_counts,
+                    quality_filter_mode=quality_filter_mode,
+                    debug_quality=debug_quality,
                 )
                 identity_count += 1
 
@@ -581,6 +666,22 @@ def load_probe_dataset(
                     f"seed={lfw_sample_seed}"
                 )
     finally:
+        if quality_enabled:
+            split_summary_path = export_quality_split_summary(
+                quality_records,
+                quality_filter_mode=quality_filter_mode,
+            )
+            report_path = export_quality_records(quality_records) if debug_quality else None
+            threshold_summary_path = (
+                export_quality_threshold_summary() if debug_quality else None
+            )
+            print(format_quality_summary(quality_records, title="Probe quality summary:"))
+            if report_path is not None:
+                print("Recognition quality report:", report_path)
+            if split_summary_path is not None:
+                print("Recognition quality split summary:", split_summary_path)
+            if threshold_summary_path is not None:
+                print("Recognition quality thresholds:", threshold_summary_path)
         if face_mesh is not None and hasattr(face_mesh, "close"):
             face_mesh.close()
 

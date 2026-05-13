@@ -21,7 +21,9 @@ def to_grayscale(frame):
     return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
 
-def configure_recognition_preprocessing(crop_padding_ratio=None):
+def configure_recognition_preprocessing(
+    crop_padding_ratio=None,
+):
     """
     Update the active recognition preprocessing configuration.
 
@@ -29,7 +31,6 @@ def configure_recognition_preprocessing(crop_padding_ratio=None):
     variants without editing this module before each run.
     """
     global RECOGNITION_CROP_PADDING_RATIO
-
     if crop_padding_ratio is not None:
         if crop_padding_ratio < 0.0:
             raise ValueError("Recognition crop padding ratio must be >= 0.0.")
@@ -144,7 +145,14 @@ def preprocess_loaded_face_for_recognition(
     return normalize_face_for_recognition(face)
 
 
-def preprocess_face_for_recognition(gray_frame, x, y, w, h, crop_padding_ratio=None):
+def preprocess_face_for_recognition(
+    gray_frame,
+    x,
+    y,
+    w,
+    h,
+    crop_padding_ratio=None,
+):
     """
     Apply face preprocessing for recognition.
 
@@ -164,6 +172,7 @@ def preprocess_face_for_recognition(gray_frame, x, y, w, h, crop_padding_ratio=N
     face = resize_face(face)
     if face is None:
         return None
+
     return normalize_face_for_recognition(face)
 
 

@@ -2,6 +2,7 @@ import pytest
 
 from src.evaluation.recognition_metrics import evaluate_recognition_decisions
 from src.evaluation.recognition_threshold_calibration import (
+    calibrate_open_set_distance_threshold,
     calibrate_reliability_threshold,
 )
 from src.recognition.recognition_decision import (
@@ -96,6 +97,40 @@ def test_calibrate_reliability_threshold_uses_validation_decisions():
     assert calibration["reliability_threshold"] is not None
     assert calibration["candidate_count"] == 3
     assert calibration["metrics"]["false_accept"] == 0
+
+
+def test_calibrate_open_set_distance_threshold_uses_constrained_dir_rule():
+    records = [
+        {
+            "is_known": True,
+            "true_id": "alice",
+            "predicted_id": "alice",
+            "score": 0.20,
+        },
+        {
+            "is_known": True,
+            "true_id": "bob",
+            "predicted_id": "alice",
+            "score": 0.25,
+        },
+        {
+            "is_known": False,
+            "true_id": None,
+            "predicted_id": "alice",
+            "score": 0.40,
+        },
+    ]
+
+    calibration = calibrate_open_set_distance_threshold(records)
+
+    assert (
+        calibration["threshold_rule"]
+        == "max_dir_with_far_misidentification_constraints"
+    )
+    assert calibration["threshold"] == pytest.approx(0.25)
+    assert calibration["candidate_count"] > 0
+    assert calibration["metrics"]["false_accept"] == 0
+    assert calibration["metrics"]["misidentification"] == 0
 
 
 def test_ranked_identity_distances_drive_margin_score():

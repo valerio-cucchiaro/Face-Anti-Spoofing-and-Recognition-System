@@ -1,5 +1,6 @@
 param(
-    [switch]$ShutdownWhenDone
+    [switch]$ShutdownWhenDone,
+    [switch]$EnableReliabilityDiagnostics
 )
 
 $ErrorActionPreference = "Stop"
@@ -102,48 +103,87 @@ function Invoke-LoggedPythonRun {
 
 Add-LogHeader -LogPath $recognitionLog -Title "RECOGNITION BATCH"
 
+$recognitionDiagnosticArgs = @()
+if ($EnableReliabilityDiagnostics) {
+    $recognitionDiagnosticArgs += "--enable-reliability-diagnostics"
+}
+
 $recognitionRuns = @(
-     @{
-         Label = "recognition | custom -> custom"
-         Args = @(
-             "-m", "src.recognition.recognition_experiment_runner",
-             "--train-mode", "custom",
-             "--eval-mode", "custom"
-         )
-     }
-    # @{
-    #     Label = "recognition | orl -> orl"
-    #     Args = @(
-    #         "-m", "src.recognition.recognition_experiment_runner",
-    #         "--train-mode", "orl",
-    #         "--eval-mode", "orl"
-    #     )
-    # },
+    @{
+        Label = "recognition | custom -> custom"
+        Args = @(
+            "-m", "src.recognition.recognition_experiment_runner",
+            "--train-mode", "custom",
+            "--eval-mode", "custom",
+            "--radius", "1",
+            "--quality-filter-mode", "report_only",
+            "--save-system-threshold"
+        )
+    }
+    #@{
+    #    Label = "recognition | orl -> orl"
+    #    Args = @(
+    #        "-m", "src.recognition.recognition_experiment_runner",
+    #        "--train-mode", "orl",
+    #        "--eval-mode", "orl",
+    #        "--radius", "1",
+    #        "--quality-filter-mode", "report_only"
+    #    )
+    #}
     #@{
     #    Label = "recognition | multipie -> multipie"
     #    Args = @(
-    #        "-m", "src.recognition.recognition_experiment_runner",
+    #     "-m", "src.recognition.recognition_experiment_runner",
     #        "--train-mode", "multipie",
-    #        "--eval-mode", "multipie"
+    #        "--eval-mode", "multipie",
+    #       "--radius", "1",
+    #        "--quality-filter-mode", "report_only"
     #    )
     #}
 )
 
 foreach ($run in $recognitionRuns) {
-    Invoke-LoggedPythonRun -LogPath $recognitionLog -Label $run.Label -Arguments $run.Args
+    Invoke-LoggedPythonRun `
+        -LogPath $recognitionLog `
+        -Label $run.Label `
+        -Arguments ($run.Args + $recognitionDiagnosticArgs)
 }
 
 Add-LogHeader -LogPath $padLog -Title "PAD BATCH"
 
 $padRuns = @(
+    #@{
+    #    Label = "pad | combined_custom -> all"
+    #    Args = @(
+    #        "-m", "src.antispoofing.training.pad_experiment_runner",
+    #        "--train-mode", "combined_custom",
+    #        "--eval-mode", "all"
+    #    )
+    #}
     @{
-        Label = "pad | custom -> custom"
-        Args = @(
-            "-m", "src.antispoofing.training.pad_experiment_runner",
-            "--train-mode", "custom",
-            "--eval-mode", "custom"
-        )
+         Label = "pad | custom -> custom"
+         Args = @(
+             "-m", "src.antispoofing.training.pad_experiment_runner",
+             "--train-mode", "custom",
+             "--eval-mode", "custom"
+         )
     }
+    # @{
+    #     Label = "pad | casia -> casia"
+    #     Args = @(
+    #         "-m", "src.antispoofing.training.pad_experiment_runner",
+    #         "--train-mode", "casia",
+    #         "--eval-mode", "casia"
+    #     )
+    # }
+    # @{
+    #     Label = "pad | replay -> replay"
+    #     Args = @(
+    #         "-m", "src.antispoofing.training.pad_experiment_runner",
+    #         "--train-mode", "replay",
+    #         "--eval-mode", "replay"
+    #     )
+    # }
 )
 
 foreach ($run in $padRuns) {
@@ -161,4 +201,5 @@ if ($ShutdownWhenDone) {
 }
 
 # powershell -ExecutionPolicy Bypass -File .\run_experiment_batch.ps1
+# powershell -ExecutionPolicy Bypass -File .\run_experiment_batch.ps1 -EnableReliabilityDiagnostics
 # powershell -ExecutionPolicy Bypass -File .\run_experiment_batch.ps1 -ShutdownWhenDone

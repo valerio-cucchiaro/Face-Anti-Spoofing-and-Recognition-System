@@ -1475,3 +1475,163 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 - enabled and inspected SRR-style runtime diagnostics in the BS recognition pipeline
 - corrected the SRR candidate interpretation to aggregate by identity rather than by duplicate templates of the same identity
 - briefly tested a shared third-party log silencing helper, then removed it because MediaPipe/TFLite native stderr warnings were not reliably suppressed
+
+---
+
+## 2026/05/06
+
+**Recognition Quality Filter**:
+
+- added `src/recognition/recognition_quality_filter.py` for recognition-sample quality diagnostics
+- added quality modes:
+  - `none`: disables quality reports and filtering
+  - `report_only`: records quality diagnostics without filtering samples
+  - `probe_only`: keeps the gallery unchanged and rejects only invalid validation/test probes
+- exported compact quality reports:
+  - `recognition_quality_report.csv`: per-sample quality values and decisions
+  - `recognition_quality_split_summary.csv`: per-split kept/rejected counts, identity coverage, and reject reasons
+  - `quality_debug_values.csv`: values for saved debug previews
+  - `quality_threshold_summary.txt`: active quality thresholds
+- saved debug previews under `logs/debug/recognition_quality/<reason>/`, capped at 20 images per category
+- kept pitch, roll, and spatial-pose issues as warning-only so they do not remove otherwise usable samples
+
+**Recognition LBPH Histogram Ensemble**:
+
+- kept OpenCV single-radius LBPH as the official recognition pipeline (`--radius`)
+- replaced the temporary multi-radius vote experiment with an explicit histogram-distance test pipeline enabled by `--lbph-histogram-ensemble`
+- added `src/recognition/lbph_histogram_ensemble.py` to compare probe LBPH histograms against all gallery templates across radii, normalize each radius by median gallery distance, and rank identities by minimum template distance
+- saved experimental artifacts under `models/recognition/lbph_histogram_ensemble/`, while `recognizer_config.json` switches the evaluator between `lbph_single` and `lbph_histogram_ensemble`
+- current ORL and Multi-PIE checks make this useful as a controlled test pipeline, but not strong enough to replace the official LBPH baseline
+
+**Metrics Export Policy**:
+
+- split metric artifacts by purpose:
+  - `official`: report-ready JSON/summary/prediction outputs
+  - `curves`: ROC/DET points, enabled with `--export-curves`
+  - `debug`: heavy or investigative exports, enabled with `--debug-recognition` or `--debug-quality`
+- moved PAD exports to `logs/metrics/pad/official` and optional PAD curves to `logs/metrics/pad/curves`
+- moved recognition official exports to `logs/metrics/recognition/official`, optional ROC/DET to `logs/metrics/recognition/curves`, and heavy diagnostics to `logs/metrics/recognition/debug`
+- kept `recognition_quality_split_summary.csv` as official and moved per-sample quality reporting behind `--debug-quality`
+- moved system-level exports to `logs/metrics/system/official`
+
+---
+
+## 2026/05/07
+
+**Runtime/System Threshold Policy and Validation**:
+
+- separated benchmark runs from runtime calibration runs: benchmark datasets export metrics only, while runtime thresholds require an explicit calibration command
+- recognition metrics are exported for every dataset, but `models/recognition/recognition_config.json` is updated only with `--save-runtime-threshold`
+- restricted persisted recognition threshold calibration to the custom-to-custom setup used by the offline system evaluation
+- updated system-level evaluation so it consumes an already saved recognition threshold config, or a manual CLI override, instead of silently falling back to the historical LBPH threshold `44.0`
+- kept PAD threshold at the uncalibrated probability default `0.5` for now and record its source as `default_probability_threshold_uncalibrated`
+- ran the custom recognition calibration command with `--save-runtime-threshold` and saved:
+  - `unknown_threshold=30.6934`
+  - `threshold_source=custom_to_custom_validation`
+  - `train_mode=custom`
+  - `eval_mode=custom`
+- confirmed that `system_evaluator` uses the saved recognition threshold and exports under `logs/metrics/system/official`
+- latest system-level result with saved recognition threshold and PAD default `0.5`:
+  - recognition-only: `FAR=0.0000`, `FRR=0.0000`, `DIR=1.0000`, `EER=0.0000`
+  - PAD-only: `APCER=0.0800`, `BPCER=0.6600`, `ACER=0.3700`
+  - PAD-gated recognition: `final_unknown_live_far=0.0000`, `final_known_live_frr=0.4333`, `final_known_live_dir=0.5667`
+- interpretation: in the current integrated custom system, recognition is not the bottleneck; PAD blocks many live samples and dominates the final known-live FRR
+- methodological note: the custom system evaluation remains runtime-like/demo-oriented because the custom probe split is used for both threshold calibration and final system evaluation
+
+---
+
+## 2026/05/11
+
+**Project Refactor and Runtime Polish**:
+
+- completed a general project organization pass, including data/log path cleanup and recognition split alias cleanup
+- aligned the runtime variants around the official full pipeline: CV keeps PAD-only diagnostics, BS keeps recognition-only diagnostics
+- removed PAD roll correction from the CV runtime after live webcam diagnostics showed worse live stability
+- removed SRR from the BS runtime after diagnostics showed it was too strict for the small family-based custom gallery
+- tuned the BS recognition runtime threshold for webcam behavior and kept SRR out of the decision path
+- polished the full pipeline webcam overlay: centered bbox text, removed PAD debug values, simplified acquisition warnings, added too-close/too-far guidance, and stabilized warning-to-bbox transitions
+- cleaned full-pipeline console logs for demo use: app-level prefix, startup/shutdown messages, key state transitions, non-spamming face-acquisition logs, and no transient reset overlay
+
+---
+
+## 2026/05/12
+
+**Recognition Refactor Cleanup**:
+
+- clarified the custom recognition collector contract: it saves unprocessed BGR face crops, while LBPH preprocessing remains in loader/runtime
+- removed the stale experimental LBPH histogram ensemble path from trainer, runner, evaluator, source files, and model artifacts
+- kept the official recognition pipeline on single OpenCV LBPH with `models/recognition/lbph_model.xml`, `label_map.pkl`, and `recognizer_config.json`
+- verified a fresh `custom -> custom` recognition run after cleanup, with the active config remaining `recognizer_type=lbph_single`
+- renamed the saved recognition threshold artifact to `models/recognition/system_recognition_threshold_config.json` to mark it as system-evaluation input, not webcam runtime config
+- replaced evaluator use of the runtime `DEFAULT_PREDICTION_THRESHOLD` with a local offline fallback threshold while keeping the live runtime thresholds separate
+- added `--save-system-threshold` as the preferred calibration flag and kept `--save-runtime-threshold` only as a legacy alias
+- added inline comments around threshold constants, saved system config, and CLI aliasing to make the offline/system/runtime threshold separation explicit
+- replaced the open-set distance threshold selector with the official sweep-based constrained calibration:
+  - primary rule: maximize DIR among validation thresholds satisfying FAR and known-wrong-accept constraints
+  - fallback rule: preserve a relative DIR floor before minimizing FAR/FRR/MisID penalty on difficult overlapping datasets
+  - kept the old midpoint rule only as unavailable-data fallback
+- compared midpoint, penalty-only, and constrained calibration on `custom`, `orl`, and `multipie`:
+  - custom remains perfect with the constrained rule
+  - ORL improves security, reaching `FAR=0.0000` with only a small DIR/FRR tradeoff
+  - Multi-PIE remains intrinsically weak/overlapping, but the constrained fallback avoids the penalty-only reject-all behavior
+- made reliability/margin diagnostics opt-in with `--enable-reliability-diagnostics`
+- added batch-level `-EnableReliabilityDiagnostics` to forward that opt-in flag to recognition runs without changing the default batch behavior
+- kept SRR and reliability-gated metrics explicitly diagnostic-only, disabled by default, and separate from the official distance-threshold decision used by offline reports/runtime
+- added console impact logging for the optional gate (`blocked_false_accepts`, `blocked_misidentifications`, `lost_correct_accepts`, `extra_known_rejects`) to decide whether the diagnostic gate is useful on a dataset
+- fixed combined-dataset identity handling so namespaced identities such as `custom:valerio` and `orl:s1` remain distinct in mixed gallery modes, while single-dataset modes keep the simpler normalized identity names
+- verified the mixed `custom_orl -> orl` path: the label map preserves dataset prefixes, ORL probes match `orl:*` identities, and custom gallery identities no longer collide with public-dataset identities
+- added `predict_identity_safe(...)` for webcam runtime recognition so recognizer failures or missing label-map entries return `Unknown` with a `failure_status` instead of crashing the session
+- updated the full runtime and BS recognition runtime to use the safe prediction wrapper while leaving the original strict `predict_identity(...)` contract available for tests and offline debugging
+- added focused tests for safe prediction behavior when `recognizer.predict(...)` fails or returns an unknown numeric label
+- documented the current LBPH preprocessing limitation: recognition uses grayscale crop, padding, resize, and histogram equalization, but no landmark-based face alignment; therefore stability depends on MediaPipe crop consistency, pose, lighting, and quality gates
+
+**PAD Refactor Cleanup**:
+
+- clarified the system-level evaluation contract in `system_evaluator.py`: known/unknown live samples come from custom recognition probes so open-set recognition can be evaluated after PAD, while spoof attacks come from the custom PAD test split
+- documented that both sources are custom webcam-collected data, but the system evaluation remains an offline integrated approximation rather than a frame-by-frame reproduction of the webcam temporal loop
+- updated the exported methodological note so official system reports state that spoof attacks are evaluated at PAD level only and are excluded from recognition FAR
+- added `AntiSpoofingDetector.predict_safe(...)` for webcam runtimes so PAD feature/scaler/classifier failures return an explicit `unknown` result with `status=predict_failed` instead of closing the session
+- updated the full and CV PAD runtimes to use the safe PAD prediction wrapper and log the underlying error while keeping strict `predict(...)` available for tests and offline debugging
+- added focused PAD runtime tests for safe handling of feature extraction failures and feature-dimension mismatches
+- documented the PAD threshold split: offline/system metrics use a per-frame live-score threshold for APCER/BPCER/FAR/FRR, while the webcam runtime uses a separate temporal smoothing and hysteresis state machine over multiple usable frames
+- kept the PAD logic unchanged and clarified only the evaluation/runtime decision boundary in comments and report documentation
+- clarified that offline PAD quality gating rejects structurally invalid crops, while runtime history updates additionally require sharpness and bbox stability
+- documented that runtime PAD `current_label/current_score` are latest-frame diagnostics, while `final_label` is the smoothed decision used by the pipeline
+- added PAD predict/proba mismatch diagnostics to the CV runtime logs and offline PAD evaluator without changing PAD decisions
+- confirmed the PAD predict/proba mismatch is negligible in the CV runtime check (`1/358`, one usable), so no PAD decision refactor is needed
+
+**Runtime Pipeline Audit**:
+
+- added a hidden PAD re-check during `RECOGNITION_LOCKED`: it mirrors the live-lock logic for spoof evidence and resets the session only after stable usable spoof confirmations, while keeping `too close` as demo/user-position guidance rather than spoof evidence
+- added webcam read retry handling in the full, CV, and BS runtimes: transient `cap.read()` failures are tolerated, while repeated failures raise an explicit runtime error
+- wrapped runtime PAD/recognition startup artifact loading with clearer fail-fast errors so missing model/config files stop the demo with actionable messages
+
+**Dataset and Splits Audit**:
+
+- renamed public recognition final splits from `test_*` to `probe_*` (`probe_known/probe_unknown`, plus Multi-PIE HR/LR variants) to match biometric terminology
+- hardened the Multi-PIE splitter with fail-fast HR/LR completeness checks and confirmed the regenerated split is balanced (`30` known, `10` unknown, `Missing LR matches: 0`)
+- added custom recognition collector guards so an enrolled gallery identity cannot be collected as `probe_unknown`, and an existing unknown cannot later be enrolled into `gallery`
+
+---
+
+## 2026/05/13
+
+**Metrics and Logs Audit**:
+
+- clarified PAD terminal logs: `classifier.predict` accuracy/confusion matrix are diagnostic hard-label metrics, while official PAD APCER/BPCER/FAR/FRR use live-score thresholding
+- removed fixed PAD probability-column assumptions by reading spoof/live indices from `classifier.classes_` in runtime and offline evaluators
+- clarified recognition logs/docs by presenting OpenCV LBPH `confidence` as a distance (`lower is better`) in terminal-facing output
+- made PAD, recognition, and system JSON reports include their generated artifact paths so each report can serve as a complete export index
+- made the PAD confusion matrix log explicit about row/column meaning and fixed its class order to `[spoof(0), live(1)]`
+
+**Testing and Reproducibility Audit**:
+
+- fixed PAD SVM probability reproducibility by setting `random_state=42` on `SVC(probability=True)`
+- extended the recognition artifact config with training metadata (`train_mode`, LBPH params, preprocessing, quality mode, sample ratio, dataset counts, and run timestamp)
+- made full PAD experiments the default runner behavior and logged whether trained artifacts are promoted to the runtime PAD paths; `fast` remains available only as an explicit CLI speed
+- added a test fixture that resets recognition preprocessing globals around every test to prevent cross-test state leakage
+- anchored public dataset splitters and Replay-Attack frame extraction paths to `PROJECT_ROOT` so they no longer depend on the caller's working directory
+- made Replay-Attack frame extraction tolerant of OpenCV builds without `cv2.utils.logging`
+- added visible START/END banners to dataset splitters/frame extraction and summarized unreadable Replay-Attack videos while suppressing repeated native FFmpeg zlib header errors
+- added `.python-version` with Python `3.12.10` to formalize the environment version used by the project
+- added regression tests for PAD config mismatch handling, recognition artifact metadata, complete JSON `export_paths`, and PAD full/fast runtime promotion behavior; full test suite verified with `78 passed`

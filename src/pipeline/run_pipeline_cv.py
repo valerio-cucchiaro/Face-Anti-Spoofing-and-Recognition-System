@@ -31,7 +31,6 @@ from src.antispoofing.pad_runtime_state import PadRuntimeState
 from src.detection.face_detector import load_mediapipe_detector
 from src.preprocessing.face_bbox_visualization import draw_visual_face_bbox
 from src.preprocessing.face_pose import (
-    apply_roll_correction,
     compute_pose_metrics_from_landmarks,
     format_pose_metrics_for_log,
 )
@@ -64,6 +63,9 @@ DISPLAY_PAD_MIN_ANALYZING_SECONDS = 1.0
 # ----- DISTANCE BANDS (FACE AREA RATIO) ----- #
 PAD_DISTANCE_FAR_MAX_AREA_RATIO = 0.08
 PAD_DISTANCE_MID_MAX_AREA_RATIO = 0.16
+
+# ----- CAMERA READ RECOVERY ----- #
+CAMERA_READ_MAX_FAILURES = 10
 
 
 def log_cv_event(message):
@@ -460,13 +462,20 @@ def run_pipeline_cv():
 
     detector = load_mediapipe_detector()
     face_mesh = load_mediapipe_face_mesh()
-    pad_detector = AntiSpoofingDetector()
+    try:
+        pad_detector = AntiSpoofingDetector()
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to initialize PAD runtime detector. "
+            "Check PAD model, scaler, classifier, and config artifacts."
+        ) from exc
     pad_runtime_state = create_pad_runtime_state()
     display_state = PadDisplayState()
     active_feature_set = get_active_pad_feature_set_name(pad_detector.pad_config)
     configured_modes = get_pad_feature_modes()
 
     frame_counter = 0
+    camera_read_failures = 0
     previous_face_rect = None
     last_timing_text = "features: waiting"
     last_pad_state_result = {
@@ -482,6 +491,9 @@ def run_pipeline_cv():
         "mid": {"live": 0, "spoof": 0, "unknown": 0},
         "far": {"live": 0, "spoof": 0, "unknown": 0},
     }
+    probability_check_count = 0
+    probability_mismatch_count = 0
+    probability_usable_mismatch_count = 0
     last_logged_distance_band = None
     last_logged_final_label = None
     startup_started_at = time.monotonic()
@@ -503,8 +515,18 @@ def run_pipeline_cv():
         ret, frame = cap.read()
 
         if not ret:
-            print("Failed to grab frame")
-            break
+            camera_read_failures += 1
+            log_cv_event(
+                "Webcam frame read failed: "
+                f"{camera_read_failures}/{CAMERA_READ_MAX_FAILURES}"
+            )
+            if camera_read_failures >= CAMERA_READ_MAX_FAILURES:
+                raise RuntimeError(
+                    "Webcam read failed repeatedly; stopping CV runtime session"
+                )
+            continue
+
+        camera_read_failures = 0
 
         frame_counter += 1
         now = time.monotonic()
@@ -566,12 +588,6 @@ def run_pipeline_cv():
         if landmarks_result is not None:
             reference_points = get_reference_points(landmarks_result.landmarks)
             pose_metrics = compute_pose_metrics_from_landmarks(reference_points)
-        roll_angle = (
-            pose_metrics["roll_degrees"]
-            if pose_metrics is not None
-            else None
-        )
-        roll_correction_applied = False
         stability_result = evaluate_bbox_stability(
             current_face_rect,
             previous_face_rect,
@@ -583,17 +599,6 @@ def run_pipeline_cv():
             pad_face_crop,
             PAD_MIN_VARIANCE_LAPLACIAN,
         )
-        pad_face_crop_for_prediction = pad_face_crop
-        if (
-            pad_face_crop is not None
-            and roll_angle is not None
-            and abs(float(roll_angle)) > 0.5
-        ):
-            pad_face_crop_for_prediction = apply_roll_correction(
-                pad_face_crop,
-                roll_angle,
-            )
-            roll_correction_applied = True
         spatial_text = build_pad_spatial_summary(frame.shape, face_rect)
         light_text = build_pad_light_summary(pad_face_crop)
         pad_frame_usable = (
@@ -604,7 +609,18 @@ def run_pipeline_cv():
         should_run_pad = (frame_counter % PAD_RUN_INTERVAL == 0)
         if should_run_pad:
             if quality_result["is_valid_crop"]:
-                pad_result = pad_detector.predict(pad_face_crop_for_prediction)
+                pad_result = pad_detector.predict_safe(pad_face_crop)
+                if pad_result["status"] == "predict_failed":
+                    log_cv_event(
+                        "PAD prediction failed: "
+                        f"error={pad_result.get('error')}"
+                    )
+                elif pad_result["status"] == "ok":
+                    probability_check_count += 1
+                    if pad_result.get("prediction_probability_mismatch"):
+                        probability_mismatch_count += 1
+                        if pad_frame_usable:
+                            probability_usable_mismatch_count += 1
             else:
                 pad_result = {
                     "status": "invalid_crop",
@@ -643,7 +659,10 @@ def run_pipeline_cv():
             )
             if should_log_details:
                 pose_text = format_pose_metrics_for_log(pose_metrics)
-                roll_text = "yes" if roll_correction_applied else "no"
+                live_score = pad_result.get("live_score")
+                live_score_text = (
+                    f"{live_score:.2f}" if live_score is not None else "None"
+                )
                 log_cv_event(
                     "PAD check: "
                     f"feature_set={active_feature_set} | "
@@ -651,10 +670,14 @@ def run_pipeline_cv():
                     f"usable={pad_frame_usable} | "
                     f"current={pad_state_result['current_label']} | "
                     f"score={score_text} | "
+                    f"prob_label={pad_result.get('probability_label')} | "
+                    f"live_score={live_score_text} | "
+                    f"prob_mismatch={pad_result.get('prediction_probability_mismatch')} | "
+                    f"prob_mismatch_total={probability_mismatch_count}/{probability_check_count} | "
+                    f"prob_mismatch_usable={probability_usable_mismatch_count} | "
                     f"final={pad_state_result['final_label']} | "
                     f"avg_live={avg_live_text} | "
                     f"pose={pose_text} | "
-                    f"roll_corrected={roll_text} | "
                     f"{spatial_text} | "
                     f"{light_text} | "
                     f"{last_timing_text}"

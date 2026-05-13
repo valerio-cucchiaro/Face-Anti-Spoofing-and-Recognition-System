@@ -10,6 +10,14 @@ gating. It keeps three input classes separate:
 - unknown_live: non-enrolled live users / biometric impostors
 - spoof_attack: presentation attacks
 
+Known and unknown live samples are taken from the custom recognition
+probe splits so the same run can evaluate open-set recognition after
+PAD. Spoof samples are taken from the custom PAD test split because
+presentation attacks are not part of the recognition dataset. Both
+sources are custom webcam-collected data, but this evaluator remains an
+offline approximation of the runtime system rather than a frame-by-frame
+webcam loop.
+
 The runtime webcam pipeline is not used or modified here. This module
 loads the saved PAD and recognition artifacts, computes recognition-only
 metrics, PAD-only metrics, and the final PAD-gated recognition decision,
@@ -26,10 +34,12 @@ import time
 import numpy as np
 
 from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
+from src.antispoofing.pad_probability_utils import (
+    get_pad_class_probability_indices,
+)
 from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
 from src.evaluation.pad_metrics import evaluate_pad_at_threshold
 from src.antispoofing.training.pad_dataset_loader import load_custom_pad_test_dataset
-from src.recognition.face_recognizer import DEFAULT_PREDICTION_THRESHOLD
 from src.recognition.recognition_dataset_loader import (
     load_probe_dataset,
     normalize_identity_name,
@@ -39,13 +49,78 @@ from src.evaluation.recognition_metrics import (
     evaluate_recognition_at_threshold,
     sweep_recognition_thresholds,
 )
-from src.evaluation.recognition_model_evaluator import load_trained_recognition_model
+from src.evaluation.recognition_model_evaluator import (
+    load_system_recognition_threshold_config,
+    load_trained_recognition_model,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SYSTEM_METRICS_ROOT = PROJECT_ROOT / "logs" / "metrics" / "system"
+SYSTEM_METRICS_ROOT = PROJECT_ROOT / "logs" / "metrics" / "system" / "official"
 DEFAULT_OUTPUT_STEM = "system_evaluation"
+# Offline/system PAD threshold: this is a per-sample live-score threshold
+# used for PAD metrics and integrated evaluation, not the runtime webcam
+# smoothing/hysteresis thresholds defined in the pipeline scripts.
 DEFAULT_PAD_THRESHOLD = 0.5
+
+
+def resolve_recognition_threshold(manual_threshold=None):
+    """
+    Resolve the recognition threshold consumed by system evaluation.
+
+    The system evaluator does not calibrate recognition. A manual CLI
+    threshold is treated as an explicit override; otherwise the saved
+    system recognition threshold config produced by a custom calibration
+    run is used. This resolution is offline-only and does not change the
+    live webcam runtime thresholds.
+    """
+
+    if manual_threshold is not None:
+        return float(manual_threshold), "manual_cli", None
+
+    config = load_system_recognition_threshold_config()
+    if config is None:
+        raise ValueError(
+            "No system recognition threshold config found. Run a custom "
+            "recognition calibration with --save-system-threshold or pass "
+            "--recognition-threshold explicitly."
+        )
+
+    threshold = config.get("unknown_threshold")
+    if threshold is None:
+        raise ValueError(
+            "System recognition threshold config does not contain "
+            "'unknown_threshold'. Re-run custom recognition calibration with "
+            "--save-system-threshold or pass --recognition-threshold explicitly."
+        )
+
+    config_train_mode = config.get("train_mode")
+    config_eval_mode = config.get("eval_mode")
+    if (config_train_mode, config_eval_mode) != ("custom", "custom"):
+        raise ValueError(
+            "System recognition threshold config is not from a custom-to-custom "
+            f"calibration run: train_mode={config_train_mode}, "
+            f"eval_mode={config_eval_mode}. Re-run custom recognition calibration "
+            "with --save-system-threshold or pass --recognition-threshold explicitly."
+        )
+
+    return float(threshold), config.get("threshold_source", "recognition_config"), config
+
+
+def resolve_pad_threshold(manual_threshold=None):
+    """
+    Resolve the PAD threshold consumed by system evaluation.
+
+    PAD is not independently calibrated yet, so the default 0.5 live-score
+    probability threshold is used unless the CLI explicitly overrides it.
+    This threshold is applied to each evaluated crop independently; the
+    webcam runtime applies a separate temporal state machine on top of PAD
+    classifier outputs.
+    """
+
+    if manual_threshold is not None:
+        return float(manual_threshold), "manual_cli"
+    return DEFAULT_PAD_THRESHOLD, "default_probability_threshold_uncalibrated"
 
 
 def safe_div(numerator, denominator):
@@ -65,6 +140,9 @@ def predict_pad_from_crop(pad_detector, face_crop, pad_threshold):
     The score is always the live-class probability, so it can be used for
     APCER/BPCER computation with the project convention:
     score >= threshold -> live, score < threshold -> spoof.
+
+    This mirrors the offline PAD metric convention, not the final webcam
+    runtime PAD state after smoothing/hysteresis.
     """
 
     features = extract_pad_features_from_crop(face_crop)
@@ -86,7 +164,8 @@ def predict_pad_from_crop(pad_detector, face_crop, pad_threshold):
 
     features_scaled = pad_detector.scaler.transform(features)
     probabilities = pad_detector.classifier.predict_proba(features_scaled)[0]
-    live_score = float(probabilities[1])
+    live_index = get_pad_class_probability_indices(pad_detector.classifier)["live"]
+    live_score = float(probabilities[live_index])
     label = "live" if live_score >= pad_threshold else "spoof"
 
     return {
@@ -112,7 +191,8 @@ def predict_pad_from_features(pad_detector, features, pad_threshold):
 
     features_scaled = pad_detector.scaler.transform(features)
     probabilities = pad_detector.classifier.predict_proba(features_scaled)[0]
-    live_score = float(probabilities[1])
+    live_index = get_pad_class_probability_indices(pad_detector.classifier)["live"]
+    live_score = float(probabilities[live_index])
     label = "live" if live_score >= pad_threshold else "spoof"
 
     return {
@@ -125,6 +205,11 @@ def predict_pad_from_features(pad_detector, features, pad_threshold):
 def build_live_samples():
     """
     Load known and unknown live samples from the custom recognition probes.
+
+    These live samples intentionally come from the recognition protocol,
+    not from the PAD spoof/live split, because the system-level scenario
+    must still know whether a live user is enrolled or unknown after the
+    PAD gate lets the sample pass.
     """
 
     known_records, _, _ = load_probe_dataset(
@@ -132,12 +217,14 @@ def build_live_samples():
         split="probe_known",
         namespace_identities=False,
         collect_pose_metrics=False,
+        quality_filter_mode="none",
     )
     unknown_records, _, _ = load_probe_dataset(
         "custom",
         split="probe_unknown",
         namespace_identities=False,
         collect_pose_metrics=False,
+        quality_filter_mode="none",
     )
 
     samples = []
@@ -175,6 +262,11 @@ def build_live_samples():
 def build_spoof_samples():
     """
     Load presentation-attack samples from the custom PAD test split.
+
+    Recognition probes do not contain spoof attacks. The spoof branch
+    therefore uses the PAD test split and feeds its extracted PAD
+    features into the PAD gate only; spoof samples are not evaluated by
+    the recognition matcher.
     """
 
     X_test, y_test, sample_paths = load_custom_pad_test_dataset(
@@ -377,7 +469,14 @@ def build_system_level_report(rows):
     }
 
 
-def evaluate_system(recognition_threshold, pad_threshold, output_stem):
+def evaluate_system(
+    recognition_threshold,
+    pad_threshold,
+    output_stem,
+    recognition_threshold_source,
+    pad_threshold_source,
+    recognition_threshold_config=None,
+):
     """
     Run the complete offline system-level evaluation.
     """
@@ -460,15 +559,29 @@ def evaluate_system(recognition_threshold, pad_threshold, output_stem):
     report = {
         "scenario": "open-set identification system-level evaluation with PAD gating",
         "methodological_note": (
-            "Spoof attacks are evaluated at PAD level only. They are not "
-            "included in recognition FAR, which is computed only on unknown "
-            "live users. PAD-gated recognition is evaluated offline and does "
-            "not reproduce webcam temporal smoothing."
+            "Known-live and unknown-live samples come from the custom "
+            "recognition probe splits so open-set recognition can be "
+            "evaluated after PAD. Spoof attacks come from the custom PAD "
+            "test split because presentation attacks are not part of the "
+            "recognition dataset. Both sources are custom webcam-collected "
+            "data, but this is an offline integrated evaluation, not a "
+            "frame-by-frame reproduction of the live webcam loop or its "
+            "temporal smoothing. Spoof attacks are evaluated at PAD level "
+            "only and are not included in recognition FAR, which is computed "
+            "only on unknown live users."
         ),
         "input_classes": {
             "known_live": "enrolled live users",
             "unknown_live": "non-enrolled live users / biometric impostors",
             "spoof_attack": "presentation attacks",
+        },
+        "thresholds": {
+            "recognition_threshold": float(recognition_threshold),
+            "recognition_threshold_source": recognition_threshold_source,
+            "recognition_threshold_config": recognition_threshold_config,
+            "pad_threshold": float(pad_threshold),
+            "pad_threshold_source": pad_threshold_source,
+            "pad_threshold_calibrated": False,
         },
         "recognition_only": recognition_report,
         "pad_only": pad_report,
@@ -491,6 +604,10 @@ def export_system_evaluation(rows, report, output_stem):
     SYSTEM_METRICS_ROOT.mkdir(parents=True, exist_ok=True)
     json_path = SYSTEM_METRICS_ROOT / f"{output_stem}_report.json"
     csv_path = SYSTEM_METRICS_ROOT / f"{output_stem}_samples.csv"
+    export_paths = {
+        "json": str(json_path),
+        "samples_csv": str(csv_path),
+    }
 
     fieldnames = [
         "sample_type",
@@ -508,13 +625,11 @@ def export_system_evaluation(rows, report, output_stem):
         writer.writeheader()
         writer.writerows(rows)
 
+    report["export_paths"] = export_paths
     with open(json_path, "w", encoding="utf-8") as file:
         json.dump(report, file, indent=2)
 
-    return {
-        "json": str(json_path),
-        "samples_csv": str(csv_path),
-    }
+    return export_paths
 
 
 def format_optional_float(value):
@@ -535,9 +650,17 @@ def print_summary(report):
     recognition = report["recognition_only"]
     pad = report["pad_only"]
     system = report["pad_gated_recognition"]
+    thresholds = report.get("thresholds", {})
 
     print("=== SYSTEM-LEVEL EVALUATION ===")
     print("Scenario: open-set identification with PAD gating")
+    print(
+        "Threshold sources:",
+        (
+            f"recognition={thresholds.get('recognition_threshold_source', 'unknown')} | "
+            f"pad={thresholds.get('pad_threshold_source', 'unknown')}"
+        ),
+    )
     print(
         "Samples:",
         (
@@ -600,14 +723,20 @@ def build_arg_parser():
     parser.add_argument(
         "--recognition-threshold",
         type=float,
-        default=DEFAULT_PREDICTION_THRESHOLD,
-        help="LBPH distance threshold used by recognition. Lower distance is better.",
+        default=None,
+        help=(
+            "Optional manual LBPH distance threshold. If omitted, the saved "
+            "system recognition threshold config is used."
+        ),
     )
     parser.add_argument(
         "--pad-threshold",
         type=float,
-        default=DEFAULT_PAD_THRESHOLD,
-        help="PAD live-score threshold. score >= threshold is classified as live.",
+        default=None,
+        help=(
+            "Optional manual PAD live-score threshold. If omitted, the "
+            "uncalibrated default probability threshold 0.5 is used."
+        ),
     )
     parser.add_argument(
         "--output-stem",
@@ -624,10 +753,17 @@ def main():
 
     parser = build_arg_parser()
     args = parser.parse_args()
+    recognition_threshold, recognition_threshold_source, recognition_config = (
+        resolve_recognition_threshold(args.recognition_threshold)
+    )
+    pad_threshold, pad_threshold_source = resolve_pad_threshold(args.pad_threshold)
     evaluate_system(
-        recognition_threshold=args.recognition_threshold,
-        pad_threshold=args.pad_threshold,
+        recognition_threshold=recognition_threshold,
+        pad_threshold=pad_threshold,
         output_stem=args.output_stem,
+        recognition_threshold_source=recognition_threshold_source,
+        pad_threshold_source=pad_threshold_source,
+        recognition_threshold_config=recognition_config,
     )
 
 

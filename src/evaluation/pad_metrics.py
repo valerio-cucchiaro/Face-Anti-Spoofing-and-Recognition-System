@@ -12,6 +12,11 @@ only:
 - low/mid/high threshold summaries
 - export of report-ready JSON / CSV artifacts
 
+PAD metrics here are frame-level metrics: each sample is classified by
+comparing its live score against one threshold. They do not simulate the
+webcam runtime state machine, which applies temporal smoothing and
+hysteresis over multiple usable frames before exposing a final PAD state.
+
 It does not load models, datasets, or print project diagnostics.
 """
 
@@ -98,6 +103,11 @@ def evaluate_pad_at_threshold(y_true, y_score, threshold):
     The project convention is:
     - score >= threshold -> live
     - score < threshold -> spoof
+
+    This is the offline/frame-level PAD decision used for APCER/BPCER,
+    FAR/FRR, and threshold sweeps. Runtime webcam decisions add a
+    temporal layer on top of classifier scores, so these metrics describe
+    the base PAD classifier rather than the final smoothed webcam state.
     """
 
     y_true = _as_int_array(y_true)
@@ -261,6 +271,14 @@ def _default_pad_metrics_root():
     return Path(__file__).resolve().parents[2] / "logs" / "metrics" / "pad"
 
 
+def _pad_official_root(output_root):
+    return Path(output_root) / "official"
+
+
+def _pad_curves_root(output_root):
+    return Path(output_root) / "curves"
+
+
 def _json_ready_report(report):
     """
     Convert the in-memory PAD report into a JSON-serializable object.
@@ -271,6 +289,7 @@ def _json_ready_report(report):
         "selected_metrics": report.get("selected_metrics"),
         "eer_results": report.get("eer_results"),
         "threshold_summary": report.get("threshold_summary"),
+        "export_paths": report.get("export_paths"),
         "sweep_results": {
             "thresholds": report.get("sweep_results", {}).get("thresholds", []),
             "roc_points": report.get("sweep_results", {}).get("roc_points", []),
@@ -287,7 +306,7 @@ def _write_csv(path, rows, fieldnames):
         writer.writerows(rows)
 
 
-def export_pad_metrics_report(report, output_stem, output_root=None):
+def export_pad_metrics_report(report, output_stem, output_root=None, export_curves=False):
     """
     Export report-ready PAD metrics as JSON and CSV artifacts.
 
@@ -300,15 +319,14 @@ def export_pad_metrics_report(report, output_stem, output_root=None):
     else:
         output_root = Path(output_root)
 
-    output_root.mkdir(parents=True, exist_ok=True)
+    official_root = _pad_official_root(output_root)
+    curves_root = _pad_curves_root(output_root)
+    official_root.mkdir(parents=True, exist_ok=True)
 
-    json_path = output_root / f"{output_stem}_metrics_report.json"
-    summary_csv_path = output_root / f"{output_stem}_threshold_summary.csv"
-    roc_csv_path = output_root / f"{output_stem}_roc_points.csv"
-    det_csv_path = output_root / f"{output_stem}_det_points.csv"
-
-    with open(json_path, "w", encoding="utf-8") as file:
-        json.dump(_json_ready_report(report), file, indent=2)
+    json_path = official_root / f"{output_stem}_metrics_report.json"
+    summary_csv_path = official_root / f"{output_stem}_threshold_summary.csv"
+    roc_csv_path = curves_root / f"{output_stem}_roc_points.csv"
+    det_csv_path = curves_root / f"{output_stem}_det_points.csv"
 
     summary_rows = []
     threshold_summary = report.get("threshold_summary", {})
@@ -347,20 +365,27 @@ def export_pad_metrics_report(report, output_stem, output_root=None):
         ],
     )
 
-    _write_csv(
-        roc_csv_path,
-        report.get("sweep_results", {}).get("roc_points", []),
-        ["threshold", "far", "gar"],
-    )
-    _write_csv(
-        det_csv_path,
-        report.get("sweep_results", {}).get("det_points", []),
-        ["threshold", "far", "frr"],
-    )
-
-    return {
+    export_paths = {
         "json": str(json_path),
         "summary_csv": str(summary_csv_path),
-        "roc_csv": str(roc_csv_path),
-        "det_csv": str(det_csv_path),
     }
+    if export_curves:
+        curves_root.mkdir(parents=True, exist_ok=True)
+        _write_csv(
+            roc_csv_path,
+            report.get("sweep_results", {}).get("roc_points", []),
+            ["threshold", "far", "gar"],
+        )
+        _write_csv(
+            det_csv_path,
+            report.get("sweep_results", {}).get("det_points", []),
+            ["threshold", "far", "frr"],
+        )
+        export_paths["roc_csv"] = str(roc_csv_path)
+        export_paths["det_csv"] = str(det_csv_path)
+
+    report["export_paths"] = export_paths
+    with open(json_path, "w", encoding="utf-8") as file:
+        json.dump(_json_ready_report(report), file, indent=2)
+
+    return export_paths

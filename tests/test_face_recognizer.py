@@ -3,7 +3,11 @@ from pathlib import Path
 import pytest
 
 import src.recognition.face_recognizer as face_recognizer_module
-from src.recognition.face_recognizer import load_recognizer, predict_identity
+from src.recognition.face_recognizer import (
+    load_recognizer,
+    predict_identity,
+    predict_identity_safe,
+)
 
 
 class DummyRecognizer:
@@ -106,3 +110,40 @@ def test_predict_identity_propagates_recognizer_error_on_invalid_face():
             label_map=label_map,
             threshold=45.0,
         )
+
+
+def test_predict_identity_safe_returns_unknown_if_predicted_label_is_missing():
+    recognizer = DummyRecognizer(label=3, confidence=20.0)
+    label_map = {0: "custom:valerio"}
+
+    result = predict_identity_safe(
+        face="dummy_face",
+        recognizer=recognizer,
+        label_map=label_map,
+        threshold=45.0,
+    )
+
+    assert result["predicted_name"] == "Unknown"
+    assert result["confidence"] == 20.0
+    assert result["failure_status"] == "missing_label"
+    assert "3" in result["error"]
+
+
+def test_predict_identity_safe_returns_unknown_if_recognizer_fails():
+    class RaisingRecognizer:
+        def predict(self, face):
+            raise ValueError("invalid face")
+
+    label_map = {0: "custom:valerio"}
+
+    result = predict_identity_safe(
+        face=None,
+        recognizer=RaisingRecognizer(),
+        label_map=label_map,
+        threshold=45.0,
+    )
+
+    assert result["predicted_name"] == "Unknown"
+    assert result["confidence"] is None
+    assert result["failure_status"] == "predict_failed"
+    assert result["error"] == "invalid face"

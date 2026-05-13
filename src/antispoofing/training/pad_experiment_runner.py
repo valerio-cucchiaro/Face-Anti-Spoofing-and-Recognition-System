@@ -21,7 +21,7 @@ TRAIN_MODE = "custom"
 EVAL_MODE = "custom"
 
 # ----- SPEED / SAMPLING PRESET ----- #
-EXPERIMENT_SPEED = "fast"   # full or fast
+EXPERIMENT_SPEED = "full"   # full or fast
 
 # ----- OPTIONAL OVERRIDES ----- #
 CUSTOM_REPEAT = None
@@ -46,6 +46,7 @@ def run(
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
     augment_live_photometric_scope="all",
+    export_curves=False,
 ):
     """
     Execute a full PAD experiment using the current training
@@ -99,6 +100,10 @@ def run(
     )
 
     print(f"=== EXPERIMENT SPEED ({selected_speed}) ===")
+    print(
+        "PAD runtime artifact update:",
+        "enabled" if update_runtime_artifacts else "disabled",
+    )
     if selected_custom_repeat is not None:
         print(f"=== CUSTOM REPEAT ({selected_custom_repeat}) ===")
     if selected_casia_balance is not None:
@@ -125,6 +130,7 @@ def run(
         artifact_profile=artifact_profile,
         log_live_false_negatives=log_live_false_negatives,
         live_false_negative_limit=live_false_negative_limit,
+        export_curves=export_curves,
     )
     print(f"=== TOTAL PAD EXPERIMENT TIME: {time.perf_counter() - total_start_time:.2f}s ===")
 
@@ -152,6 +158,7 @@ def build_arg_parser():
     parser.add_argument("--tgsd-top-percent", type=float)
     parser.add_argument("--tgsd-gradient-operator", choices=["sobel"])
     parser.add_argument("--log-live-false-negatives", action="store_true")
+    parser.add_argument("--export-curves", action="store_true")
     parser.add_argument("--live-false-negative-limit", type=int)
     parser.add_argument("--augment-live-photometric", action="store_true")
     parser.add_argument(
@@ -190,6 +197,7 @@ if __name__ == "__main__":
         tgsd_gradient_operator=cli_args.tgsd_gradient_operator,
         log_live_false_negatives=cli_args.log_live_false_negatives,
         live_false_negative_limit=cli_args.live_false_negative_limit,
+        export_curves=cli_args.export_curves,
         augment_live_photometric=cli_args.augment_live_photometric,
         augment_live_photometric_mode=cli_args.augment_live_photometric_mode,
         augment_live_photometric_scope=(

@@ -123,7 +123,7 @@ def test_compute_all_gallery_vs_all_probe_analysis_skips_large_matrices():
     assert analysis["reason"] == "matrix_too_large"
 
 
-def test_compute_all_gallery_vs_all_probe_analysis_treats_test_unknown_as_unknown():
+def test_compute_all_gallery_vs_all_probe_analysis_treats_probe_unknown_as_unknown():
     gallery_histograms = [
         np.array([1.0, 0.0], dtype=np.float64),
     ]
@@ -134,7 +134,7 @@ def test_compute_all_gallery_vs_all_probe_analysis_treats_test_unknown_as_unknow
     probe_records = [
         {
             "true_identity": "unknown_probe",
-            "split": "test_unknown",
+            "split": "probe_unknown",
         },
     ]
     probe_histograms = [

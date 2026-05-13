@@ -28,7 +28,12 @@ def train_pad_classifier(X_train, y_train):
     X_train_scaled = scaler.fit_transform(X_train)
 
     # Train the SVM classifier
-    classifier = SVC(kernel='rbf', class_weight="balanced", probability=True)
+    classifier = SVC(
+        kernel="rbf",
+        class_weight="balanced",
+        probability=True,
+        random_state=42,
+    )
     classifier.fit(X_train_scaled, y_train)
 
     return scaler, classifier

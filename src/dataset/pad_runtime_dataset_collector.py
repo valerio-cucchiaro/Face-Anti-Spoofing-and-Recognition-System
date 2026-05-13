@@ -10,8 +10,8 @@ uses the same crop-quality checks as the runtime PAD flow, and saves
 the cropped face region into one of two folders inside the selected custom
 dataset split:
 
-data/pad_custom_raw/<split>/live
-data/pad_custom_raw/<split>/spoof
+data/pad/pad_custom_raw/<split>/live
+data/pad/pad_custom_raw/<split>/spoof
 
 The saved images are not converted into PAD features here. They remain
 cropped face images so that the offline PAD training and evaluation
@@ -19,7 +19,7 @@ tools can reapply their own normalization and feature extraction
 pipeline later.
 
 The same collector can target either the ``train`` or ``test`` split
-of ``data/pad_custom_raw`` through a configurable split name.
+of ``data/pad/pad_custom_raw`` through a configurable split name.
 """
 
 import cv2
@@ -44,7 +44,7 @@ THRESHOLD_AREA = 8000
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-PAD_CUSTOM_RAW_ROOT = PROJECT_ROOT / "data" / "pad_custom_raw"
+PAD_CUSTOM_RAW_ROOT = PROJECT_ROOT / "data" / "pad" / "pad_custom_raw"
 DATASET_SPLIT = "test"     # train or test
 
 MAX_IMAGES_LIVE = 120
@@ -84,8 +84,8 @@ def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
     same geometric assumptions as the runtime PAD pipeline.
 
     The selected split controls whether samples are saved under:
-    - ``data/pad_custom_raw/train/...``
-    - ``data/pad_custom_raw/test/...``
+    - ``data/pad/pad_custom_raw/train/...``
+    - ``data/pad/pad_custom_raw/test/...``
 
     Controls:
         l -> save current valid face crop in the live folder
