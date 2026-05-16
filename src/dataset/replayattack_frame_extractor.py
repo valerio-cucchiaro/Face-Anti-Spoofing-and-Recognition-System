@@ -14,6 +14,7 @@ corresponding output folder.
 import cv2
 from pathlib import Path
 import os
+import argparse
 from contextlib import contextmanager
 
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;quiet"
@@ -65,19 +66,33 @@ def suppress_native_stderr():
         os.close(devnull_fd)
 
 
-def get_output_split(video_path: Path) -> str:
+def get_output_split(video_path: Path, split_policy="legacy") -> str:
     """
     Map Replay-Attack raw split to PAD split.
 
-    raw/train + raw/devel -> train
-    raw/test              -> test
+    legacy:
+      raw/train + raw/devel -> train
+      raw/test              -> test
+
+    validation:
+      raw/train -> train
+      raw/devel -> validation
+      raw/test  -> test
     """
+    if split_policy not in {"legacy", "validation"}:
+        raise ValueError(
+            f"Unsupported split policy: {split_policy}. Use 'legacy' or 'validation'."
+        )
+
     parts = {part.lower() for part in video_path.parts}
 
     if "test" in parts:
         return "test"
 
-    if "train" in parts or "devel" in parts:
+    if "devel" in parts:
+        return "validation" if split_policy == "validation" else "train"
+
+    if "train" in parts:
         return "train"
 
     raise ValueError(f"Cannot infer split from path: {video_path}")
@@ -151,11 +166,31 @@ def extract_frames(video_path: Path, output_dir: Path, step: int = 10):
     return saved_idx
 
 
-def main():
+def build_arg_parser():
+    """
+    Build the command-line interface for Replay-Attack extraction.
+    """
+    parser = argparse.ArgumentParser(
+        description="Extract Replay-Attack frames into the PAD dataset layout."
+    )
+    parser.add_argument(
+        "--split-policy",
+        choices=["legacy", "validation"],
+        default="legacy",
+        help=(
+            "Use 'legacy' to merge raw/devel into train, or 'validation' "
+            "to write raw/devel into validation."
+        ),
+    )
+    return parser
+
+
+def main(split_policy="legacy"):
     """
     Extract Replay-Attack frames and organize them in PAD format.
     """
     print("====== START REPLAY-ATTACK FRAME EXTRACTION ======")
+    print("Replay-Attack split policy:", split_policy)
     if not REPLAY_PATH.exists():
         raise FileNotFoundError(f"Missing dataset folder: {REPLAY_PATH}")
 
@@ -169,7 +204,7 @@ def main():
 
         # Convert the original Replay-Attack directory layout into the
         # simpler PAD split/label structure used by the training scripts.
-        split = get_output_split(video_path)
+        split = get_output_split(video_path, split_policy=split_policy)
         label = get_output_label(video_path)
 
         output_dir = OUTPUT_PATH / split / label
@@ -188,4 +223,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    cli_args = build_arg_parser().parse_args()
+    main(split_policy=cli_args.split_policy)

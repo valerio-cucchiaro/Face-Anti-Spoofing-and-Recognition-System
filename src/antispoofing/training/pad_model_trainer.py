@@ -23,11 +23,13 @@ from src.antispoofing.pad_model_config import (
 )
 from src.antispoofing.training.pad_dataset_loader import (
     CASIA_SAMPLE_RATIO,
+    CUSTOM_PAD_VALIDATION_RATIO,
+    CUSTOM_PAD_VALIDATION_SEED,
     REPLAY_SAMPLE_RATIO,
     TRAIN_SAMPLING_SEED,
     load_combined_pad_training_dataset,
     load_combined_with_custom_pad_training_dataset,
-    load_custom_pad_training_dataset,
+    load_custom_pad_training_subset,
     load_casia_pad_training_dataset,
     load_replay_pad_training_dataset,
 )
@@ -108,6 +110,8 @@ def load_configured_training_dataset(
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
     augment_live_photometric_scope="all",
+    custom_validation_ratio=None,
+    custom_validation_seed=None,
 ):
     """
     Load the PAD training split selected by TRAIN_MODE.
@@ -129,6 +133,10 @@ def load_configured_training_dataset(
     If casia_balance_override or replay_balance_override is provided,
     it overrides the corresponding pre-extraction balancing flag from
     the selected speed preset.
+
+    For ``train_mode='custom'``, the loader now reserves a deterministic
+    pseudo-validation subset from the custom train split and only returns
+    the effective train subset used to fit the classifier.
     """
 
     selected_mode = train_mode or TRAIN_MODE
@@ -143,6 +151,16 @@ def load_configured_training_dataset(
     custom_repeat = speed_config["custom_repeat"]
     casia_balance = speed_config["casia_balance"]
     replay_balance = speed_config["replay_balance"]
+    selected_custom_validation_ratio = (
+        CUSTOM_PAD_VALIDATION_RATIO
+        if custom_validation_ratio is None
+        else float(custom_validation_ratio)
+    )
+    selected_custom_validation_seed = (
+        CUSTOM_PAD_VALIDATION_SEED
+        if custom_validation_seed is None
+        else int(custom_validation_seed)
+    )
 
     if selected_mode == "casia":
         dataset_name = (
@@ -193,7 +211,14 @@ def load_configured_training_dataset(
         )
 
     if selected_mode == "custom":
-        return "Custom train", load_custom_pad_training_dataset(
+        dataset_name = (
+            "Custom train "
+            f"(effective subset, validation_ratio={selected_custom_validation_ratio}, "
+            f"validation_seed={selected_custom_validation_seed})"
+        )
+        return dataset_name, load_custom_pad_training_subset(
+            validation_ratio=selected_custom_validation_ratio,
+            validation_seed=selected_custom_validation_seed,
             collect_pose_metrics=collect_pose_metrics,
             return_pose_summary=collect_pose_metrics,
             augment_live_photometric=augment_live_photometric,
@@ -238,6 +263,8 @@ def train_pad_model(
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
     augment_live_photometric_scope="all",
+    custom_validation_ratio=None,
+    custom_validation_seed=None,
 ):
     """
     Train the PAD model using the selected PAD training dataset.
@@ -268,6 +295,8 @@ def train_pad_model(
         augment_live_photometric=augment_live_photometric,
         augment_live_photometric_mode=augment_live_photometric_mode,
         augment_live_photometric_scope=augment_live_photometric_scope,
+        custom_validation_ratio=custom_validation_ratio,
+        custom_validation_seed=custom_validation_seed,
     )
     if collect_pose_metrics:
         X_train, y_train, pose_summary = train_payload
@@ -299,6 +328,25 @@ def train_pad_model(
         )
     else:
         print("PAD live photometric augmentation: disabled")
+    if (train_mode or TRAIN_MODE) == "custom":
+        selected_custom_validation_ratio = (
+            CUSTOM_PAD_VALIDATION_RATIO
+            if custom_validation_ratio is None
+            else float(custom_validation_ratio)
+        )
+        selected_custom_validation_seed = (
+            CUSTOM_PAD_VALIDATION_SEED
+            if custom_validation_seed is None
+            else int(custom_validation_seed)
+        )
+        print(
+            "PAD custom pseudo-validation:",
+            (
+                "enabled | "
+                f"ratio={selected_custom_validation_ratio} | "
+                f"seed={selected_custom_validation_seed}"
+            ),
+        )
     print(
         "PAD training samples:",
         f"total={len(y_train)} | live={live_count} | spoof={spoof_count} | feature_dim={X_train.shape[1]}",
@@ -330,6 +378,17 @@ def train_pad_model(
         tgsd_tau=active_feature_modes.get("tgsd_tau"),
         tgsd_top_percent=active_feature_modes.get("tgsd_top_percent"),
         tgsd_gradient_operator=active_feature_modes.get("tgsd_gradient_operator"),
+        custom_validation_enabled=((train_mode or TRAIN_MODE) == "custom"),
+        custom_validation_ratio=(
+            CUSTOM_PAD_VALIDATION_RATIO
+            if custom_validation_ratio is None
+            else float(custom_validation_ratio)
+        ) if (train_mode or TRAIN_MODE) == "custom" else None,
+        custom_validation_seed=(
+            CUSTOM_PAD_VALIDATION_SEED
+            if custom_validation_seed is None
+            else int(custom_validation_seed)
+        ) if (train_mode or TRAIN_MODE) == "custom" else None,
     )
     save_pad_model_config(
         pad_model_config,

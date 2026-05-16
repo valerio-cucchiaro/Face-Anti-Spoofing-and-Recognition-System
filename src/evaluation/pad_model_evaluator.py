@@ -6,18 +6,25 @@ This module evaluates the performance of the trained presentation
 attack detection (PAD) classifier on one or more selected evaluation
 datasets.
 
-The script can evaluate the trained model on:
-- CASIA test
-- Replay-Attack test
-- custom PAD test
+Supported evaluation flows:
+- standard public test evaluation (`casia`, `replay`)
+- public validation protocols (`casia_validation`, `replay_validation`)
+- custom PAD final test evaluation (`custom`)
+- sequential execution across supported datasets (`all`)
 
-It can also run the three evaluations sequentially while keeping the
-output of each dataset separated, so the behavior remains equivalent to
-running each evaluation mode individually.
+For the public validation protocols, the evaluator selects the live-score
+threshold on the validation split by enforcing a target APCER operating
+point and then freezes that threshold for the final test split.
+
+For custom PAD, the evaluator uses a deterministic pseudo-validation
+subset carved out of the custom training split to select the threshold,
+while keeping the custom test split as the final frozen evaluation set.
 
 Evaluation metrics such as accuracy, precision, recall, F1 score,
 and the confusion matrix are computed to assess the ability of the
-model to distinguish between live faces and spoof attacks.
+model to distinguish between live faces and spoof attacks. Official PAD
+metrics are threshold-based and include FAR, FRR, GAR, APCER, BPCER,
+ACER, threshold sweeps, and EER diagnostics.
 """
 
 import joblib
@@ -40,18 +47,25 @@ from src.evaluation.pad_metrics import (
     compute_pad_eer,
     export_pad_metrics_report,
     evaluate_pad_at_threshold,
+    select_pad_threshold_by_target_apcer,
     sweep_pad_thresholds,
 )
 from src.preprocessing.pose_statistics import format_pose_summary
 from src.antispoofing.training.pad_dataset_loader import (
+    CUSTOM_PAD_VALIDATION_RATIO,
+    CUSTOM_PAD_VALIDATION_SEED,
+    load_custom_pad_validation_dataset,
     load_pad_test_dataset_casia,
+    load_pad_validation_dataset_casia,
     load_pad_test_dataset_replay,
+    load_pad_validation_dataset_replay,
     load_custom_pad_test_dataset,
 )
 
 
-EVAL_MODE = "custom"     # casia, replay, custom
+EVAL_MODE = "custom"     # casia, replay, casia_validation, replay_validation, custom
 LIVE_FALSE_NEGATIVE_LOG_LIMIT = 20
+PAD_VALIDATION_TARGET_APCER = 0.02
 
 
 def load_configured_test_dataset(
@@ -60,11 +74,13 @@ def load_configured_test_dataset(
     collect_pose_metrics=False,
 ):
     """
-    Load the PAD evaluation dataset selected by ``eval_mode``.
+    Load the concrete PAD dataset split selected by ``eval_mode``.
 
     Supported modes:
     - casia
+    - casia_validation
     - replay
+    - replay_validation
     - custom
     """
 
@@ -74,8 +90,20 @@ def load_configured_test_dataset(
             return_pose_summary=collect_pose_metrics,
         )
 
+    if eval_mode == "casia_validation":
+        return "CASIA validation", load_pad_validation_dataset_casia(
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
+        )
+
     if eval_mode == "replay":
         return "Replay-Attack test", load_pad_test_dataset_replay(
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
+        )
+
+    if eval_mode == "replay_validation":
+        return "Replay-Attack validation", load_pad_validation_dataset_replay(
             collect_pose_metrics=collect_pose_metrics,
             return_pose_summary=collect_pose_metrics,
         )
@@ -88,7 +116,9 @@ def load_configured_test_dataset(
         )
 
     raise ValueError(
-        f"Unsupported EVAL_MODE: {eval_mode}. Use 'casia', 'replay', 'custom', or 'all'."
+        f"Unsupported EVAL_MODE: {eval_mode}. "
+        "Use 'casia', 'casia_validation', 'replay', 'replay_validation', "
+        "'custom', or 'all'."
     )
 
 
@@ -157,6 +187,9 @@ def compute_pad_evaluation_metrics(
     y_test,
     score_values,
     score_label,
+    selected_threshold=None,
+    threshold_source=None,
+    threshold_selection=None,
     output_stem=None,
     export_curves=False,
 ):
@@ -165,10 +198,13 @@ def compute_pad_evaluation_metrics(
 
     The evaluator keeps the raw predictions and score arrays, while this
     function turns them into the reportable PAD metrics:
-    FAR, FRR, GAR, APCER, BPCER, ACER, ROC, DET, and EER.
+    FAR, FRR, GAR, APCER, BPCER, ACER, threshold summaries, ROC/DET
+    exports when requested, and EER diagnostics.
     """
 
-    if score_label == "decision":
+    if selected_threshold is not None:
+        selected_threshold = float(selected_threshold)
+    elif score_label == "decision":
         selected_threshold = 0.0
     else:
         selected_threshold = 0.5
@@ -184,6 +220,8 @@ def compute_pad_evaluation_metrics(
 
     report = {
         "selected_threshold": selected_threshold,
+        "threshold_source": threshold_source,
+        "threshold_selection": threshold_selection,
         "selected_metrics": selected_metrics,
         "sweep_results": sweep_results,
         "eer_results": eer_results,
@@ -506,7 +544,10 @@ def evaluate_single_pad_dataset(
     export_curves=False,
 ):
     """
-    Evaluate the trained PAD model on one selected PAD test dataset.
+    Evaluate the trained PAD model on one direct evaluation split.
+
+    This path is used for the plain public test modes and does not run
+    an additional threshold-selection phase beforehand.
     """
 
     load_start_time = time.perf_counter()
@@ -565,11 +606,363 @@ def evaluate_single_pad_dataset(
     )
 
 
+def evaluate_pad_validation_protocol(
+    validation_mode,
+    test_mode,
+    protocol_label,
+    scaler,
+    classifier,
+    output_stem=None,
+    target_apcer=PAD_VALIDATION_TARGET_APCER,
+    export_curves=False,
+):
+    """
+    Evaluate one PAD dataset with a side validation protocol.
+
+    The validation split selects the live-score threshold under a target
+    APCER constraint; the final test
+    split is then evaluated with that frozen threshold.
+    """
+
+    validation_load_start_time = time.perf_counter()
+    validation_name, validation_dataset = load_configured_test_dataset(
+        validation_mode,
+        collect_pose_metrics=True,
+    )
+    validation_load_elapsed = time.perf_counter() - validation_load_start_time
+    X_validation, y_validation, validation_pose_summary = validation_dataset
+
+    if len(y_validation) == 0:
+        print(f"PAD validation dataset: {validation_name}")
+        print("No valid validation samples found for threshold selection.")
+        return
+
+    validation_start_time = time.perf_counter()
+    X_validation_scaled = scaler.transform(X_validation)
+    y_validation_pred = classifier.predict(X_validation_scaled)
+    validation_scores, validation_score_label = get_live_score_details(
+        classifier,
+        X_validation_scaled,
+    )
+    if validation_scores is None:
+        validation_scores = y_validation_pred.astype(np.float64)
+        validation_score_label = "prediction_fallback"
+
+    selected_target_apcer = (
+        PAD_VALIDATION_TARGET_APCER
+        if target_apcer is None
+        else float(target_apcer)
+    )
+    validation_sweep = sweep_pad_thresholds(y_validation, validation_scores)
+    threshold_selection = select_pad_threshold_by_target_apcer(
+        validation_sweep,
+        target_apcer=selected_target_apcer,
+    )
+    selected_threshold = threshold_selection["threshold"]
+    if selected_threshold is None:
+        selected_threshold = 0.5 if validation_score_label != "decision" else 0.0
+
+    print(f"{protocol_label} validation selected threshold:", selected_threshold)
+    print(
+        f"{protocol_label} validation threshold rule:",
+        threshold_selection["threshold_rule"],
+    )
+    print(f"{protocol_label} validation target APCER:", selected_target_apcer)
+    print(
+        f"{protocol_label} validation APCER constraint satisfied:",
+        threshold_selection["constraint_satisfied"],
+    )
+    selected_validation_metrics = threshold_selection.get("selected_metrics")
+    if selected_validation_metrics is not None:
+        print(
+            f"{protocol_label} validation selected metrics:",
+            (
+                f"APCER={selected_validation_metrics['apcer']:.4f} | "
+                f"BPCER={selected_validation_metrics['bpcer']:.4f} | "
+                f"ACER={selected_validation_metrics['acer']:.4f}"
+            ),
+        )
+
+    validation_report = compute_pad_evaluation_metrics(
+        y_validation,
+        validation_scores,
+        validation_score_label,
+        selected_threshold=selected_threshold,
+        threshold_source=f"{validation_mode}_target_apcer_selection",
+        threshold_selection=threshold_selection,
+        output_stem=(
+            f"{output_stem}_selection"
+            if output_stem is not None
+            else f"{validation_mode}_selection"
+        ),
+        export_curves=export_curves,
+    )
+    log_pad_evaluation_diagnostics(
+        validation_name,
+        y_validation,
+        y_validation_pred,
+        validation_scores,
+        validation_score_label,
+        None,
+        validation_load_elapsed,
+        time.perf_counter() - validation_start_time,
+        validation_report,
+        mismatch_summary=build_prediction_probability_mismatch_summary(
+            y_validation_pred,
+            validation_scores,
+            validation_score_label,
+        ),
+        pose_summary=validation_pose_summary,
+    )
+
+    test_load_start_time = time.perf_counter()
+    test_name, test_dataset = load_configured_test_dataset(
+        test_mode,
+        collect_pose_metrics=True,
+    )
+    test_load_elapsed = time.perf_counter() - test_load_start_time
+    X_test, y_test, test_pose_summary = test_dataset
+
+    if len(y_test) == 0:
+        print(f"PAD evaluation dataset: {test_name}")
+        print("No valid samples found for final evaluation.")
+        return
+
+    test_start_time = time.perf_counter()
+    X_test_scaled = scaler.transform(X_test)
+    y_test_pred = classifier.predict(X_test_scaled)
+    test_scores, test_score_label = get_live_score_details(classifier, X_test_scaled)
+    if test_scores is None:
+        test_scores = y_test_pred.astype(np.float64)
+        test_score_label = "prediction_fallback"
+
+    test_report = compute_pad_evaluation_metrics(
+        y_test,
+        test_scores,
+        test_score_label,
+        selected_threshold=selected_threshold,
+        threshold_source=f"{validation_mode}_target_apcer",
+        threshold_selection=threshold_selection,
+        output_stem=output_stem,
+        export_curves=export_curves,
+    )
+
+    log_pad_evaluation_diagnostics(
+        f"{test_name} (threshold from {protocol_label} validation)",
+        y_test,
+        y_test_pred,
+        test_scores,
+        test_score_label,
+        None,
+        test_load_elapsed,
+        time.perf_counter() - test_start_time,
+        test_report,
+        mismatch_summary=build_prediction_probability_mismatch_summary(
+            y_test_pred,
+            test_scores,
+            test_score_label,
+        ),
+        pose_summary=test_pose_summary,
+    )
+
+
+def evaluate_custom_pad_protocol(
+    scaler,
+    classifier,
+    pad_config,
+    output_stem=None,
+    target_apcer=PAD_VALIDATION_TARGET_APCER,
+    export_curves=False,
+    log_live_false_negatives=False,
+    live_false_negative_limit=LIVE_FALSE_NEGATIVE_LOG_LIMIT,
+):
+    """
+    Evaluate custom PAD by selecting the threshold on a deterministic
+    pseudo-validation subset extracted from the custom train split.
+
+    Unlike the public datasets, custom PAD does not have an explicit
+    validation folder on disk. The threshold is therefore selected on
+    an internal holdout carved out of the custom training split, while
+    the custom test split remains untouched until final evaluation.
+    """
+
+    validation_ratio = float(
+        pad_config.get("custom_validation_ratio", CUSTOM_PAD_VALIDATION_RATIO)
+    )
+    validation_seed = int(
+        pad_config.get("custom_validation_seed", CUSTOM_PAD_VALIDATION_SEED)
+    )
+
+    print(
+        "Custom PAD pseudo-validation:",
+        f"enabled | ratio={validation_ratio} | seed={validation_seed}",
+    )
+
+    validation_load_start_time = time.perf_counter()
+    X_validation, y_validation, validation_pose_summary = load_custom_pad_validation_dataset(
+        validation_ratio=validation_ratio,
+        validation_seed=validation_seed,
+        collect_pose_metrics=True,
+        return_pose_summary=True,
+    )
+    validation_load_elapsed = time.perf_counter() - validation_load_start_time
+
+    if len(y_validation) == 0:
+        print("PAD validation dataset: Custom pseudo-validation")
+        print("No valid validation samples found for threshold selection.")
+        return
+
+    validation_start_time = time.perf_counter()
+    X_validation_scaled = scaler.transform(X_validation)
+    y_validation_pred = classifier.predict(X_validation_scaled)
+    validation_scores, validation_score_label = get_live_score_details(
+        classifier,
+        X_validation_scaled,
+    )
+    if validation_scores is None:
+        validation_scores = y_validation_pred.astype(np.float64)
+        validation_score_label = "prediction_fallback"
+
+    selected_target_apcer = (
+        PAD_VALIDATION_TARGET_APCER
+        if target_apcer is None
+        else float(target_apcer)
+    )
+    validation_sweep = sweep_pad_thresholds(y_validation, validation_scores)
+    threshold_selection = select_pad_threshold_by_target_apcer(
+        validation_sweep,
+        target_apcer=selected_target_apcer,
+    )
+    selected_threshold = threshold_selection["threshold"]
+    if selected_threshold is None:
+        selected_threshold = 0.5 if validation_score_label != "decision" else 0.0
+
+    print("Custom PAD validation selected threshold:", selected_threshold)
+    print(
+        "Custom PAD validation threshold rule:",
+        threshold_selection["threshold_rule"],
+    )
+    print("Custom PAD validation target APCER:", selected_target_apcer)
+    print(
+        "Custom PAD validation APCER constraint satisfied:",
+        threshold_selection["constraint_satisfied"],
+    )
+    selected_validation_metrics = threshold_selection.get("selected_metrics")
+    if selected_validation_metrics is not None:
+        print(
+            "Custom PAD validation selected metrics:",
+            (
+                f"APCER={selected_validation_metrics['apcer']:.4f} | "
+                f"BPCER={selected_validation_metrics['bpcer']:.4f} | "
+                f"ACER={selected_validation_metrics['acer']:.4f}"
+            ),
+        )
+
+    validation_report = compute_pad_evaluation_metrics(
+        y_validation,
+        validation_scores,
+        validation_score_label,
+        selected_threshold=selected_threshold,
+        threshold_source="custom_internal_validation_target_apcer_selection",
+        threshold_selection=threshold_selection,
+        output_stem=(
+            f"{output_stem}_selection"
+            if output_stem is not None
+            else "custom_selection"
+        ),
+        export_curves=export_curves,
+    )
+    log_pad_evaluation_diagnostics(
+        "Custom pseudo-validation",
+        y_validation,
+        y_validation_pred,
+        validation_scores,
+        validation_score_label,
+        None,
+        validation_load_elapsed,
+        time.perf_counter() - validation_start_time,
+        validation_report,
+        mismatch_summary=build_prediction_probability_mismatch_summary(
+            y_validation_pred,
+            validation_scores,
+            validation_score_label,
+        ),
+        pose_summary=validation_pose_summary,
+    )
+
+    test_load_start_time = time.perf_counter()
+    test_dataset = load_custom_pad_test_dataset(
+        return_image_paths=log_live_false_negatives,
+        collect_pose_metrics=True,
+        return_pose_summary=True,
+    )
+    test_load_elapsed = time.perf_counter() - test_load_start_time
+    if log_live_false_negatives:
+        X_test, y_test, sample_paths, test_pose_summary = test_dataset
+    else:
+        X_test, y_test, test_pose_summary = test_dataset
+        sample_paths = None
+
+    if len(y_test) == 0:
+        print("PAD evaluation dataset: Custom test")
+        print("No valid samples found for final evaluation.")
+        return
+
+    test_start_time = time.perf_counter()
+    X_test_scaled = scaler.transform(X_test)
+    y_test_pred = classifier.predict(X_test_scaled)
+    test_scores, test_score_label = get_live_score_details(classifier, X_test_scaled)
+    if test_scores is None:
+        test_scores = y_test_pred.astype(np.float64)
+        test_score_label = "prediction_fallback"
+
+    test_report = compute_pad_evaluation_metrics(
+        y_test,
+        test_scores,
+        test_score_label,
+        selected_threshold=selected_threshold,
+        threshold_source="custom_internal_validation_target_apcer",
+        threshold_selection=threshold_selection,
+        output_stem=output_stem,
+        export_curves=export_curves,
+    )
+    log_pad_evaluation_diagnostics(
+        "Custom test (threshold from custom pseudo-validation)",
+        y_test,
+        y_test_pred,
+        test_scores,
+        test_score_label,
+        sample_paths if log_live_false_negatives else None,
+        test_load_elapsed,
+        time.perf_counter() - test_start_time,
+        test_report,
+        mismatch_summary=build_prediction_probability_mismatch_summary(
+            y_test_pred,
+            test_scores,
+            test_score_label,
+        ),
+        pose_summary=test_pose_summary,
+        log_live_false_negatives=log_live_false_negatives,
+        live_false_negative_limit=live_false_negative_limit,
+    )
+
+
+def _build_target_apcer_suffix(target_apcer):
+    """
+    Build a compact output suffix for non-default APCER targets.
+    """
+
+    target_tag = f"{float(target_apcer):.4f}".rstrip("0").rstrip(".")
+    target_tag = target_tag.replace(".", "p")
+    return f"_apcer{target_tag}"
+
+
 def evaluate_pad_model(
     eval_mode=None,
     artifact_profile="runtime",
     log_live_false_negatives=False,
     live_false_negative_limit=LIVE_FALSE_NEGATIVE_LOG_LIMIT,
+    pad_validation_target_apcer=None,
     export_curves=False,
 ):
     """
@@ -578,7 +971,9 @@ def evaluate_pad_model(
 
     ``artifact_profile`` selects which saved PAD artifacts must be
     evaluated. This keeps fast and full experiment outputs separate
-    while preserving a canonical runtime artifact set.
+    while preserving a canonical runtime artifact set. Validation modes
+    run threshold selection before the final test; plain test modes
+    evaluate the selected dataset directly.
     """
 
     selected_mode = eval_mode or EVAL_MODE
@@ -612,7 +1007,7 @@ def evaluate_pad_model(
         print("PAD live false-negative logging: disabled")
 
     if selected_mode == "all":
-        for mode in ("casia", "replay", "custom"):
+        for mode in ("casia", "replay"):
             evaluate_single_pad_dataset(
                 mode,
                 scaler,
@@ -622,6 +1017,55 @@ def evaluate_pad_model(
                 output_stem=f"{artifact_profile}_{mode}",
                 export_curves=export_curves,
             )
+        evaluate_custom_pad_protocol(
+            scaler,
+            classifier,
+            pad_config,
+            output_stem=f"{artifact_profile}_custom",
+            target_apcer=pad_validation_target_apcer,
+            export_curves=export_curves,
+            log_live_false_negatives=log_live_false_negatives,
+            live_false_negative_limit=live_false_negative_limit,
+        )
+        print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
+        return
+
+    validation_modes = {
+        "casia_validation": ("casia", "CASIA"),
+        "replay_validation": ("replay", "Replay-Attack"),
+    }
+    if selected_mode in validation_modes:
+        test_mode, protocol_label = validation_modes[selected_mode]
+        output_stem = f"{artifact_profile}_{selected_mode}"
+        if pad_validation_target_apcer is not None:
+            output_stem += _build_target_apcer_suffix(pad_validation_target_apcer)
+        evaluate_pad_validation_protocol(
+            selected_mode,
+            test_mode,
+            protocol_label,
+            scaler,
+            classifier,
+            output_stem=output_stem,
+            target_apcer=pad_validation_target_apcer,
+            export_curves=export_curves,
+        )
+        print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
+        return
+
+    if selected_mode == "custom":
+        output_stem = f"{artifact_profile}_{selected_mode}"
+        if pad_validation_target_apcer is not None:
+            output_stem += _build_target_apcer_suffix(pad_validation_target_apcer)
+        evaluate_custom_pad_protocol(
+            scaler,
+            classifier,
+            pad_config,
+            output_stem=output_stem,
+            target_apcer=pad_validation_target_apcer,
+            export_curves=export_curves,
+            log_live_false_negatives=log_live_false_negatives,
+            live_false_negative_limit=live_false_negative_limit,
+        )
         print(f"Total PAD evaluation time: {time.perf_counter() - total_start_time:.2f}s")
         return
 

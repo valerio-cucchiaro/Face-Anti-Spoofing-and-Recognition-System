@@ -39,6 +39,61 @@ OUTPUT_DIRS = (
 )
 
 
+def count_identity_images(root_dir: Path):
+    """
+    Count generated identity directories and copied images under one split root.
+    """
+    if not root_dir.exists():
+        return 0, 0
+
+    identity_dirs = [path for path in root_dir.iterdir() if path.is_dir()]
+    image_count = 0
+    for identity_dir in identity_dirs:
+        image_count += len(get_identity_image_paths(identity_dir))
+
+    return len(identity_dirs), image_count
+
+
+def verify_lfw_output_counts(expected_counts):
+    """
+    Verify that the generated LFW split matches the reported counts.
+    """
+    actual_counts = {
+        "gallery": count_identity_images(LFW_GALLERY_DIR),
+        "validation_known": count_identity_images(LFW_VALIDATION_KNOWN_DIR),
+        "probe_known": count_identity_images(LFW_PROBE_KNOWN_DIR),
+        "validation_unknown": count_identity_images(LFW_VALIDATION_UNKNOWN_DIR),
+        "probe_unknown": count_identity_images(LFW_PROBE_UNKNOWN_DIR),
+    }
+
+    expected_pairs = {
+        "gallery": (expected_counts["known_identities_copied"], expected_counts["known_gallery_images"]),
+        "validation_known": (expected_counts["known_identities_copied"], expected_counts["validation_known_images"]),
+        "probe_known": (expected_counts["known_identities_copied"], expected_counts["probe_known_images"]),
+        "validation_unknown": (
+            expected_counts["validation_unknown_identities"],
+            expected_counts["validation_unknown_images"],
+        ),
+        "probe_unknown": (
+            expected_counts["probe_unknown_identities"],
+            expected_counts["probe_unknown_images"],
+        ),
+    }
+
+    mismatches = []
+    for split_name, expected_pair in expected_pairs.items():
+        actual_pair = actual_counts[split_name]
+        if actual_pair != expected_pair:
+            mismatches.append(
+                f"{split_name}: expected identities/images={expected_pair}, actual={actual_pair}"
+            )
+
+    if mismatches:
+        raise RuntimeError(
+            "LFW split verification failed after copy: " + "; ".join(mismatches)
+        )
+
+
 def is_valid_image(image_path: Path):
     """
     Check whether a file has a supported LFW image extension.
@@ -142,6 +197,7 @@ def reset_output_directories():
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
+
 def prepare_lfw_gallery_probe():
     """
     Create gallery and known/unknown probe splits from the raw LFW dataset.
@@ -150,8 +206,16 @@ def prepare_lfw_gallery_probe():
     if not LFW_RAW_DIR.exists():
         raise FileNotFoundError(f"Missing LFW raw dataset directory: {LFW_RAW_DIR}")
 
+    if not LFW_RAW_DIR.is_dir():
+        raise NotADirectoryError(f"LFW raw path is not a directory: {LFW_RAW_DIR}")
+
     identity_records = []
     skipped_identities = 0
+    skip_reason_counts = {
+        "no_valid_images": 0,
+        "too_few_images": 0,
+        "split_not_feasible": 0,
+    }
 
     for identity_dir in sorted(LFW_RAW_DIR.iterdir(), key=lambda path: path.name):
         if not identity_dir.is_dir():
@@ -161,21 +225,31 @@ def prepare_lfw_gallery_probe():
 
         if not image_paths:
             skipped_identities += 1
+            skip_reason_counts["no_valid_images"] += 1
             continue
 
         if len(image_paths) < MIN_IMAGES_PER_IDENTITY:
             print(f"[WARNING] Skipping {identity_dir.name}: only {len(image_paths)} valid images")
             skipped_identities += 1
+            skip_reason_counts["too_few_images"] += 1
             continue
 
         identity_records.append((identity_dir.name, image_paths))
 
+    if not identity_records:
+        raise RuntimeError(
+            f"No valid LFW identities were found under {LFW_RAW_DIR}."
+        )
+
     known_records, unknown_records = select_known_unknown_identities(identity_records)
     reset_output_directories()
 
+    known_identities_copied = 0
     known_gallery_images = 0
     validation_known_images = 0
     probe_known_images = 0
+    validation_unknown_identities = 0
+    probe_unknown_identities = 0
     validation_unknown_images = 0
     probe_unknown_images = 0
 
@@ -185,9 +259,11 @@ def prepare_lfw_gallery_probe():
         if not gallery_paths or not validation_paths or not probe_paths:
             print(f"[WARNING] Skipping {identity_name}: split did not produce gallery, validation, and final probe")
             skipped_identities += 1
+            skip_reason_counts["split_not_feasible"] += 1
             continue
 
         copy_known_identity_split(identity_name, gallery_paths, validation_paths, probe_paths)
+        known_identities_copied += 1
         known_gallery_images += len(gallery_paths)
         validation_known_images += len(validation_paths)
         probe_known_images += len(probe_paths)
@@ -198,20 +274,46 @@ def prepare_lfw_gallery_probe():
 
     for identity_name, image_paths in validation_unknown_records:
         copy_unknown_identity_split(identity_name, image_paths, LFW_VALIDATION_UNKNOWN_DIR)
+        validation_unknown_identities += 1
         validation_unknown_images += len(image_paths)
 
     for identity_name, image_paths in probe_unknown_records:
         copy_unknown_identity_split(identity_name, image_paths, LFW_PROBE_UNKNOWN_DIR)
+        probe_unknown_identities += 1
         probe_unknown_images += len(image_paths)
 
-    print(f"Known identities: {len(known_records)}")
-    print(f"Unknown identities: {len(unknown_records)}")
+    verify_lfw_output_counts(
+        {
+            "known_identities_copied": known_identities_copied,
+            "known_gallery_images": known_gallery_images,
+            "validation_known_images": validation_known_images,
+            "probe_known_images": probe_known_images,
+            "validation_unknown_identities": validation_unknown_identities,
+            "probe_unknown_identities": probe_unknown_identities,
+            "validation_unknown_images": validation_unknown_images,
+            "probe_unknown_images": probe_unknown_images,
+        }
+    )
+
+    known_identities_skipped = len(known_records) - known_identities_copied
+    print(f"Known identities selected: {len(known_records)}")
+    print(f"Known identities copied: {known_identities_copied}")
+    print(f"Known identities skipped: {known_identities_skipped}")
+    print(f"Unknown identities selected: {len(unknown_records)}")
+    print(f"Validation unknown identities copied: {validation_unknown_identities}")
+    print(f"Final probe unknown identities copied: {probe_unknown_identities}")
     print(f"Gallery images: {known_gallery_images}")
     print(f"Validation known images: {validation_known_images}")
     print(f"Final probe known images: {probe_known_images}")
     print(f"Validation unknown images: {validation_unknown_images}")
     print(f"Final probe unknown images: {probe_unknown_images}")
     print(f"Skipped identities: {skipped_identities}")
+    print(
+        "Skip reasons: "
+        f"no_valid_images={skip_reason_counts['no_valid_images']} | "
+        f"too_few_images={skip_reason_counts['too_few_images']} | "
+        f"split_not_feasible={skip_reason_counts['split_not_feasible']}"
+    )
     print("====== END LFW DATASET SPLIT ======")
 
 

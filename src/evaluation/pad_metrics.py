@@ -228,6 +228,57 @@ def compute_pad_eer(sweep_results):
     }
 
 
+def select_pad_threshold_by_target_apcer(sweep_results, target_apcer=0.01):
+    """
+    Select a PAD threshold under an APCER/FAR security constraint.
+
+    Among thresholds satisfying ``APCER <= target_apcer``, choose the one
+    with the lowest BPCER/FRR. If no threshold satisfies the constraint,
+    return the lowest-APCER operating point and mark the selection as a
+    fallback so reports can state the constraint was not met.
+    """
+
+    per_threshold = sweep_results.get("per_threshold", []) if sweep_results else []
+    if not per_threshold:
+        return {
+            "threshold": None,
+            "threshold_rule": "unavailable",
+            "target_apcer": target_apcer,
+            "constraint_satisfied": False,
+            "selected_metrics": None,
+        }
+
+    candidates = [
+        row for row in per_threshold
+        if row["apcer"] <= target_apcer
+    ]
+
+    if candidates:
+        selected = min(
+            candidates,
+            key=lambda row: (row["bpcer"], row["apcer"], row["threshold"]),
+        )
+        return {
+            "threshold": selected["threshold"],
+            "threshold_rule": "target_apcer",
+            "target_apcer": target_apcer,
+            "constraint_satisfied": True,
+            "selected_metrics": selected,
+        }
+
+    selected = min(
+        per_threshold,
+        key=lambda row: (row["apcer"], row["bpcer"], row["threshold"]),
+    )
+    return {
+        "threshold": selected["threshold"],
+        "threshold_rule": "min_apcer_fallback",
+        "target_apcer": target_apcer,
+        "constraint_satisfied": False,
+        "selected_metrics": selected,
+    }
+
+
 def build_pad_threshold_summary(sweep_results, low_t=None, mid_t=None, high_t=None):
     """
     Pick representative rows from the sweep for low / mid / high thresholds.
@@ -286,6 +337,8 @@ def _json_ready_report(report):
 
     return {
         "selected_threshold": report.get("selected_threshold"),
+        "threshold_source": report.get("threshold_source"),
+        "threshold_selection": report.get("threshold_selection"),
         "selected_metrics": report.get("selected_metrics"),
         "eer_results": report.get("eer_results"),
         "threshold_summary": report.get("threshold_summary"),

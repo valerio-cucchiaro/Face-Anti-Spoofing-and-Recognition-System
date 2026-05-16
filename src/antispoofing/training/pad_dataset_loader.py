@@ -42,6 +42,8 @@ CASIA_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "pa
 
 TRAIN_LIVE_PATH = CASIA_ROOT / "train" / "live"
 TRAIN_SPOOF_PATH = CASIA_ROOT / "train" / "spoof"
+VALIDATION_LIVE_PATH = CASIA_ROOT / "validation" / "live"
+VALIDATION_SPOOF_PATH = CASIA_ROOT / "validation" / "spoof"
 TEST_LIVE_PATH = CASIA_ROOT / "test" / "live"
 TEST_SPOOF_PATH = CASIA_ROOT / "test" / "spoof"
 
@@ -50,6 +52,8 @@ REPLAY_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "p
 
 REPLAY_TRAIN_LIVE_PATH = REPLAY_ROOT / "train" / "live"
 REPLAY_TRAIN_SPOOF_PATH = REPLAY_ROOT / "train" / "spoof"
+REPLAY_VALIDATION_LIVE_PATH = REPLAY_ROOT / "validation" / "live"
+REPLAY_VALIDATION_SPOOF_PATH = REPLAY_ROOT / "validation" / "spoof"
 REPLAY_TEST_LIVE_PATH = REPLAY_ROOT / "test" / "live"
 REPLAY_TEST_SPOOF_PATH = REPLAY_ROOT / "test" / "spoof"
 
@@ -69,6 +73,58 @@ REPLAY_SAMPLE_RATIO = 1.0
 PAD_IMAGE_PROGRESS_STEP = 500
 LIVE_PHOTOMETRIC_AUGMENTATION_SEED = 42
 LIVE_PHOTOMETRIC_AUGMENTATION_MODE = "mix"
+CUSTOM_PAD_VALIDATION_RATIO = 0.2
+CUSTOM_PAD_VALIDATION_SEED = 42
+_CUSTOM_PAD_VALID_SPLIT_CACHE = {}
+
+
+def _assert_input_directory(path, description):
+    """
+    Validate that one PAD input directory exists and is a directory.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Missing {description}: {path}")
+
+    if not path.is_dir():
+        raise NotADirectoryError(f"{description} is not a directory: {path}")
+
+
+def _validate_custom_pad_split_paths(
+    split_paths,
+    live_paths,
+    spoof_paths,
+):
+    """
+    Verify that the custom PAD internal split is disjoint and complete.
+    """
+    train_live_set = set(split_paths["train_live_paths"])
+    validation_live_set = set(split_paths["validation_live_paths"])
+    train_spoof_set = set(split_paths["train_spoof_paths"])
+    validation_spoof_set = set(split_paths["validation_spoof_paths"])
+
+    live_pool = set(live_paths)
+    spoof_pool = set(spoof_paths)
+
+    if not live_pool or not spoof_pool:
+        raise RuntimeError(
+            "Custom PAD filtering produced an empty class before internal validation split."
+        )
+
+    if train_live_set & validation_live_set:
+        raise RuntimeError("Custom PAD live train/validation subsets overlap.")
+
+    if train_spoof_set & validation_spoof_set:
+        raise RuntimeError("Custom PAD spoof train/validation subsets overlap.")
+
+    if train_live_set | validation_live_set != live_pool:
+        raise RuntimeError(
+            "Custom PAD live train/validation subsets do not reconstruct the filtered live pool."
+        )
+
+    if train_spoof_set | validation_spoof_set != spoof_pool:
+        raise RuntimeError(
+            "Custom PAD spoof train/validation subsets do not reconstruct the filtered spoof pool."
+        )
 
 
 def sample_image_paths(paths, ratio=1.0, seed=None):
@@ -88,6 +144,140 @@ def sample_image_paths(paths, ratio=1.0, seed=None):
     indices = np.sort(indices)
 
     return [paths[i] for i in indices]
+
+
+def collect_image_paths(path_or_paths):
+    """
+    Collect supported image paths from one directory or from a path list.
+    """
+
+    valid_extensions = {".png", ".jpg", ".jpeg"}
+
+    if isinstance(path_or_paths, (str, Path)):
+        _assert_input_directory(
+            Path(path_or_paths),
+            "PAD dataset split directory",
+        )
+        return [
+            img_path for img_path in sorted(Path(path_or_paths).iterdir())
+            if img_path.suffix.lower() in valid_extensions
+        ]
+
+    return [
+        Path(img_path) for img_path in path_or_paths
+        if Path(img_path).suffix.lower() in valid_extensions
+    ]
+
+
+def split_image_paths_for_validation(image_paths, validation_ratio, seed):
+    """
+    Deterministically split one class into train and validation subsets.
+    """
+
+    if not 0.0 < float(validation_ratio) < 1.0:
+        raise ValueError(
+            "custom PAD validation_ratio must be between 0 and 1. "
+            f"Received: {validation_ratio}"
+        )
+
+    paths = list(image_paths)
+    if len(paths) <= 1:
+        return paths, []
+
+    validation_count = int(round(len(paths) * float(validation_ratio)))
+    validation_count = max(1, min(len(paths) - 1, validation_count))
+
+    rng = np.random.default_rng(seed)
+    validation_indices = np.sort(
+        rng.choice(len(paths), size=validation_count, replace=False)
+    )
+    validation_index_set = set(int(index) for index in validation_indices)
+
+    train_paths = [
+        path for index, path in enumerate(paths)
+        if index not in validation_index_set
+    ]
+    validation_paths = [
+        path for index, path in enumerate(paths)
+        if index in validation_index_set
+    ]
+    return train_paths, validation_paths
+
+
+def resolve_custom_pad_train_validation_paths(
+    validation_ratio=CUSTOM_PAD_VALIDATION_RATIO,
+    validation_seed=CUSTOM_PAD_VALIDATION_SEED,
+):
+    """
+    Split the custom PAD train data into deterministic train and
+    validation subsets after keeping only valid samples.
+
+    This keeps the custom PAD protocol aligned with the custom
+    recognition protocol: the internal holdout is computed on the
+    samples that survive PAD loading and quality filtering, not on the
+    raw file lists alone.
+    """
+    cache_key = (
+        str(CUSTOM_TRAIN_LIVE_PATH),
+        str(CUSTOM_TRAIN_SPOOF_PATH),
+        float(validation_ratio),
+        int(validation_seed),
+    )
+    cached_split = _CUSTOM_PAD_VALID_SPLIT_CACHE.get(cache_key)
+    if cached_split is not None:
+        return {
+            split_name: list(split_paths)
+            for split_name, split_paths in cached_split.items()
+        }
+
+    _, labels, sample_paths = load_pad_split_dataset(
+        CUSTOM_TRAIN_LIVE_PATH,
+        CUSTOM_TRAIN_SPOOF_PATH,
+        balance=False,
+        dataset_type="final_pad_crop",
+        return_image_paths=True,
+        collect_pose_metrics=False,
+        return_pose_summary=False,
+        augment_live_photometric=False,
+    )
+
+    live_paths = [
+        Path(sample_path)
+        for sample_path, label in zip(sample_paths, labels)
+        if int(label) == 1
+    ]
+    spoof_paths = [
+        Path(sample_path)
+        for sample_path, label in zip(sample_paths, labels)
+        if int(label) == 0
+    ]
+
+    train_live_paths, validation_live_paths = split_image_paths_for_validation(
+        live_paths,
+        validation_ratio,
+        validation_seed,
+    )
+    train_spoof_paths, validation_spoof_paths = split_image_paths_for_validation(
+        spoof_paths,
+        validation_ratio,
+        validation_seed + 1,
+    )
+
+    split_paths = {
+        "train_live_paths": train_live_paths,
+        "train_spoof_paths": train_spoof_paths,
+        "validation_live_paths": validation_live_paths,
+        "validation_spoof_paths": validation_spoof_paths,
+    }
+    _validate_custom_pad_split_paths(split_paths, live_paths, spoof_paths)
+    _CUSTOM_PAD_VALID_SPLIT_CACHE[cache_key] = {
+        split_name: list(paths)
+        for split_name, paths in split_paths.items()
+    }
+    return {
+        split_name: list(paths)
+        for split_name, paths in split_paths.items()
+    }
 
 
 def apply_gamma_adjustment(gray_image, rng):
@@ -418,7 +608,7 @@ def load_custom_pad_training_dataset(
     augment_live_photometric_mode=None,
 ):
     """
-    Load the custom PAD training dataset from pad_custom_raw.
+    Load the full custom PAD training split from pad_custom_raw.
     """
     return load_pad_split_dataset(
         CUSTOM_TRAIN_LIVE_PATH,
@@ -450,22 +640,6 @@ def load_custom_pad_test_dataset(
     )
 
 
-def load_pad_test_dataset(
-    collect_pose_metrics=False,
-    return_pose_summary=False,
-):
-    """
-    Load the default PAD test dataset (CASIA) and extract feature vectors.
-    """
-    return load_pad_split_dataset(
-        TEST_LIVE_PATH,
-        TEST_SPOOF_PATH,
-        dataset_type="raw_frame",
-        collect_pose_metrics=collect_pose_metrics,
-        return_pose_summary=return_pose_summary,
-    )
-
-
 def load_pad_test_dataset_casia(
     collect_pose_metrics=False,
     return_pose_summary=False,
@@ -482,6 +656,78 @@ def load_pad_test_dataset_casia(
     )
 
 
+def load_pad_validation_dataset_casia(
+    collect_pose_metrics=False,
+    return_pose_summary=False,
+):
+    """
+    Load the CASIA PAD validation dataset.
+    """
+    return load_pad_split_dataset(
+        VALIDATION_LIVE_PATH,
+        VALIDATION_SPOOF_PATH,
+        dataset_type="raw_frame",
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
+    )
+
+
+def load_custom_pad_training_subset(
+    validation_ratio=CUSTOM_PAD_VALIDATION_RATIO,
+    validation_seed=CUSTOM_PAD_VALIDATION_SEED,
+    collect_pose_metrics=False,
+    return_pose_summary=False,
+    augment_live_photometric=False,
+    augment_live_photometric_mode=None,
+):
+    """
+    Load only the effective custom PAD training subset after removing
+    the deterministic pseudo-validation samples from the train split.
+    """
+
+    split_paths = resolve_custom_pad_train_validation_paths(
+        validation_ratio=validation_ratio,
+        validation_seed=validation_seed,
+    )
+    return load_pad_split_dataset(
+        split_paths["train_live_paths"],
+        split_paths["train_spoof_paths"],
+        balance=False,
+        dataset_type="final_pad_crop",
+        augment_live_photometric=augment_live_photometric,
+        augment_live_photometric_mode=augment_live_photometric_mode,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
+    )
+
+
+def load_custom_pad_validation_dataset(
+    validation_ratio=CUSTOM_PAD_VALIDATION_RATIO,
+    validation_seed=CUSTOM_PAD_VALIDATION_SEED,
+    return_image_paths=False,
+    collect_pose_metrics=False,
+    return_pose_summary=False,
+):
+    """
+    Load the deterministic pseudo-validation subset carved out of the
+    custom PAD train split.
+    """
+
+    split_paths = resolve_custom_pad_train_validation_paths(
+        validation_ratio=validation_ratio,
+        validation_seed=validation_seed,
+    )
+    return load_pad_split_dataset(
+        split_paths["validation_live_paths"],
+        split_paths["validation_spoof_paths"],
+        balance=False,
+        dataset_type="final_pad_crop",
+        return_image_paths=return_image_paths,
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
+    )
+
+
 def load_pad_test_dataset_replay(
     collect_pose_metrics=False,
     return_pose_summary=False,
@@ -492,6 +738,23 @@ def load_pad_test_dataset_replay(
     return load_pad_split_dataset(
         REPLAY_TEST_LIVE_PATH,
         REPLAY_TEST_SPOOF_PATH,
+        balance=False,
+        dataset_type="raw_frame",
+        collect_pose_metrics=collect_pose_metrics,
+        return_pose_summary=return_pose_summary,
+    )
+
+
+def load_pad_validation_dataset_replay(
+    collect_pose_metrics=False,
+    return_pose_summary=False,
+):
+    """
+    Load the Replay-Attack validation dataset extracted from raw/devel.
+    """
+    return load_pad_split_dataset(
+        REPLAY_VALIDATION_LIVE_PATH,
+        REPLAY_VALIDATION_SPOOF_PATH,
         balance=False,
         dataset_type="raw_frame",
         collect_pose_metrics=collect_pose_metrics,
@@ -646,10 +909,11 @@ def load_pad_split_dataset(
     augment_live_photometric_mode=None,
 ):
     """
-    Load a custom PAD dataset split from specified directories.
+    Load one supported PAD dataset split from directories or preselected
+    image path lists.
 
-    This function reads live and spoof images from the provided
-    directories, extracts PAD feature vectors, and assigns binary labels.
+    This function reads live and spoof images from the provided sources,
+    extracts PAD feature vectors, and assigns binary labels.
 
     If balance=True, the larger class is downsampled before feature
     extraction to match the smaller one. After detection, quality
@@ -666,7 +930,6 @@ def load_pad_split_dataset(
     labels = []
     sample_paths = []
     pose_summary = create_pose_summary() if collect_pose_metrics else None
-    valid_extensions = {".png", ".jpg", ".jpeg"}
     start_time = time.perf_counter()
     augmentation_seed = (
         sample_seed if sample_seed is not None else LIVE_PHOTOMETRIC_AUGMENTATION_SEED
@@ -683,15 +946,8 @@ def load_pad_split_dataset(
     face_mesh = load_mediapipe_face_mesh() if collect_pose_metrics else None
 
     # Build image path lists
-    live_paths = [
-        img_path for img_path in sorted(Path(live_path).iterdir())
-        if img_path.suffix.lower() in valid_extensions
-    ]
-
-    spoof_paths = [
-        img_path for img_path in sorted(Path(spoof_path).iterdir())
-        if img_path.suffix.lower() in valid_extensions
-    ]
+    live_paths = collect_image_paths(live_path)
+    spoof_paths = collect_image_paths(spoof_path)
 
     live_paths = sample_image_paths(
         live_paths,
@@ -722,7 +978,9 @@ def load_pad_split_dataset(
             indices = np.sort(indices)
             spoof_paths = [spoof_paths[i] for i in indices]
 
-    print(f"Loading PAD split: live={live_path} spoof={spoof_path}")
+    live_source = live_path if isinstance(live_path, (str, Path)) else f"selected_list[{len(live_paths)}]"
+    spoof_source = spoof_path if isinstance(spoof_path, (str, Path)) else f"selected_list[{len(spoof_paths)}]"
+    print(f"Loading PAD split: live={live_source} spoof={spoof_source}")
     print(f"Dataset type: {dataset_type}")
     print(f"Pre-extraction balance enabled: {balance}")
     print(f"Live photometric augmentation enabled: {augment_live_photometric}")

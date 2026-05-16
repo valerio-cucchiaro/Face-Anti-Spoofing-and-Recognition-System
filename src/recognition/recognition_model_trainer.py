@@ -79,7 +79,7 @@ def train_recognition_model(
 
     Training modes are defined by the shared dataset loader. The
     default project setup uses `custom`, while experiments may still
-    select `orl`, `lfw`, `multipie`, `custom_orl`, or `all`.
+    select `orl`, `lfw`, `multipie`, or `all`.
 
     LBPH hyperparameters can be overridden through ``lbph_params``.
     """

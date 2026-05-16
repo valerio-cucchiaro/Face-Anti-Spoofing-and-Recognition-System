@@ -12,7 +12,6 @@ all supported probe datasets.
 
 The mode vocabulary is shared across training and evaluation:
 - `custom`, `orl`, `lfw`, `multipie`: single-dataset runs
-- `custom_orl`: mixed setup without LFW
 - `all`: full combined setup including LFW and Multi-PIE
 
 LBPH hyperparameters can also be passed to the trainer through this
@@ -31,8 +30,8 @@ from src.evaluation.recognition_model_evaluator import evaluate_recognition_mode
 
 
 # ----- CONSTANTS ----- #
-TRAIN_MODE = "custom"      # options: custom, orl, lfw, multipie, custom_orl, all
-EVAL_MODE = "custom"       # options: custom, orl, lfw, multipie, custom_orl, all
+TRAIN_MODE = "custom"      # options: custom, orl, lfw, multipie, all
+EVAL_MODE = "custom"       # options: custom, orl, lfw, multipie, all
 
 
 def run(
@@ -143,11 +142,11 @@ def build_arg_parser():
     )
     parser.add_argument(
         "--train-mode",
-        choices=["custom", "orl", "lfw", "multipie", "custom_orl", "all"],
+        choices=["custom", "orl", "lfw", "multipie", "all"],
     )
     parser.add_argument(
         "--eval-mode",
-        choices=["custom", "orl", "lfw", "multipie", "custom_orl", "all"],
+        choices=["custom", "orl", "lfw", "multipie", "all"],
     )
     parser.add_argument("--radius", type=int)
     parser.add_argument("--neighbors", type=int)

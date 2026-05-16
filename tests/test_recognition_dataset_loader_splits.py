@@ -32,3 +32,12 @@ def test_multipie_hr_lr_validation_and_probe_aliases_resolve_to_matching_splits(
         "probe_known_lr",
         "probe_unknown_lr",
     ]
+
+
+def test_custom_internal_validation_and_probe_splits_resolve_explicitly():
+    assert resolve_split_names("custom", "validation_known_internal") == [
+        "validation_known_internal",
+    ]
+    assert resolve_split_names("custom", "probe_unknown_internal") == [
+        "probe_unknown_internal",
+    ]

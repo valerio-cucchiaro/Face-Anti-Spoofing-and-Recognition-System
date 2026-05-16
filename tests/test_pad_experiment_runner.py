@@ -48,3 +48,18 @@ def test_pad_experiment_runner_fast_does_not_promote_runtime_artifacts(monkeypat
     assert calls["train_kwargs"]["update_runtime_artifacts"] is False
     assert calls["eval_args"] == ("custom",)
     assert calls["eval_kwargs"]["artifact_profile"] == "fast"
+
+
+def test_pad_experiment_runner_forwards_custom_validation_parameters(monkeypatch):
+    calls = _patch_pad_runner_dependencies(monkeypatch)
+
+    pad_experiment_runner.run(
+        train_mode="custom",
+        eval_mode="custom",
+        custom_pad_validation_ratio=0.3,
+        custom_pad_validation_seed=7,
+    )
+
+    assert calls["train_kwargs"]["custom_validation_ratio"] == 0.3
+    assert calls["train_kwargs"]["custom_validation_seed"] == 7
+    assert calls["eval_kwargs"]["pad_validation_target_apcer"] is None

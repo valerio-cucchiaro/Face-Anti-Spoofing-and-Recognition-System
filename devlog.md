@@ -1635,3 +1635,45 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 - added visible START/END banners to dataset splitters/frame extraction and summarized unreadable Replay-Attack videos while suppressing repeated native FFmpeg zlib header errors
 - added `.python-version` with Python `3.12.10` to formalize the environment version used by the project
 - added regression tests for PAD config mismatch handling, recognition artifact metadata, complete JSON `export_paths`, and PAD full/fast runtime promotion behavior; full test suite verified with `78 passed`
+
+---
+
+## 2026/05/15
+
+**PAD Public Validation Protocol**:
+
+- added side validation evaluation modes for public PAD datasets: `replay_validation` and `casia_validation`
+- kept the original public test modes (`replay`, `casia`) available as pre-validation baselines
+- added Replay-Attack extraction split policy support so `raw/devel` can be mapped to `data/pad/replay_attack_pad/validation` while preserving the legacy merge behavior when requested
+- added CASIA PAD validation splitter based on subject-level move from `train` to `validation`, avoiding subject leakage between train and validation
+- removed the earlier CASIA video-level split option after diagnostics showed it made validation unrealistically easy
+- added validation dataset loaders for Replay-Attack and CASIA PAD
+- added APCER-constrained threshold selection: choose the validation threshold with `APCER <= target_apcer`, then minimize BPCER under that constraint
+- set the public validation baseline target to `APCER <= 0.02` for both Replay-Attack and CASIA
+- kept EER only as a reported diagnostic metric, not as the threshold selection rule
+- tested Replay-Attack validation thresholds at `1%`, `2%`, `2.5%`, and `3%` APCER; selected `2%` as the baseline because it preserves a security-oriented operating point without the overly severe live rejection of `1%`
+- tested CASIA first with video-level validation, then replaced it with subject-level validation after the video-level split produced perfect validation metrics and an over-strict test threshold
+- selected CASIA subject-level validation with `APCER <= 2%` as the final public CASIA baseline
+- final baseline protocol for public PAD datasets is now:
+  - train on `train`
+  - select the live-score threshold on `validation` with APCER-constrained selection at `2%`
+  - evaluate once on `test` with the frozen validation threshold
+
+---
+
+## 2026/05/16
+
+**Recognition Mode Cleanup**:
+
+- removed the unused `custom_orl` recognition mode from the Python pipeline instead of keeping partial/legacy support
+- updated recognition dataset mode resolution, identity namespacing, CLI train/eval choices, and trainer-facing mode descriptions so the supported set is now `custom`, `orl`, `lfw`, `multipie`, and `all`
+- kept `all` as the only mixed recognition mode and rechecked docstrings/comments in the modified recognition files for consistency with the simplified mode logic
+- added custom PAD pseudo-validation with deterministic internal holdout from `train`, using the held-out subset for threshold selection and keeping `test` as the final frozen evaluation split
+- added custom recognition pseudo-validation with deterministic internal holdout from `probe_known` and `probe_unknown`, so validation and final probe are now separated even without dedicated custom validation folders
+- cleaned legacy PAD data folders by renaming `casia_pad_backup_pre_validation` to `casia_pad_raw` as the preserved original CASIA dataset and removing the obsolete `casia_pad_video_validation_split` and `replay_attack_pad_legacy_baseline` copies
+- rewrote the CASIA PAD splitter to generate `casia_pad` from immutable `casia_pad_raw`, recreating the output split from scratch, copying `test` unchanged, and verifying final counts instead of destructively moving files inside the working dataset
+- fixed the LFW splitter final summary so it now reports selected vs actually copied known identities, copied unknown identities per split, total skipped identities, and aggregated skip reasons without changing the split policy
+- fixed the ORL splitter final summary so it now reports only subjects and files actually copied, explicitly counts skipped identities, and avoids misleading theoretical totals when an identity is incomplete
+- refreshed outdated PAD evaluator/loader comments and docstrings in the three touched files so they now match validation modes, target-APCER threshold selection, custom pseudo-validation, and the current generic PAD split loader contract
+- added focused tests for PAD validation threshold selection, custom PAD/custom recognition internal validation splits, CASIA/LFW/ORL splitter behavior and summaries, and verified the full suite passes with `92 passed`
+- moved custom PAD internal train/validation splitting after loading and quality filtering to align it with custom recognition; the custom PAD baseline metrics stayed unchanged on the current dataset, while training time increased because the train split is now scanned once to determine valid samples before building the deterministic holdout

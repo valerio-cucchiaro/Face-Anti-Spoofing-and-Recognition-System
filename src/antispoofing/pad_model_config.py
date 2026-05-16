@@ -96,12 +96,15 @@ def build_pad_model_config(
     tgsd_tau=None,
     tgsd_top_percent=None,
     tgsd_gradient_operator=None,
+    custom_validation_enabled=None,
+    custom_validation_ratio=None,
+    custom_validation_seed=None,
 ):
     """
     Build the PAD configuration dictionary saved next to the model.
     """
 
-    return {
+    config = {
         "pad_debug_feature_mode": debug_feature_mode,
         "pad_lft_mode": lft_mode,
         "feature_dim": int(feature_dim),
@@ -114,6 +117,15 @@ def build_pad_model_config(
         ),
         "config_source": "saved_by_trainer",
     }
+
+    if custom_validation_enabled is not None:
+        config["custom_validation_enabled"] = bool(custom_validation_enabled)
+    if custom_validation_ratio is not None:
+        config["custom_validation_ratio"] = float(custom_validation_ratio)
+    if custom_validation_seed is not None:
+        config["custom_validation_seed"] = int(custom_validation_seed)
+
+    return config
 
 
 def save_pad_model_config(config, config_path=None):

@@ -152,22 +152,22 @@ foreach ($run in $recognitionRuns) {
 Add-LogHeader -LogPath $padLog -Title "PAD BATCH"
 
 $padRuns = @(
-    #@{
-    #    Label = "pad | combined_custom -> all"
-    #    Args = @(
-    #        "-m", "src.antispoofing.training.pad_experiment_runner",
-    #        "--train-mode", "combined_custom",
-    #        "--eval-mode", "all"
-    #    )
-    #}
     @{
-         Label = "pad | custom -> custom"
-         Args = @(
-             "-m", "src.antispoofing.training.pad_experiment_runner",
-             "--train-mode", "custom",
-             "--eval-mode", "custom"
-         )
+        Label = "pad | combined_custom -> all"
+        Args = @(
+            "-m", "src.antispoofing.training.pad_experiment_runner",
+            "--train-mode", "combined_custom",
+            "--eval-mode", "all"
+        )
     }
+    #@{
+    #     Label = "pad | custom -> custom"
+    #     Args = @(
+    #         "-m", "src.antispoofing.training.pad_experiment_runner",
+    #         "--train-mode", "custom",
+    #         "--eval-mode", "custom"
+    #     )
+    #}
     # @{
     #     Label = "pad | casia -> casia"
     #     Args = @(

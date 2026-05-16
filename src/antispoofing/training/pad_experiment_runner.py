@@ -46,7 +46,10 @@ def run(
     augment_live_photometric=False,
     augment_live_photometric_mode=None,
     augment_live_photometric_scope="all",
+    pad_validation_target_apcer=None,
     export_curves=False,
+    custom_pad_validation_ratio=None,
+    custom_pad_validation_seed=None,
 ):
     """
     Execute a full PAD experiment using the current training
@@ -61,7 +64,9 @@ def run(
 
     Supported evaluation modes:
     - casia
+    - casia_validation
     - replay
+    - replay_validation
     - custom
     - all
 
@@ -80,6 +85,11 @@ def run(
     baseline and TGSD feature branches. pad_lft_mode is kept explicit
     so the runner can persist the active PAD config coherently, even
     though the promoted LFT branch is now fixed to ``ggd_light``.
+
+    pad_validation_target_apcer is used by the side validation
+    protocols. For custom PAD, the same threshold-selection logic is
+    now driven by a deterministic pseudo-validation subset extracted
+    from the custom train split.
     """
     selected_train_mode = train_mode or TRAIN_MODE
     selected_eval_mode = eval_mode or EVAL_MODE
@@ -110,6 +120,10 @@ def run(
         print(f"=== CASIA PRE-EXTRACTION BALANCE ({selected_casia_balance}) ===")
     if selected_replay_balance is not None:
         print(f"=== REPLAY PRE-EXTRACTION BALANCE ({selected_replay_balance}) ===")
+    if custom_pad_validation_ratio is not None:
+        print(f"=== CUSTOM PAD VALIDATION RATIO ({custom_pad_validation_ratio}) ===")
+    if custom_pad_validation_seed is not None:
+        print(f"=== CUSTOM PAD VALIDATION SEED ({custom_pad_validation_seed}) ===")
     print(f"=== TRAINING ({selected_train_mode}) ===")
     train_pad_model(
         selected_train_mode,
@@ -122,6 +136,8 @@ def run(
         augment_live_photometric=augment_live_photometric,
         augment_live_photometric_mode=augment_live_photometric_mode,
         augment_live_photometric_scope=augment_live_photometric_scope,
+        custom_validation_ratio=custom_pad_validation_ratio,
+        custom_validation_seed=custom_pad_validation_seed,
     )
 
     print(f"=== EVALUATION ({selected_eval_mode}) ===")
@@ -130,6 +146,7 @@ def run(
         artifact_profile=artifact_profile,
         log_live_false_negatives=log_live_false_negatives,
         live_false_negative_limit=live_false_negative_limit,
+        pad_validation_target_apcer=pad_validation_target_apcer,
         export_curves=export_curves,
     )
     print(f"=== TOTAL PAD EXPERIMENT TIME: {time.perf_counter() - total_start_time:.2f}s ===")
@@ -147,7 +164,7 @@ def build_arg_parser():
         description="Run a PAD experiment with optional sampling and feature overrides."
     )
     parser.add_argument("--train-mode", choices=["casia", "replay", "combined", "custom", "combined_custom"])
-    parser.add_argument("--eval-mode", choices=["casia", "replay", "custom", "all"])
+    parser.add_argument("--eval-mode", choices=["casia", "casia_validation", "replay", "replay_validation", "custom", "all"])
     parser.add_argument("--experiment-speed", choices=["full", "fast"])
     parser.add_argument("--custom-repeat", type=int)
     parser.add_argument("--casia-balance", choices=["true", "false"])
@@ -160,6 +177,9 @@ def build_arg_parser():
     parser.add_argument("--log-live-false-negatives", action="store_true")
     parser.add_argument("--export-curves", action="store_true")
     parser.add_argument("--live-false-negative-limit", type=int)
+    parser.add_argument("--pad-validation-target-apcer", type=float)
+    parser.add_argument("--custom-pad-validation-ratio", type=float)
+    parser.add_argument("--custom-pad-validation-seed", type=int)
     parser.add_argument("--augment-live-photometric", action="store_true")
     parser.add_argument(
         "--augment-live-photometric-mode",
@@ -197,7 +217,10 @@ if __name__ == "__main__":
         tgsd_gradient_operator=cli_args.tgsd_gradient_operator,
         log_live_false_negatives=cli_args.log_live_false_negatives,
         live_false_negative_limit=cli_args.live_false_negative_limit,
+        pad_validation_target_apcer=cli_args.pad_validation_target_apcer,
         export_curves=cli_args.export_curves,
+        custom_pad_validation_ratio=cli_args.custom_pad_validation_ratio,
+        custom_pad_validation_seed=cli_args.custom_pad_validation_seed,
         augment_live_photometric=cli_args.augment_live_photometric,
         augment_live_photometric_mode=cli_args.augment_live_photometric_mode,
         augment_live_photometric_scope=(

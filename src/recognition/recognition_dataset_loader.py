@@ -13,7 +13,6 @@ and final metrics.
 
 The supported experiment modes are intentionally explicit:
 - `custom`, `orl`, `lfw`, `multipie`: single-dataset runs
-- `custom_orl`: realistic mixed training setup without LFW
 - `all`: full mixed experiment including LFW and Multi-PIE, mainly useful for broad
   comparisons and stress-style analysis
 """
@@ -125,14 +124,54 @@ IDENTITY_PROGRESS_STEP = 50
 CUSTOM_RAW_MIN_FACE_AREA = 8000
 TRAIN_SAMPLING_SEED = 42
 LFW_SAMPLE_RATIO = 1.0
+CUSTOM_OPEN_SET_VALIDATION_RATIO = 0.4
+CUSTOM_OPEN_SET_VALIDATION_SEED = 42
 DATASET_MODE_MAP = {
     "custom": ["custom"],
     "orl": ["orl"],
     "lfw": ["lfw"],
     "multipie": ["multipie"],
-    "custom_orl": ["custom", "orl"],
     "all": ["custom", "orl", "lfw", "multipie"],
 }
+
+
+def _assert_directory_exists(path, description):
+    """
+    Validate that one dataset directory exists and is a directory.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Missing {description}: {path}")
+
+    if not path.is_dir():
+        raise NotADirectoryError(f"{description} is not a directory: {path}")
+
+
+def _assert_identity_subset_consistency(
+    split_name,
+    identity_name,
+    source_count,
+    selected_count,
+):
+    """
+    Validate the deterministic custom internal split per identity.
+    """
+    if source_count == 0 and selected_count != 0:
+        raise RuntimeError(
+            f"Custom recognition split '{split_name}' for identity '{identity_name}' "
+            f"selected {selected_count} samples from an empty source set."
+        )
+
+    if source_count == 1 and selected_count != 1:
+        raise RuntimeError(
+            f"Custom recognition split '{split_name}' for identity '{identity_name}' "
+            "must keep the single available sample."
+        )
+
+    if source_count > 1 and not 0 < selected_count < source_count:
+        raise RuntimeError(
+            f"Custom recognition split '{split_name}' for identity '{identity_name}' "
+            f"produced an invalid subset size: selected={selected_count}, source={source_count}."
+        )
 
 
 def _compute_pose_metrics_for_loaded_image(
@@ -173,7 +212,7 @@ def resolve_dataset_names(mode):
 
     raise ValueError(
         f"Unsupported recognition mode: {mode}. "
-        "Use 'custom', 'orl', 'lfw', 'multipie', 'custom_orl', or 'all'."
+        "Use 'custom', 'orl', 'lfw', 'multipie', or 'all'."
     )
 
 
@@ -184,7 +223,7 @@ def should_namespace_identities(mode):
     Namespacing is enabled for combined modes so identities coming from
     different datasets cannot collide in the shared label space.
     """
-    return mode in {"custom_orl", "all"}
+    return mode == "all"
 
 
 def sample_image_paths(paths, ratio=1.0, seed=None):
@@ -251,9 +290,19 @@ def resolve_split_names(dataset_name, split):
         if split in CUSTOM_PROBE_SPLITS:
             return [split]
 
+        if split in {
+            "validation_known_internal",
+            "probe_known_internal",
+            "validation_unknown_internal",
+            "probe_unknown_internal",
+        }:
+            return [split]
+
         raise ValueError(
             f"Unsupported split for {dataset_name} dataset: {split}. "
-            "Use 'gallery', 'probe_known', 'probe_unknown', or 'probe'."
+            "Use 'gallery', 'probe_known', 'probe_unknown', 'probe', "
+            "'validation_known_internal', 'probe_known_internal', "
+            "'validation_unknown_internal', or 'probe_unknown_internal'."
         )
 
     if dataset_name in {"orl", "lfw"}:
@@ -306,16 +355,78 @@ def get_split_directories(mode, split):
 
     for dataset_name in resolve_dataset_names(mode):
         for concrete_split in resolve_split_names(dataset_name, split):
-            split_dir = DATASET_SPLIT_DIRS[dataset_name][concrete_split]
+            directory_key = concrete_split
+            if dataset_name == "custom":
+                if concrete_split in {"validation_known_internal", "probe_known_internal"}:
+                    directory_key = "probe_known"
+                elif concrete_split in {"validation_unknown_internal", "probe_unknown_internal"}:
+                    directory_key = "probe_unknown"
 
-            if not split_dir.exists():
-                raise FileNotFoundError(
-                    f"Recognition {concrete_split} directory not found: {split_dir}"
-                )
+            split_dir = DATASET_SPLIT_DIRS[dataset_name][directory_key]
+            _assert_directory_exists(
+                split_dir,
+                f"recognition {dataset_name} {directory_key} directory",
+            )
 
             dataset_dirs.append((dataset_name, concrete_split, split_dir))
 
     return dataset_dirs
+
+
+def split_custom_open_set_identity_images(
+    identity_images,
+    split_name,
+    identity_name,
+    validation_ratio=CUSTOM_OPEN_SET_VALIDATION_RATIO,
+    validation_seed=CUSTOM_OPEN_SET_VALIDATION_SEED,
+):
+    """
+    Split one custom probe identity into deterministic validation and
+    final-probe subsets after loading and quality filtering.
+    """
+
+    if split_name not in {
+        "validation_known_internal",
+        "probe_known_internal",
+        "validation_unknown_internal",
+        "probe_unknown_internal",
+    }:
+        return identity_images
+
+    total_images = len(identity_images)
+    if total_images == 0:
+        return identity_images
+
+    source_group = "unknown" if "unknown" in split_name else "known"
+    identity_seed = validation_seed + sum(
+        ord(character) for character in f"{source_group}:{identity_name}"
+    )
+
+    if total_images == 1:
+        validation_indices = {0}
+    else:
+        validation_count = int(round(total_images * float(validation_ratio)))
+        validation_count = max(1, min(total_images - 1, validation_count))
+        rng = np.random.default_rng(identity_seed)
+        validation_indices = set(
+            int(index)
+            for index in np.sort(
+                rng.choice(total_images, size=validation_count, replace=False)
+            )
+        )
+
+    if split_name.startswith("validation_"):
+        return [
+            image_record
+            for index, image_record in enumerate(identity_images)
+            if index in validation_indices
+        ]
+
+    return [
+        image_record
+        for index, image_record in enumerate(identity_images)
+        if index not in validation_indices
+    ]
 
 
 def load_images_from_identity_dir(
@@ -583,8 +694,9 @@ def load_probe_dataset(
     Load one or more probe datasets for recognition evaluation.
 
     For public open-set datasets, ``validation`` is used for threshold
-    selection and ``probe`` is used for final metrics. Passing one of the
-    explicit split names loads only that branch.
+    selection and ``probe`` is used for final metrics. Custom open-set
+    runs can also request internal holdout splits derived from the
+    original custom probe folders after quality filtering.
     """
     probe_records = []
     dataset_counts = {}
@@ -638,6 +750,19 @@ def load_probe_dataset(
                     quality_filter_mode=quality_filter_mode,
                     debug_quality=debug_quality,
                 )
+                if dataset_name == "custom":
+                    original_count = len(identity_images)
+                    identity_images = split_custom_open_set_identity_images(
+                        identity_images,
+                        split_name,
+                        person_dir.name,
+                    )
+                    _assert_identity_subset_consistency(
+                        split_name,
+                        person_dir.name,
+                        original_count,
+                        len(identity_images),
+                    )
                 identity_count += 1
 
                 if identity_count % IDENTITY_PROGRESS_STEP == 0:
