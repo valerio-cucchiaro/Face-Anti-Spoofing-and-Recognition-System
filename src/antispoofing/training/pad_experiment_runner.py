@@ -82,7 +82,7 @@ def run(
     selected speed preset.
 
     pad_debug_feature_mode can be used to switch between the promoted
-    baseline and TGSD feature branches. pad_lft_mode is kept explicit
+    TGSD default and the baseline-only comparison branch. pad_lft_mode is kept explicit
     so the runner can persist the active PAD config coherently, even
     though the promoted LFT branch is now fixed to ``ggd_light``.
 

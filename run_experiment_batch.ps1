@@ -153,20 +153,85 @@ Add-LogHeader -LogPath $padLog -Title "PAD BATCH"
 
 $padRuns = @(
     @{
-        Label = "pad | combined_custom -> all"
+        Label = "pad | combined -> all | baseline + ggd_light"
         Args = @(
             "-m", "src.antispoofing.training.pad_experiment_runner",
-            "--train-mode", "combined_custom",
-            "--eval-mode", "all"
+            "--train-mode", "combined",
+            "--eval-mode", "all",
+            "--experiment-speed", "full",
+            "--pad-debug-feature-mode", "baseline",
+            "--pad-lft-mode", "ggd_light"
+        )
+    }
+    @{
+        Label = "pad | combined -> all | tgsd + ggd_light"
+        Args = @(
+            "-m", "src.antispoofing.training.pad_experiment_runner",
+            "--train-mode", "combined",
+            "--eval-mode", "all",
+            "--experiment-speed", "full",
+            "--pad-debug-feature-mode", "tgsd",
+            "--pad-lft-mode", "ggd_light",
+            "--tgsd-tau", "170",
+            "--tgsd-top-percent", "0.05",
+            "--tgsd-gradient-operator", "sobel"
+        )
+    }
+    @{
+        Label = "pad | custom -> custom | baseline + ggd_light"
+        Args = @(
+            "-m", "src.antispoofing.training.pad_experiment_runner",
+            "--train-mode", "custom",
+            "--eval-mode", "custom",
+            "--experiment-speed", "full",
+            "--pad-debug-feature-mode", "baseline",
+            "--pad-lft-mode", "ggd_light"
+        )
+    }
+    @{
+        Label = "pad | custom -> custom | tgsd + ggd_light"
+        Args = @(
+            "-m", "src.antispoofing.training.pad_experiment_runner",
+            "--train-mode", "custom",
+            "--eval-mode", "custom",
+            "--experiment-speed", "full",
+            "--pad-debug-feature-mode", "tgsd",
+            "--pad-lft-mode", "ggd_light",
+            "--tgsd-tau", "170",
+            "--tgsd-top-percent", "0.05",
+            "--tgsd-gradient-operator", "sobel"
         )
     }
     #@{
-    #     Label = "pad | custom -> custom"
-    #     Args = @(
-    #         "-m", "src.antispoofing.training.pad_experiment_runner",
-    #         "--train-mode", "custom",
-    #         "--eval-mode", "custom"
-    #     )
+    #    Label = "pad | combined -> all | baseline + ggd_light | mix all"
+    #    Args = @(
+    #        "-m", "src.antispoofing.training.pad_experiment_runner",
+    #        "--train-mode", "combined",
+    #        "--eval-mode", "all",
+    #        "--experiment-speed", "full",
+    #        "--pad-debug-feature-mode", "baseline",
+    #        "--pad-lft-mode", "ggd_light",
+    #        "--augment-live-photometric",
+    #        "--augment-live-photometric-mode", "mix",
+    #        "--augment-live-photometric-scope", "all"
+    #    )
+    #}
+    #@{
+    #    Label = "pad | combined -> all | tgsd + ggd_light | mix all"
+    #    Args = @(
+    #        "-m", "src.antispoofing.training.pad_experiment_runner",
+    #        "--train-mode", "combined",
+    #        "--eval-mode", "all",
+    #        "--experiment-speed", "full",
+    #        "--pad-debug-feature-mode", "tgsd",
+    #        "--pad-lft-mode", "ggd_light",
+    #        "--tgsd-tau", "170",
+    #        "--tgsd-top-percent", "0.05",
+    #        "--tgsd-gradient-operator", "sobel",
+    #        "--augment-live-photometric",
+    #        "--augment-live-photometric-mode", "mix",
+    #        "--augment-live-photometric-scope", "all"
+    #    )
     #}
     # @{
     #     Label = "pad | casia -> casia"

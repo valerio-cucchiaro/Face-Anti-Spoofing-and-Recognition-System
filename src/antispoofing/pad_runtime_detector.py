@@ -61,6 +61,41 @@ class AntiSpoofingDetector:
         configure_pad_feature_extractor_from_config(self.pad_config)
         self.pad_class_indices = get_pad_class_probability_indices(self.classifier)
 
+    def _build_result_payload(
+        self,
+        *,
+        status,
+        prediction=None,
+        label="unknown",
+        score=None,
+        live_score=None,
+        prediction_label=None,
+        probability_label=None,
+        prediction_probability_mismatch=False,
+        error=None,
+        timings_ms=None,
+    ):
+        """
+        Build a uniform PAD runtime result payload.
+
+        Runtime callers should be able to inspect the same keys in both
+        success and failure cases without adding special-case guards for
+        missing probability fields.
+        """
+
+        return {
+            "status": status,
+            "prediction": prediction,
+            "label": label,
+            "score": score,
+            "live_score": live_score,
+            "prediction_label": prediction_label,
+            "probability_label": probability_label,
+            "prediction_probability_mismatch": prediction_probability_mismatch,
+            "error": error,
+            "timings_ms": timings_ms if timings_ms is not None else {},
+        }
+
     def predict(self, face_image):
         """
         Predict whether the input face crop corresponds to a live face
@@ -74,16 +109,14 @@ class AntiSpoofingDetector:
         extraction_elapsed_ms = (time.perf_counter() - extraction_start_time) * 1000.0
 
         if features is None or len(features) == 0:
-            return {
-                "status": "invalid_input",
-                "prediction": None,
-                "label": "unknown",
-                "score": 0.0,
-                "timings_ms": {
+            return self._build_result_payload(
+                status="invalid_input",
+                score=0.0,
+                timings_ms={
                     **feature_timings,
                     "total_predict": extraction_elapsed_ms,
                 },
-            }
+            )
 
         # Reshape to match classifier input format (n_samples, n_features)
         features = features.reshape(1, -1)
@@ -111,30 +144,28 @@ class AntiSpoofingDetector:
         )
         live_score = float(probabilities[pad_class_indices["live"]])
         probability_label = "live" if live_score >= 0.5 else "spoof"
-
-        if prediction == 1:
-            label = "live"
-            score = probabilities[pad_class_indices["live"]]
+        prediction_label = "live" if int(prediction) == 1 else "spoof"
+        label = probability_label
+        if label == "live":
+            score = float(probabilities[pad_class_indices["live"]])
         else:
-            label = "spoof"
-            score = probabilities[pad_class_indices["spoof"]]
-        prediction_label = label
+            score = float(probabilities[pad_class_indices["spoof"]])
 
         # Dictionary containing the PAD inference result
-        return {
-            "status": "ok",
-            "prediction": int(prediction),
-            "label": label,
-            "score": float(score),
-            "live_score": live_score,
-            "prediction_label": prediction_label,
-            "probability_label": probability_label,
-            "prediction_probability_mismatch": prediction_label != probability_label,
-            "timings_ms": {
+        return self._build_result_payload(
+            status="ok",
+            prediction=int(prediction),
+            label=label,
+            score=score,
+            live_score=live_score,
+            prediction_label=prediction_label,
+            probability_label=probability_label,
+            prediction_probability_mismatch=prediction_label != probability_label,
+            timings_ms={
                 **feature_timings,
                 "total_predict": extraction_elapsed_ms,
             },
-        }
+        )
 
     def predict_safe(self, face_image):
         """
@@ -150,11 +181,7 @@ class AntiSpoofingDetector:
         try:
             return self.predict(face_image)
         except Exception as exc:
-            return {
-                "status": "predict_failed",
-                "prediction": None,
-                "label": "unknown",
-                "score": None,
-                "error": str(exc),
-                "timings_ms": {},
-            }
+            return self._build_result_payload(
+                status="predict_failed",
+                error=str(exc),
+            )

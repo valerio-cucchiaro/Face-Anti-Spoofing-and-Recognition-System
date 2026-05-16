@@ -5,7 +5,7 @@
 ### Feature set promosso
 
 - feature set: `baseline + TGSD + GGD(LFT)_light`
-- `PAD_DEBUG_FEATURE_MODE = baseline | tgsd`
+- `PAD_DEBUG_FEATURE_MODE = tgsd` di default, con `baseline` lasciato come branch di confronto
 - `PAD_LFT_MODE = ggd_light`
 - `tgsd_tau = 170`
 - `tgsd_gradient_operator = sobel`

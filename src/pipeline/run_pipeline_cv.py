@@ -602,7 +602,7 @@ def run_pipeline_cv():
         spatial_text = build_pad_spatial_summary(frame.shape, face_rect)
         light_text = build_pad_light_summary(pad_face_crop)
         pad_frame_usable = (
-            quality_result["is_frame_usable_for_history"]
+            quality_result["is_crop_usable_for_history"]
             and stability_result["is_stable"]
         )
 

@@ -1677,3 +1677,54 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 - refreshed outdated PAD evaluator/loader comments and docstrings in the three touched files so they now match validation modes, target-APCER threshold selection, custom pseudo-validation, and the current generic PAD split loader contract
 - added focused tests for PAD validation threshold selection, custom PAD/custom recognition internal validation splits, CASIA/LFW/ORL splitter behavior and summaries, and verified the full suite passes with `92 passed`
 - moved custom PAD internal train/validation splitting after loading and quality filtering to align it with custom recognition; the custom PAD baseline metrics stayed unchanged on the current dataset, while training time increased because the train split is now scanned once to determine valid samples before building the deterministic holdout
+
+**Runtime Refactor**:
+
+- aligned the `too close` runtime branch with the post-lock face-unusable reset behavior already used for `too far` / missing-face conditions, so an oversized face now drops the live lock after the configured miss threshold instead of preserving it indefinitely
+- removed unused runtime session state artifacts from `runtime_session_state.py`, including `last_valid_face_rect`, `live_lock_active`, and `last_stable_identity`, after confirming they were no longer consumed by the full runtime pipeline
+- clamped MediaPipe face-detection bounding boxes to valid frame coordinates before downstream size/stability checks, skipping degenerate boxes instead of passing raw out-of-frame rectangles through the runtime
+- wrapped full-pipeline MediaPipe detector initialization in a contextual runtime error so detector startup failures now match the clearer PAD and recognition initialization behavior
+- normalized the locked recognition overlay so the identity line now always shows `Identity: ...` text, using `Identity: pending` during early recognition stabilization instead of leaking process-state messages into the identity slot
+- refined face-acquisition terminal logs so `too close` warnings are reported explicitly instead of being logged under the generic `face_lost` reason
+- renamed the shared PAD crop-history quality flag from `is_frame_usable_for_history` to `is_crop_usable_for_history` to make clear that it covers only crop geometry and sharpness, while runtime pipelines may still add bbox-stability gating on top
+- clarified the live-lock PAD comments so session reset remains tied to crop validity, while spoof-based lock release keeps the stricter requirement of fully usable PAD evidence
+- made PAD runtime detector failure payloads uniform across `invalid_input`, `ok`, and `predict_failed`, so webcam callers can always inspect the same keys without special-case guards
+- switched the PAD runtime detector to derive the final runtime `label` from `live_score` while keeping the raw SVM `predict(...)` result as diagnostic `prediction_label`, and added regression coverage for explicit predict/proba mismatch handling
+
+**PAD Feature Recheck**:
+
+- saved a fresh `combined -> all | full | baseline + ggd_light` PAD comparison run as the baseline branch reference before rechecking `tgsd`
+- training counts for this run:
+  - CASIA train valid: `12869 live / 28485 spoof`
+  - Replay train valid: `2145 live / 2252 spoof`
+  - combined train total: `15014 live / 30737 spoof` (`45751` samples, `feature_dim=124`)
+- public test results with this branch:
+  - CASIA test: `APCER=0.0202`, `BPCER=0.2558`, `ACER=0.1380`, `EER=0.1147`
+  - Replay-Attack test: `APCER=0.0124`, `BPCER=0.2449`, `ACER=0.1287`, `EER=0.0599`
+- custom threshold-selection and final custom test results degraded sharply with this branch:
+  - custom pseudo-validation selected `threshold=0.9097`, with `APCER=0.0000`, `BPCER=0.8125`, `ACER=0.4062`
+  - custom test with that frozen threshold reached `APCER=0.0000`, `BPCER=0.9500`, `ACER=0.4750`, confirming that `baseline + ggd_light` is currently too conservative on custom live samples despite acceptable public-dataset security
+- saved the matching `combined -> all | full | tgsd + ggd_light` comparison run:
+  - training counts remained the same, with `feature_dim=126`
+  - CASIA test: `APCER=0.0183`, `BPCER=0.2701`, `ACER=0.1442`, `EER=0.1141`
+  - Replay-Attack test: `APCER=0.0103`, `BPCER=0.2247`, `ACER=0.1175`, `EER=0.0505`
+  - custom pseudo-validation selected `threshold=0.8018`, with `APCER=0.0000`, `BPCER=0.6875`, `ACER=0.3438`
+  - custom test with that frozen threshold reached `APCER=0.0000`, `BPCER=0.8375`, `ACER=0.4188`
+- first comparison reading:
+  - `tgsd + ggd_light` improves Replay and clearly improves custom live retention relative to `baseline + ggd_light`
+  - CASIA remains close, with slightly better spoof-side security (`APCER`) but slightly worse live-side rejection (`BPCER`)
+  - on the current evidence, `tgsd + ggd_light` is the stronger branch overall because the custom degradation is materially smaller while public-dataset behavior stays comparable
+- saved the dedicated `custom -> custom | full | baseline + ggd_light` run:
+  - custom train effective subset: `64 live / 112 spoof` (`176` samples, `feature_dim=124`)
+  - custom pseudo-validation selected `threshold=0.7896`, with `APCER=0.0000`, `BPCER=0.2500`, `ACER=0.1250`
+  - custom test with that frozen threshold reached `APCER=0.0100`, `BPCER=0.1500`, `ACER=0.0800`, with `FAR=0.0100`, `FRR=0.1500`, `GAR=0.8500`
+- this confirms that `baseline + ggd_light` remains strong on the pure custom-only PAD branch even though it degrades badly when promoted as the shared `combined -> all` full branch
+- saved the dedicated `custom -> custom | full | tgsd + ggd_light` run:
+  - custom train effective subset: `64 live / 112 spoof` (`176` samples, `feature_dim=126`)
+  - custom pseudo-validation selected `threshold=0.8007`, with `APCER=0.0000`, `BPCER=0.2500`, `ACER=0.1250`
+  - custom test with that frozen threshold reached `APCER=0.0100`, `BPCER=0.1625`, `ACER=0.0863`, with `FAR=0.0100`, `FRR=0.1625`, `GAR=0.8375`
+- promoted `tgsd + ggd_light` to the project default PAD feature branch:
+  - it stays the stronger overall branch for the shared `combined -> all` full configuration
+  - `baseline + ggd_light` remains documented as the slightly stronger custom-only comparison branch, but no longer as the default
+- aligned the hardcoded PAD feature default in `pad_feature_extractor.py` with the already promoted runtime artifacts so the code default, saved runtime config, and current documentation now all point to `tgsd + ggd_light`
+- removed the obsolete standalone `src/evaluation/pad_custom_evaluator.py` after confirming it was no longer referenced by active evaluation flows or tests; the maintained custom PAD protocol now lives entirely inside `pad_model_evaluator.py` through `evaluate_custom_pad_protocol(...)`

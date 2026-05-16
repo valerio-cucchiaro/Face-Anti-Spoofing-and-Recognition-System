@@ -41,11 +41,12 @@ def assert_prediction_result_contract(result):
         "prediction",
         "label",
         "score",
-        "timings_ms",
         "live_score",
         "prediction_label",
         "probability_label",
         "prediction_probability_mismatch",
+        "error",
+        "timings_ms",
     }
     assert required_keys.issubset(result.keys())
 
@@ -63,7 +64,14 @@ def test_predict_returns_invalid_input_for_empty_features(monkeypatch):
 
     assert result["status"] == "invalid_input"
     assert result["label"] == "unknown"
-    assert set(result.keys()) == {"status", "prediction", "label", "score", "timings_ms"}
+    assert_prediction_result_contract(result)
+    assert result["prediction"] is None
+    assert result["score"] == 0.0
+    assert result["live_score"] is None
+    assert result["prediction_label"] is None
+    assert result["probability_label"] is None
+    assert result["prediction_probability_mismatch"] is False
+    assert result["error"] is None
 
 
 def test_predict_raises_on_feature_dim_mismatch(monkeypatch):
@@ -123,6 +131,27 @@ def test_predict_returns_spoof_label(monkeypatch):
     assert result["prediction_probability_mismatch"] is False
 
 
+def test_predict_prefers_probability_label_when_predict_mismatches(monkeypatch):
+    detector = build_detector(prediction=1, probabilities=(0.8, 0.2))
+
+    monkeypatch.setattr(
+        detector_module,
+        "extract_pad_features_from_crop_with_timing",
+        lambda face_image: (np.array([1.0] * 124, dtype=np.float32), {"feature_total": 1.0}),
+    )
+
+    result = detector.predict(face_image=None)
+
+    assert result["status"] == "ok"
+    assert result["prediction"] == 1
+    assert result["label"] == "spoof"
+    assert result["score"] == pytest.approx(0.8)
+    assert result["live_score"] == pytest.approx(0.2)
+    assert result["prediction_label"] == "live"
+    assert result["probability_label"] == "spoof"
+    assert result["prediction_probability_mismatch"] is True
+
+
 def test_predict_propagates_feature_extractor_error(monkeypatch):
     detector = build_detector()
 
@@ -157,6 +186,10 @@ def test_predict_safe_returns_unknown_on_feature_extractor_error(monkeypatch):
     assert result["prediction"] is None
     assert result["label"] == "unknown"
     assert result["score"] is None
+    assert result["live_score"] is None
+    assert result["prediction_label"] is None
+    assert result["probability_label"] is None
+    assert result["prediction_probability_mismatch"] is False
     assert result["error"] == "feature extraction failed"
     assert result["timings_ms"] == {}
 
@@ -176,6 +209,10 @@ def test_predict_safe_returns_unknown_on_feature_dim_mismatch(monkeypatch):
     assert result["prediction"] is None
     assert result["label"] == "unknown"
     assert result["score"] is None
+    assert result["live_score"] is None
+    assert result["prediction_label"] is None
+    assert result["probability_label"] is None
+    assert result["prediction_probability_mismatch"] is False
     assert "feature mismatch" in result["error"]
 
 

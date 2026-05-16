@@ -18,7 +18,7 @@ def test_pad_crop_quality_rejects_none():
 
     assert result["is_valid_crop"] is False
     assert result["is_sharp_enough"] is False
-    assert result["is_frame_usable_for_history"] is False
+    assert result["is_crop_usable_for_history"] is False
 
 
 def test_pad_crop_quality_rejects_empty_crop(empty_crop):
@@ -52,7 +52,7 @@ def test_pad_crop_quality_rejects_blurry_valid_crop(blurry_gray_face):
 
     assert result["is_valid_crop"]
     assert not result["is_sharp_enough"]
-    assert not result["is_frame_usable_for_history"]
+    assert not result["is_crop_usable_for_history"]
 
 
 def test_pad_crop_quality_accepts_sharp_valid_crop(sharp_gray_face):
@@ -60,7 +60,7 @@ def test_pad_crop_quality_accepts_sharp_valid_crop(sharp_gray_face):
 
     assert result["is_valid_crop"]
     assert result["is_sharp_enough"]
-    assert result["is_frame_usable_for_history"]
+    assert result["is_crop_usable_for_history"]
 
 
 def test_pad_crop_quality_accepts_valid_bgr_crop(sharp_gray_face):

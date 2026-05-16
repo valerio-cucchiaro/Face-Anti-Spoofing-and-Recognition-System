@@ -182,7 +182,7 @@ def collect_pad_custom_dataset(split_name=DATASET_SPLIT):
             # checks used by the runtime PAD history update. Bbox
             # stability is treated here as an acquisition policy, not as
             # part of the PAD feature preprocessing path.
-            valid_face = quality_result["is_frame_usable_for_history"] and bbox_stable
+            valid_face = quality_result["is_crop_usable_for_history"] and bbox_stable
 
             # Draw face bounding box
             draw_visual_face_bbox(display_frame, face_rect, (0, 255, 0), 2)

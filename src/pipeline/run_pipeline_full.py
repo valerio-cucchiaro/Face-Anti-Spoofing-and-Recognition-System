@@ -465,9 +465,9 @@ class RecognitionDisplayState:
         """
 
         if self.state == self.SEARCHING:
-            return "Recognition: Searching face..."
+            return "Identity: pending"
         if self.state == self.ANALYZING:
-            return "Recognition: Analyzing..."
+            return "Identity: pending"
         if self.state == self.SHOW_UNKNOWN:
             return "Identity: Unknown"
         return f"Identity: {format_identity_for_display(self.display_name)}"
@@ -512,12 +512,12 @@ class FaceAcquisitionDisplayState:
         self.warning_started_at = None
         self.reacquire_counter = 0
 
-    def register_warning(self, message, now, logger=None):
+    def register_warning(self, message, now, logger=None, reason="face_lost"):
         if self.warning_text != message:
             self.warning_text = message
             self.warning_started_at = now
             if logger is not None:
-                logger(f"Face acquisition: face_lost | text={message}")
+                logger(f"Face acquisition: {reason} | text={message}")
 
         self.reacquire_counter = 0
         return self.warning_text
@@ -692,7 +692,13 @@ def run_pipeline_full():
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam")
 
-    detector = load_mediapipe_detector()
+    try:
+        detector = load_mediapipe_detector()
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to initialize the MediaPipe face detector. "
+            "Check the MediaPipe dependency and runtime environment."
+        ) from exc
     try:
         pad_detector = AntiSpoofingDetector()
     except Exception as exc:
@@ -800,6 +806,7 @@ def run_pipeline_full():
                 FACE_ACQUISITION_MESSAGE,
                 now,
                 logger=log_runtime_event,
+                reason="face_missing",
             )
             draw_face_acquisition_message(frame, display_message)
             cv2.imshow("Webcam", frame)
@@ -837,10 +844,24 @@ def run_pipeline_full():
                 logger=log_runtime_event,
             )
 
+            reset_after_misses = SESSION_RESET_AFTER_MISSES
+            if session_state.current_phase == RuntimeSessionState.RECOGNITION_LOCKED:
+                reset_after_misses = LOCK_RESET_AFTER_MISSING_FACE
+
+            if session_state.missing_face_counter >= reset_after_misses:
+                session_state.transition_to(RuntimeSessionState.RESET)
+                (
+                    pad_runtime_state,
+                    recognition_runtime_state,
+                    pad_display_state,
+                    recognition_display_state,
+                ) = reset_runtime_session(session_state)
+
             display_message = face_acquisition_display_state.register_warning(
                 FACE_TOO_CLOSE_MESSAGE,
                 now,
                 logger=log_runtime_event,
+                reason="too_close",
             )
             draw_face_acquisition_message(frame, display_message)
             cv2.imshow("Webcam", frame)
@@ -894,7 +915,7 @@ def run_pipeline_full():
             PAD_MIN_VARIANCE_LAPLACIAN,
         )
         pad_frame_usable = (
-            quality_result["is_frame_usable_for_history"] and bbox_stable
+            quality_result["is_crop_usable_for_history"] and bbox_stable
         )
 
         if session_state.current_phase == RuntimeSessionState.PAD_CHECK:
@@ -948,7 +969,6 @@ def run_pipeline_full():
                     live_count = 0
 
                 if live_count >= PAD_LIVE_LOCK_CONFIRMATIONS:
-                    session_state.live_lock_active = True
                     session_state.live_lock_started_at = now
                     session_state.transition_to(
                         RuntimeSessionState.RECOGNITION_LOCKED
@@ -1016,6 +1036,10 @@ def run_pipeline_full():
                     )
                     session_state.store_pad_result(locked_pad_state_result)
 
+                    # Leaving the live lock for spoof requires stronger
+                    # evidence than merely keeping the session active:
+                    # the PAD result must point to spoof and the frame must
+                    # still be fully usable for temporal PAD updates.
                     spoof_evidence = (
                         locked_pad_state_result["final_label"] == "spoof"
                         and pad_frame_usable

@@ -8,7 +8,7 @@ runtime-only stability checks used during online acquisition.
 The crop-quality evaluation exposes both structural validity and
 sharpness. Offline training/evaluation loaders use the structural
 validity fields to reject malformed crops before feature extraction.
-Runtime smoothing uses the stricter history flag, which also requires
+Runtime smoothing uses the stricter crop-history flag, which also requires
 the crop to be sharp enough.
 
 The checks include:
@@ -47,11 +47,13 @@ def evaluate_pad_crop_quality(
     """
     Evaluate PAD crop structure and sharpness.
 
-    The returned ``is_frame_usable_for_history`` flag combines the
+    The returned ``is_crop_usable_for_history`` flag combines the
     geometric checks and the sharpness check for runtime temporal
-    smoothing. Offline feature extraction may intentionally use only
-    ``is_valid_crop`` so blurry but structurally valid crops remain part
-    of frame-level PAD evaluation.
+    smoothing. Runtime pipelines may still apply extra gating such as
+    bbox stability on top of this crop-only quality result. Offline
+    feature extraction may intentionally use only ``is_valid_crop`` so
+    blurry but structurally valid crops remain part of frame-level PAD
+    evaluation.
     """
 
     if pad_face_crop is None or pad_face_crop.size == 0:
@@ -64,7 +66,7 @@ def evaluate_pad_crop_quality(
             "has_plausible_aspect_ratio": False,
             "laplacian_variance": 0.0,
             "is_sharp_enough": False,
-            "is_frame_usable_for_history": False,
+            "is_crop_usable_for_history": False,
         }
 
     crop_height, crop_width = pad_face_crop.shape[:2]
@@ -99,7 +101,7 @@ def evaluate_pad_crop_quality(
 
     # Only frames that are both structurally valid and sharp enough are
     # allowed to influence the temporal PAD smoothing state.
-    is_frame_usable_for_history = is_valid_crop and is_sharp_enough
+    is_crop_usable_for_history = is_valid_crop and is_sharp_enough
 
     return {
         "is_valid_crop": is_valid_crop,
@@ -110,7 +112,7 @@ def evaluate_pad_crop_quality(
         "has_plausible_aspect_ratio": has_plausible_aspect_ratio,
         "laplacian_variance": float(laplacian_variance),
         "is_sharp_enough": is_sharp_enough,
-        "is_frame_usable_for_history": is_frame_usable_for_history,
+        "is_crop_usable_for_history": is_crop_usable_for_history,
     }
 
 

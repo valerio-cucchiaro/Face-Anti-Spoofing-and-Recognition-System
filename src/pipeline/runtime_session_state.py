@@ -33,16 +33,13 @@ class RuntimeSessionState:
         """
 
         self.current_phase = self.DETECT
-        self.last_valid_face_rect = None
         self.previous_face_rect = None
         self.pad_live_confirmation_count = 0
-        self.live_lock_active = False
         self.missing_face_counter = 0
         self.locked_movement_counter = 0
         self.locked_invalid_crop_counter = 0
         self.locked_spoof_counter = 0
         self.live_lock_started_at = None
-        self.last_stable_identity = "Unknown"
         self.last_recognition_result = {
             "final_name": "Unknown",
             "stable_confidence": None,
@@ -80,7 +77,6 @@ class RuntimeSessionState:
         """
 
         self.missing_face_counter += 1
-        self.last_valid_face_rect = None
 
     def clear_missing_face_counter(self):
         """
@@ -94,7 +90,6 @@ class RuntimeSessionState:
         Persist the most recent valid face rectangle.
         """
 
-        self.last_valid_face_rect = face_rect
         self.previous_face_rect = face_rect
 
     def register_pad_live_confirmation(self):
@@ -163,26 +158,19 @@ class RuntimeSessionState:
 
         self.last_recognition_result = recognition_result
 
-        final_name = recognition_result.get("final_name")
-        if final_name is not None and final_name != "Unknown":
-            self.last_stable_identity = final_name
-
     def reset_session(self):
         """
         Reset the session to its initial DETECT state.
         """
 
         self.current_phase = self.DETECT
-        self.last_valid_face_rect = None
         self.previous_face_rect = None
         self.pad_live_confirmation_count = 0
-        self.live_lock_active = False
         self.missing_face_counter = 0
         self.locked_movement_counter = 0
         self.locked_invalid_crop_counter = 0
         self.locked_spoof_counter = 0
         self.live_lock_started_at = None
-        self.last_stable_identity = "Unknown"
         self.last_recognition_result = {
             "final_name": "Unknown",
             "stable_confidence": None,

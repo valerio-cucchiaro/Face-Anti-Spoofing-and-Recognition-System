@@ -48,12 +48,25 @@ def detect_faces_mediapipe(detector, frame):
             # Convert the relative MediaPipe bounding box into pixel coordinates.
             bbox = detection.location_data.relative_bounding_box
 
-            x = int(bbox.xmin * w)
-            y = int(bbox.ymin * h)
-            bw = int(bbox.width * w)
-            bh = int(bbox.height * h)
+            x1 = int(bbox.xmin * w)
+            y1 = int(bbox.ymin * h)
+            x2 = int((bbox.xmin + bbox.width) * w)
+            y2 = int((bbox.ymin + bbox.height) * h)
 
-            boxes.append((x, y, bw, bh))
+            # Clamp MediaPipe boxes to the frame limits so downstream
+            # size/stability checks operate on valid pixel rectangles.
+            x1 = max(0, min(x1, w))
+            y1 = max(0, min(y1, h))
+            x2 = max(0, min(x2, w))
+            y2 = max(0, min(y2, h))
+
+            bw = x2 - x1
+            bh = y2 - y1
+
+            if bw <= 0 or bh <= 0:
+                continue
+
+            boxes.append((x1, y1, bw, bh))
 
     return boxes
 

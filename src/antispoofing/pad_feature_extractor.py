@@ -5,11 +5,12 @@ Description:
 This module combines the descriptors used for face anti-spoofing
 detection.
 
-The baseline descriptor combines Local Binary Pattern (LBP), image
-quality, and the promoted LFT GGD-light representation at two scales.
+The active default descriptor combines the baseline multi-scale stack
+(LBP + quality) with the promoted LFT GGD-light representation and the
+promoted TGSD refinement.
 
-Optional debug additions can then append TGSD on top of that baseline
-to support controlled PAD ablation experiments.
+The debug switch still allows controlled comparisons against the
+baseline-only branch for PAD ablation experiments.
 """
 
 import cv2
@@ -34,12 +35,12 @@ from src.antispoofing.pad_tgsd_features import (
 #
 # Supported modes:
 # - baseline: multi-scale baseline only
-# - tgsd: baseline + TGSD
+# - tgsd: baseline + TGSD (promoted default)
 #
 # The historical LFTP module is intentionally kept in the repository as
 # an archived descriptor block, but it is no longer wired into the
 # active PAD feature path.
-PAD_DEBUG_FEATURE_MODE = "baseline"
+PAD_DEBUG_FEATURE_MODE = "tgsd"
 PAD_LFT_MODE = "ggd_light"
 
 
@@ -66,9 +67,9 @@ def configure_pad_feature_modes(
     """
     Update the active PAD feature-extraction modes at runtime.
 
-    This helper lets experiment runners switch between the baseline and
-    TGSD branches, while keeping the promoted ``ggd_light`` LFT
-    representation fixed across runs.
+    This helper lets experiment runners switch between the promoted
+    TGSD default and the baseline-only ablation branch, while keeping
+    the promoted ``ggd_light`` LFT representation fixed across runs.
     """
     global PAD_DEBUG_FEATURE_MODE, PAD_LFT_MODE
 
