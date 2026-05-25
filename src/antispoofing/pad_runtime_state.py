@@ -54,6 +54,11 @@ class PadRuntimeState:
     def update(self, pad_result=None, frame_usable=False, face_missing=False):
         """
         Update the runtime PAD state using the current frame result.
+
+        ``current_label`` and ``current_score`` always describe the
+        latest PAD inference attempt for diagnostic/overlay purposes.
+        ``final_label`` instead represents the temporally smoothed PAD
+        decision consumed by the runtime pipeline.
         """
 
         if face_missing:
@@ -96,6 +101,10 @@ class PadRuntimeState:
         else:
             live_probability = None
 
+        # Only usable frames may update the temporal window. If a frame
+        # is present but too blurry / unstable, the previous usable
+        # history remains active on purpose so the runtime does not
+        # flicker immediately back to a different PAD state.
         if live_probability is not None and frame_usable:
             self.pad_history.append(live_probability)
 
@@ -104,6 +113,10 @@ class PadRuntimeState:
         else:
             mean_live_probability = None
 
+        # Runtime PAD requires a fully populated usable-frame window
+        # before exposing a stable live/spoof state. Until then, the
+        # state stays unknown even if the most recent frame-level
+        # prediction looks confident.
         if mean_live_probability is None:
             self.pad_state = "unknown"
 

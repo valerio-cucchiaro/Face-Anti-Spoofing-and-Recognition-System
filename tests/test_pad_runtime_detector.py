@@ -218,6 +218,13 @@ def test_predict_safe_returns_unknown_on_feature_dim_mismatch(monkeypatch):
 
 def test_predict_with_real_feature_extractor_and_dummy_model(sharp_gray_face):
     detector = build_detector(prediction=1, probabilities=(0.2, 0.8))
+    detector_module.configure_pad_feature_extractor_from_config(
+        {
+            "pad_debug_feature_mode": "baseline",
+            "pad_lft_mode": "ggd_light",
+            "feature_dim": 124,
+        }
+    )
 
     result = detector.predict(face_image=sharp_gray_face)
 

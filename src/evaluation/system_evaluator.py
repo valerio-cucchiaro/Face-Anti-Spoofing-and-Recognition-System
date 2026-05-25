@@ -38,6 +38,7 @@ from src.antispoofing.pad_probability_utils import (
     get_pad_class_probability_indices,
 )
 from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
+from src.evaluation.pad_model_evaluator import load_system_pad_threshold_config
 from src.evaluation.pad_metrics import evaluate_pad_at_threshold
 from src.antispoofing.training.pad_dataset_loader import load_custom_pad_test_dataset
 from src.recognition.recognition_dataset_loader import (
@@ -53,15 +54,12 @@ from src.evaluation.recognition_model_evaluator import (
     load_system_recognition_threshold_config,
     load_trained_recognition_model,
 )
+from src.recognition.face_recognizer import load_recognizer_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SYSTEM_METRICS_ROOT = PROJECT_ROOT / "logs" / "metrics" / "system" / "official"
 DEFAULT_OUTPUT_STEM = "system_evaluation"
-# Offline/system PAD threshold: this is a per-sample live-score threshold
-# used for PAD metrics and integrated evaluation, not the runtime webcam
-# smoothing/hysteresis thresholds defined in the pipeline scripts.
-DEFAULT_PAD_THRESHOLD = 0.5
 
 
 def resolve_recognition_threshold(manual_threshold=None):
@@ -107,20 +105,87 @@ def resolve_recognition_threshold(manual_threshold=None):
     return float(threshold), config.get("threshold_source", "recognition_config"), config
 
 
-def resolve_pad_threshold(manual_threshold=None):
+def validate_recognition_artifact_alignment(recognition_threshold_config):
+    """
+    Validate that the offline threshold config matches the active custom
+    recognition artifacts used by runtime and system evaluation.
+    """
+
+    if recognition_threshold_config is None:
+        return
+
+    current_recognizer_config = load_recognizer_config("custom")
+    saved_recognizer_config = recognition_threshold_config.get("recognizer_config")
+
+    if saved_recognizer_config is None:
+        raise ValueError(
+            "System recognition threshold config does not include the "
+            "recognizer metadata snapshot used for calibration. Re-run a "
+            "custom recognition calibration with --save-system-threshold."
+        )
+
+    if saved_recognizer_config != current_recognizer_config:
+        raise ValueError(
+            "System recognition threshold config does not match the active "
+            "custom recognition artifacts. Re-run custom recognition "
+            "training/calibration or restore the matching runtime model."
+        )
+
+
+def resolve_pad_threshold(manual_threshold=None, artifact_tag=None):
     """
     Resolve the PAD threshold consumed by system evaluation.
 
-    PAD is not independently calibrated yet, so the default 0.5 live-score
-    probability threshold is used unless the CLI explicitly overrides it.
-    This threshold is applied to each evaluated crop independently; the
-    webcam runtime applies a separate temporal state machine on top of PAD
+    A manual CLI threshold takes precedence. Otherwise the evaluator
+    requires the saved custom PAD threshold config produced offline.
+    This threshold is applied to each crop independently; the webcam
+    runtime applies a separate temporal state machine on top of PAD
     classifier outputs.
     """
 
     if manual_threshold is not None:
-        return float(manual_threshold), "manual_cli"
-    return DEFAULT_PAD_THRESHOLD, "default_probability_threshold_uncalibrated"
+        return float(manual_threshold), "manual_cli", None
+
+    config = load_system_pad_threshold_config(artifact_tag=artifact_tag)
+    if config is None:
+        raise ValueError(
+            "No system PAD threshold config found. Run PAD evaluation with "
+            "--save-system-threshold or pass --pad-threshold explicitly."
+        )
+
+    threshold = config.get("threshold")
+    if threshold is None:
+        raise ValueError(
+            "System PAD threshold config does not contain 'threshold'. "
+            "Re-run PAD evaluation with --save-system-threshold or pass "
+            "--pad-threshold explicitly."
+        )
+    return float(threshold), config.get("threshold_source", "pad_config"), config
+
+
+def validate_pad_artifact_alignment(pad_threshold_config, pad_detector):
+    """
+    Validate that the saved PAD threshold config matches the active PAD
+    runtime artifact configuration.
+    """
+
+    if pad_threshold_config is None:
+        return
+
+    saved_pad_config = pad_threshold_config.get("pad_config")
+    if saved_pad_config is None:
+        raise ValueError(
+            "System PAD threshold config does not include the PAD config "
+            "snapshot used for calibration. Re-run PAD evaluation with "
+            "--save-system-threshold."
+        )
+
+    if saved_pad_config != pad_detector.pad_config:
+        raise ValueError(
+            "System PAD threshold config does not match the active PAD "
+            "runtime artifacts. Re-run PAD evaluation on the active model "
+            "or restore the matching PAD runtime artifacts."
+        )
 
 
 def safe_div(numerator, denominator):
@@ -214,14 +279,14 @@ def build_live_samples():
 
     known_records, _, _ = load_probe_dataset(
         "custom",
-        split="probe_known",
+        split="probe_known_internal",
         namespace_identities=False,
         collect_pose_metrics=False,
         quality_filter_mode="none",
     )
     unknown_records, _, _ = load_probe_dataset(
         "custom",
-        split="probe_unknown",
+        split="probe_unknown_internal",
         namespace_identities=False,
         collect_pose_metrics=False,
         quality_filter_mode="none",
@@ -476,14 +541,22 @@ def evaluate_system(
     recognition_threshold_source,
     pad_threshold_source,
     recognition_threshold_config=None,
+    pad_threshold_config=None,
+    pad_artifact_profile="runtime",
+    pad_artifact_tag=None,
 ):
     """
     Run the complete offline system-level evaluation.
     """
 
     start_time = time.perf_counter()
-    recognizer, label_map = load_trained_recognition_model()
-    pad_detector = AntiSpoofingDetector()
+    validate_recognition_artifact_alignment(recognition_threshold_config)
+    recognizer, label_map = load_trained_recognition_model("custom")
+    pad_detector = AntiSpoofingDetector(
+        artifact_profile=pad_artifact_profile,
+        artifact_tag=pad_artifact_tag,
+    )
+    validate_pad_artifact_alignment(pad_threshold_config, pad_detector)
 
     live_samples = build_live_samples()
     spoof_samples = build_spoof_samples()
@@ -581,7 +654,10 @@ def evaluate_system(
             "recognition_threshold_config": recognition_threshold_config,
             "pad_threshold": float(pad_threshold),
             "pad_threshold_source": pad_threshold_source,
-            "pad_threshold_calibrated": False,
+            "pad_threshold_config": pad_threshold_config,
+            "pad_threshold_calibrated": pad_threshold_config is not None,
+            "pad_artifact_profile": pad_artifact_profile,
+            "pad_artifact_tag": pad_artifact_tag,
         },
         "recognition_only": recognition_report,
         "pad_only": pad_report,
@@ -735,13 +811,24 @@ def build_arg_parser():
         default=None,
         help=(
             "Optional manual PAD live-score threshold. If omitted, the "
-            "uncalibrated default probability threshold 0.5 is used."
+            "saved system PAD threshold config is required."
         ),
     )
     parser.add_argument(
         "--output-stem",
         default=DEFAULT_OUTPUT_STEM,
         help="Filename stem used for exported JSON and CSV files.",
+    )
+    parser.add_argument(
+        "--pad-artifact-profile",
+        choices=["runtime", "full", "fast"],
+        default="runtime",
+        help="PAD artifact profile used by system evaluation.",
+    )
+    parser.add_argument(
+        "--pad-artifact-tag",
+        default=None,
+        help="Optional PAD artifact tag used to load a non-canonical PAD bundle.",
     )
     return parser
 
@@ -756,7 +843,10 @@ def main():
     recognition_threshold, recognition_threshold_source, recognition_config = (
         resolve_recognition_threshold(args.recognition_threshold)
     )
-    pad_threshold, pad_threshold_source = resolve_pad_threshold(args.pad_threshold)
+    pad_threshold, pad_threshold_source, pad_config = resolve_pad_threshold(
+        args.pad_threshold,
+        artifact_tag=args.pad_artifact_tag,
+    )
     evaluate_system(
         recognition_threshold=recognition_threshold,
         pad_threshold=pad_threshold,
@@ -764,6 +854,9 @@ def main():
         recognition_threshold_source=recognition_threshold_source,
         pad_threshold_source=pad_threshold_source,
         recognition_threshold_config=recognition_config,
+        pad_threshold_config=pad_config,
+        pad_artifact_profile=args.pad_artifact_profile,
+        pad_artifact_tag=args.pad_artifact_tag,
     )
 
 

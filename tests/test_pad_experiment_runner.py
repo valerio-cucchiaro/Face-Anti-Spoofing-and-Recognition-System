@@ -1,4 +1,5 @@
 from src.antispoofing.training import pad_experiment_runner
+import pytest
 
 
 def _patch_pad_runner_dependencies(monkeypatch):
@@ -22,16 +23,35 @@ def _patch_pad_runner_dependencies(monkeypatch):
     return calls
 
 
-def test_pad_experiment_runner_default_full_promotes_runtime_artifacts(monkeypatch):
+def test_pad_experiment_runner_default_full_does_not_promote_runtime_artifacts_for_custom(
+    monkeypatch,
+):
     calls = _patch_pad_runner_dependencies(monkeypatch)
 
     pad_experiment_runner.run(train_mode="custom", eval_mode="custom")
 
     assert calls["train_args"] == ("custom",)
     assert calls["train_kwargs"]["artifact_profile"] == "full"
-    assert calls["train_kwargs"]["update_runtime_artifacts"] is True
+    assert calls["train_kwargs"]["update_runtime_artifacts"] is False
     assert calls["eval_args"] == ("custom",)
     assert calls["eval_kwargs"]["artifact_profile"] == "full"
+
+
+def test_pad_experiment_runner_canonical_full_promotes_runtime_artifacts(monkeypatch):
+    calls = _patch_pad_runner_dependencies(monkeypatch)
+
+    pad_experiment_runner.run(
+        train_mode="all",
+        eval_mode="all",
+        save_system_threshold=True,
+    )
+
+    assert calls["train_args"] == ("all",)
+    assert calls["train_kwargs"]["artifact_profile"] == "full"
+    assert calls["train_kwargs"]["update_runtime_artifacts"] is True
+    assert calls["eval_args"] == ("all",)
+    assert calls["eval_kwargs"]["artifact_profile"] == "full"
+    assert calls["eval_kwargs"]["save_system_threshold"] is True
 
 
 def test_pad_experiment_runner_fast_does_not_promote_runtime_artifacts(monkeypatch):
@@ -63,3 +83,16 @@ def test_pad_experiment_runner_forwards_custom_validation_parameters(monkeypatch
     assert calls["train_kwargs"]["custom_validation_ratio"] == 0.3
     assert calls["train_kwargs"]["custom_validation_seed"] == 7
     assert calls["eval_kwargs"]["pad_validation_target_apcer"] is None
+
+
+def test_pad_experiment_runner_rejects_save_system_threshold_for_non_canonical_run(
+    monkeypatch,
+):
+    _patch_pad_runner_dependencies(monkeypatch)
+
+    with pytest.raises(ValueError, match="allowed only for the canonical"):
+        pad_experiment_runner.run(
+            train_mode="custom",
+            eval_mode="custom",
+            save_system_threshold=True,
+        )

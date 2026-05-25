@@ -1309,7 +1309,7 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 
 **PAD Runtime/Custom Refactor**:
 
-- unified the PAD dataset naming around `custom` and `combined_custom`
+- unified the PAD dataset naming around `custom` and `all`
 - removed the old dataset-side `runtime` aliases and the duplicate repeat wrapper names
 - renamed the custom PAD evaluator file and aligned its content and logs to the custom test flow
 - kept `runtime` only where it still means live/runtime artifacts for the PAD inference pipeline
@@ -1693,7 +1693,7 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 
 **PAD Feature Recheck**:
 
-- saved a fresh `combined -> all | full | baseline + ggd_light` PAD comparison run as the baseline branch reference before rechecking `tgsd`
+- saved a fresh `all -> all | full | baseline + ggd_light` PAD comparison run as the baseline branch reference before rechecking `tgsd`
 - training counts for this run:
   - CASIA train valid: `12869 live / 28485 spoof`
   - Replay train valid: `2145 live / 2252 spoof`
@@ -1704,7 +1704,7 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 - custom threshold-selection and final custom test results degraded sharply with this branch:
   - custom pseudo-validation selected `threshold=0.9097`, with `APCER=0.0000`, `BPCER=0.8125`, `ACER=0.4062`
   - custom test with that frozen threshold reached `APCER=0.0000`, `BPCER=0.9500`, `ACER=0.4750`, confirming that `baseline + ggd_light` is currently too conservative on custom live samples despite acceptable public-dataset security
-- saved the matching `combined -> all | full | tgsd + ggd_light` comparison run:
+- saved the matching `all -> all | full | tgsd + ggd_light` comparison run:
   - training counts remained the same, with `feature_dim=126`
   - CASIA test: `APCER=0.0183`, `BPCER=0.2701`, `ACER=0.1442`, `EER=0.1141`
   - Replay-Attack test: `APCER=0.0103`, `BPCER=0.2247`, `ACER=0.1175`, `EER=0.0505`
@@ -1718,13 +1718,346 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
   - custom train effective subset: `64 live / 112 spoof` (`176` samples, `feature_dim=124`)
   - custom pseudo-validation selected `threshold=0.7896`, with `APCER=0.0000`, `BPCER=0.2500`, `ACER=0.1250`
   - custom test with that frozen threshold reached `APCER=0.0100`, `BPCER=0.1500`, `ACER=0.0800`, with `FAR=0.0100`, `FRR=0.1500`, `GAR=0.8500`
-- this confirms that `baseline + ggd_light` remains strong on the pure custom-only PAD branch even though it degrades badly when promoted as the shared `combined -> all` full branch
+- this confirms that `baseline + ggd_light` remains strong on the pure custom-only PAD branch even though it degrades badly when promoted as the shared `all -> all` full branch
 - saved the dedicated `custom -> custom | full | tgsd + ggd_light` run:
   - custom train effective subset: `64 live / 112 spoof` (`176` samples, `feature_dim=126`)
   - custom pseudo-validation selected `threshold=0.8007`, with `APCER=0.0000`, `BPCER=0.2500`, `ACER=0.1250`
   - custom test with that frozen threshold reached `APCER=0.0100`, `BPCER=0.1625`, `ACER=0.0863`, with `FAR=0.0100`, `FRR=0.1625`, `GAR=0.8375`
 - promoted `tgsd + ggd_light` to the project default PAD feature branch:
-  - it stays the stronger overall branch for the shared `combined -> all` full configuration
+  - it stays the stronger overall branch for the shared `all -> all` full configuration
   - `baseline + ggd_light` remains documented as the slightly stronger custom-only comparison branch, but no longer as the default
 - aligned the hardcoded PAD feature default in `pad_feature_extractor.py` with the already promoted runtime artifacts so the code default, saved runtime config, and current documentation now all point to `tgsd + ggd_light`
 - removed the obsolete standalone `src/evaluation/pad_custom_evaluator.py` after confirming it was no longer referenced by active evaluation flows or tests; the maintained custom PAD protocol now lives entirely inside `pad_model_evaluator.py` through `evaluate_custom_pad_protocol(...)`
+
+---
+
+## 2026/05/17
+
+**PAD Runtime Hardening**:
+
+- added an explicit fail-fast guard in `pad_runtime_detector.py` so runtime PAD artifact loading now rejects classifiers without `predict_proba(...)` before inference starts
+- documented that this check protects the probability-driven runtime contract, where `live_score` is required both for the returned PAD payload and for the smoothed webcam decision logic
+
+**Recognition Threshold Calibration Hardening**:
+
+- removed the offline recognition threshold fallback paths that previously invented threshold values when calibration data was incomplete
+- `compute_suggested_threshold(...)` and `compute_open_set_threshold(...)` now return no threshold instead of using fixed `+5` margin fallbacks without impostor/unknown evidence
+- custom open-set recognition evaluation now fails explicitly when validation threshold calibration cannot derive a valid threshold from the observed score distributions
+- this keeps threshold-based offline recognition reports aligned with real calibration evidence instead of silently continuing with arbitrary fallback numbers
+- cleaned the offline recognition threshold diagnostics so open-set and closed-set reports no longer print legacy `conservative_threshold` or `offline_fallback_reference` candidates after the fallback policy was removed
+- restricted the canonical runtime recognition artifacts to the `custom` train mode, while non-custom recognition runs now save isolated mode-specific snapshots instead of overwriting the live runtime model
+- made the runtime recognition loader validate `recognizer_config.json` for the canonical custom artifacts, so webcam pipelines now fail fast if the active recognition model was not trained from the expected custom branch
+- stored the recognizer metadata snapshot inside `system_recognition_threshold_config.json` and made the offline system evaluator verify that the saved custom threshold matches the active canonical custom recognition artifacts before running integrated PAD+recognition reports
+- fixed the first follow-up integration issues after that refactor by passing the new `recognizer_config` snapshot through every open-set evaluation branch (`orl`, `lfw`, `multipie`) and by aligning the offline system evaluator with the current custom pseudo-validation split names (`probe_known_internal` / `probe_unknown_internal`)
+- verified the refactor end-to-end:
+  - `custom -> custom --save-system-threshold` completed successfully and refreshed the canonical runtime recognition artifacts plus the saved offline system threshold config
+  - `orl -> orl` completed successfully and wrote only isolated `_orl` artifacts, confirming that non-custom runs no longer overwrite the runtime custom recognizer
+  - `system_evaluator` completed successfully against the canonical custom recognizer and the refreshed custom threshold config
+- saved the resulting offline system metrics:
+  - recognition-only: `threshold=31.7896`, `DIR=1.0000`, `FAR=0.1667`, `FRR=0.0000`, `misidentification_rate=0.0000`
+  - PAD-only: `threshold=0.5000`, `APCER=0.0600`, `BPCER=0.2286`, `ACER=0.1443`
+  - PAD-gated recognition: `final_unknown_live_far=0.0000`, `final_known_live_frr=0.0870`, `final_known_live_dir=0.9130`
+  - PAD gate counts: `spoof_blocked=94`, `spoof_passed=6`, `live_blocked=8`, `live_passed=27`
+
+**PAD Runtime Artifact Protection**:
+
+- aligned PAD runtime artifact promotion with the same protection strategy adopted for recognition, but using the PAD project reference run instead of a single train mode
+- the canonical webcam PAD artifacts under `models/pad/` are now updated only by the approved `all -> all | full` experiment
+- all other PAD runs still save their own `full` or `fast` snapshots, but they no longer overwrite `pad_svm.joblib`, `pad_scaler.joblib`, or `pad_config.json`
+- refreshed the related PAD runner/trainer/config docstrings and logs so they now describe the runtime-vs-snapshot distinction explicitly
+2026/05/17 (test compatibility follow-up)
+- Restored backward-compatible recognition evaluator dispatch by making `evaluate_single_recognition_dataset(..., recognizer_config=None)` accept legacy callers while preserving the new artifact-coherence flow.
+- Restored backward-compatible recognition trainer test hooks by reintroducing custom-only `MODEL_PATH`, `LABEL_MAP_PATH`, and `RECOGNIZER_CONFIG_PATH` aliases; non-custom modes still resolve isolated artifact snapshots dynamically.
+- Updated PAD experiment runner tests to match the new runtime-promotion policy:
+  only `all -> all | full` promotes canonical runtime PAD artifacts, while `custom -> custom | full` writes only `*_full` experiment artifacts.
+
+**Sibling pipeline cleanup**:
+
+- Cleaned small diagnostic leftovers from `run_pipeline_bs.py` by removing unused `RecognitionDisplayState` fields that no longer affected runtime logic or emitted logs.
+- Cleaned `run_pipeline_cv.py` by removing unused helper functions and an unused feature-mode variable that had remained from older PAD diagnostics.
+- Kept the commented PAD diagnostic logs in `run_pipeline_cv.py`, but clarified in comments what they report:
+  startup artifact/configuration inspection and optional final distance-band summaries.
+
+**PAD Photometric Augmentation Recheck**:
+
+- reran the custom-only PAD branch with photometric augmentation enabled (`mix`, `runtime_only`) and confirmed that the final custom test metrics stayed effectively unchanged relative to the current no-augmentation baseline:
+  - custom test remained `APCER=0.0100`, `BPCER=0.1625`, `ACER=0.0863`
+  - the selected threshold moved, but the operational result did not improve
+- reran the canonical `all -> all | full` PAD branch with photometric augmentation enabled:
+  - `runtime_only` did not materially change the public-dataset or custom results because augmentation was not effectively applied to the combined public training branch
+  - `scope=all` produced a real tradeoff:
+    - CASIA: `ACER` improved from `0.1442` to `0.1222`, but `APCER` worsened from `0.0183` to `0.0276`
+    - Replay: `ACER` improved from `0.1175` to `0.0789`, but `APCER` worsened from `0.0103` to `0.0179`
+    - Custom: `ACER` improved from `0.4188` to `0.3862`, but `APCER` worsened from `0.0000` to `0.0600`
+- final decision:
+  - keep photometric augmentation as an explicit PAD test/ablation capability
+  - do not promote it to the PAD baseline
+  - the current operational PAD baseline remains the no-augmentation branch (`augment_live_photometric = False`)
+
+**Refactor By Directory**:
+
+- started a directory-by-directory audit/refactor pass using the staged workflow:
+  - pass 1: file mapping and role classification
+  - pass 2: internal coherence
+  - pass 3: cross-directory coherence
+  - pass 4: severity classification
+  - pass 5: targeted fixes only after the checklist
+- completed the first full pass on `src/pipeline/`:
+  - mapped the active runtime files:
+    - `run_pipeline_full.py` as the canonical online pipeline
+    - `runtime_session_state.py` as runtime support state
+    - `run_pipeline_cv.py` as the active PAD-only runtime
+    - `run_pipeline_bs.py` as the active recognition-only runtime
+  - confirmed there are no legacy or probably unused files in that directory
+  - confirmed the runtime wiring is coherent across:
+    - pipeline -> PAD runtime artifacts
+    - pipeline -> recognition runtime artifacts
+    - pipeline -> shared preprocessing helpers
+  - kept the intentional recognition threshold divergence between `full` and `bs` as-is because it is still used as a local test setting
+  - kept the remaining commented diagnostics in `run_pipeline_cv.py` and the heavier recognition diagnostics in `run_pipeline_bs.py` as intentional observability tools
+- applied one small cleanup fix after the pipeline audit:
+  - removed the duplicated default-session payload definitions in `runtime_session_state.py`
+  - extracted shared helpers so `__init__` and `reset_session()` now reuse the same default PAD and recognition result payloads
+- completed the audit/refactor pass on `src/evaluation/`:
+  - confirmed the evaluator split is now coherent:
+    - `recognition_model_evaluator.py` for offline recognition
+    - `pad_model_evaluator.py` for offline PAD
+    - `system_evaluator.py` for integrated PAD-gated recognition
+    - metrics/calibration helpers kept separate in `recognition_metrics.py`, `pad_metrics.py`, and `recognition_threshold_calibration.py`
+  - aligned threshold policy across evaluators:
+    - removed implicit fallback thresholds from evaluation paths
+    - evaluators now fail explicitly when a required saved threshold is missing or incomplete
+  - hardened artifact/threshold consistency:
+    - `system_evaluator` now verifies that saved recognition/PAD threshold configs match the active canonical runtime artifacts before running
+    - PAD direct evaluation now requires a saved system PAD threshold config aligned with the active PAD artifact config
+    - recognition direct evaluation now requires a saved system recognition threshold config aligned with the active recognizer config
+  - clarified the recognition evaluator docstring so it now documents the real artifact policy:
+    - `custom` owns the canonical runtime recognizer artifacts
+    - non-custom modes write isolated offline snapshots
+  - aligned PAD system-threshold policy with PAD runtime-artifact policy:
+    - `--save-system-threshold` is now accepted only for the canonical `all -> all | full` PAD run
+    - `custom -> custom --save-system-threshold` is now rejected explicitly because it would save a threshold incompatible with the canonical PAD runtime artifacts
+  - added and updated tests covering:
+    - PAD threshold-selection fail-fast behavior
+    - PAD/recognition saved-threshold resolution
+    - PAD experiment-runner restriction for `--save-system-threshold`
+- verified the new evaluation policy manually:
+  - targeted tests passed:
+    - `tests/test_pad_validation_protocol.py`
+    - `tests/test_evaluation_export_paths.py`
+    - `tests/test_custom_recognition_evaluator_dispatch.py`
+  - `system_evaluator` correctly failed fast when `system_pad_threshold_config.json` was missing
+  - after rerunning the canonical PAD branch with `all -> all | full --save-system-threshold`, `system_evaluator` ran successfully with aligned artifacts/configs
+- current conclusion on `system_evaluator`:
+  - the refactor/policy is now correct, but the integrated offline system evaluation currently performs badly on live samples
+  - latest integrated result:
+    - threshold sources:
+      - recognition=`custom_to_custom_validation`
+      - pad=`custom_internal_validation_target_apcer`
+    - recognition-only remained strong:
+      - `threshold=31.7896`, `DIR=1.0000`, `FRR=0.0000`, `misidentification_rate=0.0000`
+    - PAD-only remained extremely strict on custom live samples:
+      - `threshold=0.8018`, `APCER=0.0000`, `BPCER=0.8571`, `ACER=0.4286`
+    - final PAD-gated system result was therefore poor on live traffic:
+      - `final_known_live_frr=0.8261`
+      - `final_known_live_dir=0.1739`
+      - `spoof_blocked=100`, `spoof_passed=0`, `live_blocked=30`, `live_passed=5`
+  - practical reading:
+    - spoof-side security is very strong
+    - live-side usability is currently unacceptable
+    - so the evaluation refactor is complete, but the present system-level offline PAD-gated result should be treated as bad / not yet acceptable
+
+## 2026/05/18
+
+**Resumed Previous Day Refactor**:
+
+- resumed the directory-by-directory refactor started the previous day, focusing on the active `src/antispoofing/` contract and deliberately leaving `system_evaluator` policy/work for a later pass
+- removed the unused legacy PAD descriptor module:
+  - deleted `src/antispoofing/pad_lftp_features.py`
+  - confirmed it was no longer imported by the active runtime, training, or evaluation paths
+- hardened PAD artifact loading so runtime and offline evaluators now require the explicit saved PAD config chosen by the project:
+  - removed the legacy `feature_dim -> config` inference path from `pad_model_config.py`
+  - missing `pad_config*.json` files now raise an explicit failure instead of silently reconstructing a legacy config
+  - config/artifact mismatches still fail explicitly, but the error path is now stricter and simpler
+- cleaned the remaining local references to the removed LFTP archive path:
+  - updated `pad_feature_extractor.py` comments so the active feature stack now documents only the currently supported paths
+  - kept `PAD_LFT_MODE` unchanged and intentionally frozen to `ggd_light`
+- updated the PAD config tests to match the new strict policy:
+  - removed the old test that validated legacy config inference from `feature_dim`
+  - added a fail-fast test that requires an explicit saved PAD config file
+- practical effect of this pass:
+  - PAD runtime and PAD offline evaluation now depend only on the explicit artifact/config sets we promote
+  - legacy silent recovery for missing PAD config metadata has been removed
+
+**PAD Combined Protocol Fix**:
+
+- fixed the methodological bug in the PAD `all -> all` evaluation flow:
+  - previously the run trained on all datasets but still selected the final PAD threshold only from the custom pseudo-validation subset
+  - that custom-only threshold was then reused on `CASIA test`, `Replay-Attack test`, and `Custom test`, so the old `all` protocol was not a true combined validation/test protocol
+- simplified the public PAD evaluation modes:
+  - removed the old direct public modes that evaluated `casia` / `replay` with an already-saved system threshold
+  - promoted the validation-backed protocols to the main names:
+    - `casia` now means `CASIA validation -> CASIA test`
+    - `replay` now means `Replay-Attack validation -> Replay-Attack test`
+- rewrote `all -> all` as a real combined protocol:
+  - training still uses `CASIA train + Replay train + Custom train`
+  - threshold selection now uses one global validation pool built from:
+    - `CASIA validation`
+    - `Replay-Attack validation`
+    - `Custom pseudo-validation`
+  - the selected threshold is then reused unchanged for:
+    - `CASIA test`
+    - `Replay-Attack test`
+    - `Custom test`
+- updated the PAD runner/evaluator documentation and CLI so the new semantics are explicit and the removed public direct modes are no longer exposed
+- added focused regression coverage for the combined-threshold behavior in `tests/test_pad_validation_protocol.py`
+
+**PAD Canonical Run Recheck**:
+
+- reran the canonical `all -> all | full --save-system-threshold` PAD experiment after the protocol fix
+- training counts for the new canonical run:
+  - `CASIA train`: `12869 live / 28485 spoof`
+  - `Replay-Attack train`: `2145 live / 2252 spoof`
+  - `Custom train (base)`: `80 live / 140 spoof`
+  - `Custom train (effective)`: `2200` samples through `custom_repeat=10`
+  - final all-train set: `47951` samples total (`15814 live / 32137 spoof`, `feature_dim=126`)
+- the new combined validation protocol selected a much lower and more balanced global threshold:
+  - `threshold=0.5453`
+  - `APCER=0.0199`
+  - `BPCER=0.2587`
+  - `ACER=0.1393`
+- final test metrics with the new frozen combined threshold:
+  - `CASIA test`: `APCER=0.0214`, `BPCER=0.2637`, `ACER=0.1426`, `EER=0.1172`
+  - `Replay-Attack test`: `APCER=0.0078`, `BPCER=0.2163`, `ACER=0.1120`, `EER=0.0508`
+  - `Custom test`: `APCER=0.0500`, `BPCER=0.2750`, `ACER=0.1625`, `EER=0.0887`
+- practical reading:
+  - this is a major improvement over the previous custom-driven `all` threshold (`0.8018`)
+  - custom live retention is now far less severe, while public-dataset security remains comparable
+  - the canonical PAD runtime artifacts and the saved offline system PAD threshold config are now both aligned with a genuinely combined operating point
+
+**System Evaluator Recheck**:
+
+- reran `system_evaluator` after refreshing the canonical PAD artifacts and the new combined system PAD threshold config
+- threshold sources are now:
+  - recognition=`custom_to_custom_validation`
+  - pad=`all_combined_validation_target_apcer`
+- recognition-only remained unchanged and strong:
+  - `threshold=31.7896`
+  - `DIR=1.0000`
+  - `FAR=0.1667`
+  - `FRR=0.0000`
+  - `misidentification_rate=0.0000`
+- PAD-only improved substantially relative to the previous strict custom-driven threshold:
+  - `threshold=0.5453`
+  - `APCER=0.0500`
+  - `BPCER=0.3143`
+  - `ACER=0.1821`
+- final PAD-gated system result is now much more realistic:
+  - `final_unknown_live_far=0.0000`
+  - `final_known_live_frr=0.2609`
+  - `final_known_live_dir=0.7391`
+  - `spoof_blocked=95`
+  - `spoof_passed=5`
+  - `live_blocked=11`
+  - `live_passed=24`
+- practical reading:
+  - spoof-side security is still good, though no longer maximally rigid
+  - live-side usability improved dramatically relative to the previous `live_passed=5 / live_blocked=30` result
+  - the integrated offline system evaluation is now back in a credible operating region for comparison with the runtime demo
+
+## 2026/05/19
+
+**Resumed Refactor Continuation**:
+
+- resumed the same refactor pass on `src/antispoofing/`, restarting the inspection from the beginning to re-check the active PAD contract after the recent protocol and runtime fixes
+- repeated the staged review on the antispoofing area:
+  - remapped the active files and responsibilities
+  - rechecked internal coherence of runtime detector, artifact/config contract, feature extraction, quality gating, and training loader behavior
+  - rechecked cross-directory alignment between:
+    - `pipeline -> antispoofing`
+    - `evaluation -> antispoofing/models`
+    - `dataset -> antispoofing`
+    - `tests -> real PAD contract`
+- confirmed that the main refactor-critical PAD problems are now resolved:
+  - runtime PAD and offline PAD evaluation now rely on the intended canonical artifacts/configs
+  - the combined PAD evaluation protocol remains aligned with the new `all -> all` semantics
+  - no remaining evidence was found of the old legacy config recovery path or of the removed LFTP branch in the active flow
+- clarified an important semantic point on the custom PAD dataset contract:
+  - `final_pad_crop` does **not** mean “already fully preprocessed for PAD”
+  - it means “already localized face/PAD crop saved on disk”
+  - the offline loader still re-applies the canonical post-crop PAD preprocessing path before feature extraction
+  - this keeps the custom PAD dataset consistent with the project intent: saved crops, not precomputed PAD features
+- verified that the custom PAD collector and loader remain aligned:
+  - the collector saves cropped BGR face regions into `data/pad/pad_custom_raw/...`
+  - the loader then converts/rechecks/preprocesses those crops through the shared PAD inference/training path
+- identified one genuinely removable leftover in the loader:
+  - `load_pad_test_dataset_combined(...)` in `src/antispoofing/training/pad_dataset_loader.py` had no remaining call sites after the protocol redesign
+  - it was therefore treated as an orphan helper from an older public-combined PAD evaluation flow
+- applied the agreed minimal cleanup, still leaving the large loader split for a later dedicated pass:
+  - removed the unused `load_pad_test_dataset_combined(...)` helper
+  - renamed the internal PAD feature-mode naming in `pad_feature_extractor.py` so the code no longer treats the active model feature mode as if it were only a debug switch
+  - kept external config/artifact compatibility unchanged by preserving the saved config key `pad_debug_feature_mode`
+  - corrected the loader wording around `final_pad_crop` so it now describes “already localized crop saved on disk” rather than implying “already preprocessed”
+- practical reading:
+  - the `src/antispoofing/` refactor is now structurally much cleaner and more explicit
+  - the remaining debt in this area is mostly non-blocking cleanup, with the eventual dataset-loader split intentionally postponed to a later pass
+
+**PAD Loader Split**:
+
+- completed the first structural split of the old monolithic PAD dataset loader without changing the external PAD dataset contract
+- separated the internals into:
+  - `pad_dataset_splits.py` for dataset paths, sampling, and deterministic custom validation-split logic
+  - `pad_dataset_preprocessing.py` for augmentation and image-to-feature dispatch
+  - `pad_dataset_builders.py` for train/test/validation dataset builders
+- kept `pad_dataset_loader.py` as a thin compatibility facade so the public loader API remains stable during the transition
+- updated the real attachment points that depended on the old loader:
+  - PAD trainer
+  - PAD evaluator
+  - system evaluator
+  - PAD loader contract tests
+  - custom PAD validation-split test
+- practical reading:
+  - the loader is now divided by responsibility without exploding the number of files
+  - future cleanup can happen inside the focused modules without having to revisit one large all-purpose loader again
+
+**PAD All-Train Rebalance And Runtime Recheck**:
+
+- rebalanced the canonical `train-mode all | full` PAD training mix to reduce the dominance of CASIA and give the custom webcam domain a real weight in the final model
+- new `all` defaults used for the canonical PAD branch:
+  - `casia_sample_ratio = 0.25`
+  - `replay_sample_ratio = 1.0`
+  - `custom_repeat = 20`
+- resulting training mix after valid-sample extraction:
+  - `CASIA train = 10360` (`54.08%`)
+  - `Replay-Attack train = 4397` (`22.95%`)
+  - `Custom train effective = 4400` (`22.97%`)
+  - final training set = `19157` samples (`6980 live / 12177 spoof`)
+- reran the canonical `all -> all | full --save-system-threshold` PAD experiment with the new mix
+- new combined validation operating point:
+  - `threshold = 0.6140`
+  - `APCER = 0.0200`
+  - `BPCER = 0.2729`
+  - `ACER = 0.1464`
+- final test metrics after the rebalance:
+  - `CASIA test`: `APCER=0.0290`, `BPCER=0.2595`, `ACER=0.1443`
+  - `Replay-Attack test`: `APCER=0.0078`, `BPCER=0.2098`, `ACER=0.1088`
+  - `Custom test`: `APCER=0.0600`, `BPCER=0.2500`, `ACER=0.1550`
+- practical reading of the offline rerun:
+  - the dataset rebalance worked as intended
+  - public-dataset metrics stayed close to the previous baseline
+  - custom live retention improved slightly, at the cost of a small spoof-side worsening on custom
+- reran `system_evaluator` with the rebalanced canonical PAD artifacts:
+  - `PAD-only`: `threshold=0.6140`, `APCER=0.0600`, `BPCER=0.3429`, `ACER=0.2014`
+  - `PAD gate counts`: `spoof_blocked=94`, `spoof_passed=6`, `live_blocked=12`, `live_passed=23`
+  - `PAD-gated recognition`: `final_known_live_dir=0.6522`, `final_known_live_frr=0.3478`
+- practical reading of the integrated system rerun:
+  - relative to the previous combined-threshold baseline, the change is slightly worse offline
+  - but the loss is limited and was accepted as a reasonable tradeoff before checking the webcam runtime again
+- reran `src.main_cv` with extra PAD diagnostics enabled:
+  - startup logs now report the active feature set, PAD config, runtime temporal thresholds, and final distance-band summary
+  - per-check logs now also report the usable-frame PAD history window
+- runtime reading after the rebalance:
+  - the PAD runtime is no longer stuck in a constant spoof state
+  - live and spoof states both appear, but the runtime remains unstable
+  - the dominant issue still appears to be lighting, especially on `far` face crops with strong dark ratio / vertical illumination asymmetry
+  - current practical decision: keep the rebalance for now and treat lighting robustness as the main remaining runtime issue

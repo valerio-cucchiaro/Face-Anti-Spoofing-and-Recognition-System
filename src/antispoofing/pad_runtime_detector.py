@@ -32,12 +32,6 @@ from src.antispoofing.pad_probability_utils import (
 )
 
 
-# ----- CONSTANTS ----- #
-PAD_RUNTIME_ARTIFACT_PATHS = get_pad_artifact_paths("runtime")
-MODEL_PATH = PAD_RUNTIME_ARTIFACT_PATHS["model_path"]
-SCALER_PATH = PAD_RUNTIME_ARTIFACT_PATHS["scaler_path"]
-
-
 class AntiSpoofingDetector:
     """
     Runtime anti-spoofing detector based on a trained PAD classifier.
@@ -47,16 +41,29 @@ class AntiSpoofingDetector:
     classification using the SVM model.
     """
 
-    def __init__(self):
+    def __init__(self, artifact_profile="runtime", artifact_tag=None):
         """
         Load the trained scaler and classifier used for PAD inference.
         """
 
-        self.scaler = joblib.load(SCALER_PATH)
-        self.classifier = joblib.load(MODEL_PATH)
+        self.artifact_profile = artifact_profile
+        self.artifact_tag = artifact_tag
+        self.artifact_paths = get_pad_artifact_paths(
+            artifact_profile,
+            artifact_tag=artifact_tag,
+        )
+        self.scaler = joblib.load(self.artifact_paths["scaler_path"])
+        self.classifier = joblib.load(self.artifact_paths["model_path"])
+        if not hasattr(self.classifier, "predict_proba"):
+            raise ValueError(
+                "Loaded PAD runtime classifier does not expose predict_proba(). "
+                "The runtime PAD pipeline requires probability estimates to "
+                "compute live_score and drive the smoothed decision logic."
+            )
         self.expected_feature_dim = get_expected_feature_dim_from_scaler(self.scaler)
         self.pad_config = load_pad_model_config(
-            expected_feature_dim=self.expected_feature_dim
+            expected_feature_dim=self.expected_feature_dim,
+            config_path=self.artifact_paths["config_path"],
         )
         configure_pad_feature_extractor_from_config(self.pad_config)
         self.pad_class_indices = get_pad_class_probability_indices(self.classifier)

@@ -9,8 +9,9 @@ The script loads the selected PAD training dataset, trains the SVM
 classifier, and saves both the trained model and the fitted scaler
 to disk.
 
-The saved artifacts will later be used during live inference to
-classify detected faces as live or spoof before face recognition.
+Each run saves one profile-specific artifact set. Only the canonical
+`all -> all | full` run is allowed to refresh the separate runtime
+artifact set later used by webcam inference.
 """
 
 import joblib
@@ -22,16 +23,16 @@ from src.antispoofing.pad_model_config import (
     save_pad_model_config,
 )
 from src.antispoofing.training.pad_dataset_loader import (
-    CASIA_SAMPLE_RATIO,
-    CUSTOM_PAD_VALIDATION_RATIO,
-    CUSTOM_PAD_VALIDATION_SEED,
-    REPLAY_SAMPLE_RATIO,
-    TRAIN_SAMPLING_SEED,
     load_combined_pad_training_dataset,
     load_combined_with_custom_pad_training_dataset,
     load_custom_pad_training_subset,
     load_casia_pad_training_dataset,
     load_replay_pad_training_dataset,
+    CASIA_SAMPLE_RATIO,
+    CUSTOM_PAD_VALIDATION_RATIO,
+    CUSTOM_PAD_VALIDATION_SEED,
+    REPLAY_SAMPLE_RATIO,
+    TRAIN_SAMPLING_SEED,
 )
 from src.antispoofing.training.pad_svm_trainer import train_pad_classifier
 from src.antispoofing.pad_feature_extractor import get_pad_feature_modes
@@ -42,6 +43,9 @@ TRAIN_MODE = "custom"
 EXPERIMENT_SPEED = "full"
 FULL_CUSTOM_REPEAT = 10
 FAST_CUSTOM_REPEAT = 1
+FULL_ALL_CASIA_SAMPLE_RATIO = 0.25
+FULL_ALL_REPLAY_SAMPLE_RATIO = 1.0
+FULL_ALL_CUSTOM_REPEAT = 20
 
 
 def get_speed_config(
@@ -121,7 +125,8 @@ def load_configured_training_dataset(
     - replay
     - combined
     - custom
-    - combined_custom
+    - all
+    - old_all
 
     Supported experiment speeds:
     - full
@@ -151,6 +156,14 @@ def load_configured_training_dataset(
     custom_repeat = speed_config["custom_repeat"]
     casia_balance = speed_config["casia_balance"]
     replay_balance = speed_config["replay_balance"]
+
+    if selected_mode == "all" and speed_config["name"] == "full":
+        casia_sample_ratio = FULL_ALL_CASIA_SAMPLE_RATIO
+        replay_sample_ratio = FULL_ALL_REPLAY_SAMPLE_RATIO
+        custom_repeat = FULL_ALL_CUSTOM_REPEAT
+
+        if custom_repeat_override is not None:
+            custom_repeat = custom_repeat_override
     selected_custom_validation_ratio = (
         CUSTOM_PAD_VALIDATION_RATIO
         if custom_validation_ratio is None
@@ -225,9 +238,29 @@ def load_configured_training_dataset(
             augment_live_photometric_mode=augment_live_photometric_mode,
         )
 
-    if selected_mode == "combined_custom":
+    if selected_mode == "all":
         dataset_name = (
-            "Combined + custom train "
+            "All train "
+            f"(casia_ratio={casia_sample_ratio}, replay_ratio={replay_sample_ratio}, "
+            f"custom_repeat={custom_repeat})"
+        )
+        return dataset_name, load_combined_with_custom_pad_training_dataset(
+            custom_repeat=custom_repeat,
+            casia_sample_ratio=casia_sample_ratio,
+            replay_sample_ratio=replay_sample_ratio,
+            sample_seed=TRAIN_SAMPLING_SEED,
+            casia_balance=casia_balance,
+            replay_balance=replay_balance,
+            collect_pose_metrics=collect_pose_metrics,
+            return_pose_summary=collect_pose_metrics,
+            augment_live_photometric=augment_live_photometric,
+            augment_live_photometric_mode=augment_live_photometric_mode,
+            augment_live_photometric_scope=augment_live_photometric_scope,
+        )
+
+    if selected_mode == "old_all":
+        dataset_name = (
+            "Old all train "
             f"(casia_ratio={casia_sample_ratio}, replay_ratio={replay_sample_ratio}, "
             f"custom_repeat={custom_repeat})"
         )
@@ -247,7 +280,7 @@ def load_configured_training_dataset(
 
     raise ValueError(
         "Unsupported TRAIN_MODE: "
-        f"{selected_mode}. Use 'casia', 'replay', 'combined', 'custom', or 'combined_custom'."
+        f"{selected_mode}. Use 'casia', 'replay', 'combined', 'custom', 'all', or 'old_all'."
     )
 
 
@@ -265,6 +298,7 @@ def train_pad_model(
     augment_live_photometric_scope="all",
     custom_validation_ratio=None,
     custom_validation_seed=None,
+    artifact_tag=None,
 ):
     """
     Train the PAD model using the selected PAD training dataset.
@@ -275,10 +309,12 @@ def train_pad_model(
     mechanism is available for CASIA and Replay-Attack pre-extraction
     balancing.
 
-    The trained artifacts can be stored under a dedicated profile
-    (for example ``fast`` or ``full``). When ``update_runtime_artifacts``
-    is enabled, the same trained model is also copied to the canonical
-    runtime paths used by webcam inference.
+    The trained artifacts are always stored under the requested profile
+    (for example ``fast`` or ``full``). When
+    ``update_runtime_artifacts`` is enabled, the same trained model is
+    also copied to the canonical runtime paths used by webcam inference.
+    The runner enables this only for the approved `all -> all |
+    full` PAD reference run.
     """
 
     total_start_time = time.perf_counter()
@@ -309,12 +345,13 @@ def train_pad_model(
     live_count = (y_train == 1).sum()
     spoof_count = (y_train == 0).sum()
     active_feature_modes = get_pad_feature_modes()
+    active_feature_mode = active_feature_modes["pad_debug_feature_mode"]
 
     print("PAD training dataset:", dataset_name)
     print(
         "PAD feature setup:",
         (
-            f"debug={active_feature_modes['pad_debug_feature_mode']} | "
+            f"feature_mode={active_feature_mode} | "
             f"lft={active_feature_modes['pad_lft_mode']} | "
             f"tgsd_tau={active_feature_modes['tgsd_tau']} | "
             f"tgsd_top_percent={active_feature_modes['tgsd_top_percent']} | "
@@ -360,7 +397,10 @@ def train_pad_model(
     scaler, classifier = train_pad_classifier(X_train, y_train)
     training_elapsed = time.perf_counter() - training_start_time
 
-    artifact_paths = get_pad_artifact_paths(artifact_profile)
+    artifact_paths = get_pad_artifact_paths(
+        artifact_profile,
+        artifact_tag=artifact_tag,
+    )
 
     # create the PAD artifact directory if it does not exist
     artifact_paths["model_path"].parent.mkdir(parents=True, exist_ok=True)
@@ -369,10 +409,10 @@ def train_pad_model(
     joblib.dump(scaler, artifact_paths["scaler_path"])
     joblib.dump(classifier, artifact_paths["model_path"])
 
-    # Save the feature configuration used to produce the trained PAD
-    # artifacts so live inference can restore the exact same setup.
+    # Save the feature configuration used to produce this artifact set so
+    # inference can restore the exact same feature-extraction setup.
     pad_model_config = build_pad_model_config(
-        debug_feature_mode=active_feature_modes["pad_debug_feature_mode"],
+        debug_feature_mode=active_feature_mode,
         lft_mode=active_feature_modes["pad_lft_mode"],
         feature_dim=X_train.shape[1],
         tgsd_tau=active_feature_modes.get("tgsd_tau"),
@@ -395,7 +435,7 @@ def train_pad_model(
         config_path=artifact_paths["config_path"],
     )
 
-    if update_runtime_artifacts and artifact_profile != "runtime":
+    if update_runtime_artifacts and artifact_profile != "runtime" and artifact_tag is None:
         runtime_paths = get_pad_artifact_paths("runtime")
         joblib.dump(scaler, runtime_paths["scaler_path"])
         joblib.dump(classifier, runtime_paths["model_path"])
@@ -406,15 +446,20 @@ def train_pad_model(
  
     print("PAD model trained and saved successfully")
     print("PAD artifact profile:", artifact_profile)
+    print("PAD artifact tag:", artifact_tag or "canonical")
     print(
         "PAD artifacts:",
         f"model={artifact_paths['model_path']} | scaler={artifact_paths['scaler_path']} | config={artifact_paths['config_path']}",
     )
-    if update_runtime_artifacts and artifact_profile != "runtime":
+    if update_runtime_artifacts and artifact_profile != "runtime" and artifact_tag is None:
         runtime_paths = get_pad_artifact_paths("runtime")
         print(
             "PAD runtime artifacts:",
-            f"model={runtime_paths['model_path']} | scaler={runtime_paths['scaler_path']} | config={runtime_paths['config_path']}",
+            (
+                f"model={runtime_paths['model_path']} | "
+                f"scaler={runtime_paths['scaler_path']} | "
+                f"config={runtime_paths['config_path']}"
+            ),
         )
     print(f"PAD classifier training completed in {training_elapsed:.2f}s")
     print(f"Total PAD training time: {time.perf_counter() - total_start_time:.2f}s")

@@ -15,7 +15,6 @@ import cv2
 import time
 
 from src.antispoofing.pad_crop_utils import extract_pad_face_crop
-from src.antispoofing.pad_feature_extractor import get_pad_feature_modes
 from src.antispoofing.pad_frame_quality import (
     PAD_MIN_VARIANCE_LAPLACIAN,
     evaluate_bbox_stability,
@@ -295,20 +294,6 @@ def format_timing_ms(value):
     return f"{value:.1f}ms"
 
 
-def get_pad_box_color(final_pad_label):
-    """
-    Map the current PAD state to a bounding-box color.
-    """
-
-    if final_pad_label == "spoof":
-        return (0, 0, 255)
-
-    if final_pad_label == "live":
-        return (0, 255, 0)
-
-    return (0, 255, 255)
-
-
 def get_active_pad_feature_set_name(pad_config):
     """
     Build a human-readable description of the active PAD feature set.
@@ -341,16 +326,6 @@ def build_pad_timing_summary(pad_timings):
 
     timing_parts.append(f"tot={format_timing_ms(pad_timings.get('total_predict'))}")
     return " | ".join(timing_parts)
-
-
-def format_optional_float(value, digits=2):
-    """
-    Format an optional float for compact PAD diagnostics.
-    """
-
-    if value is None:
-        return "None"
-    return f"{value:.{digits}f}"
 
 
 def build_pad_spatial_summary(frame_shape, face_rect):
@@ -430,24 +405,7 @@ def classify_pad_distance_band(face_area_ratio):
     return "far"
 
 
-def build_pad_log_signature(pad_state_result, pad_frame_usable, pad_timings):
-    """
-    Build a compact signature used to suppress repeated PAD log lines.
-    """
-
-    mean_live_probability = pad_state_result["mean_live_probability"]
-    if mean_live_probability is not None:
-        mean_live_probability = round(mean_live_probability, 1)
-
-    return (
-        pad_frame_usable,
-        pad_state_result["current_label"],
-        pad_state_result["final_label"],
-        mean_live_probability,
-    )
-
-
-def run_pipeline_cv():
+def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
     """
     Execute the anti-spoofing-only runtime pipeline.
 
@@ -463,7 +421,10 @@ def run_pipeline_cv():
     detector = load_mediapipe_detector()
     face_mesh = load_mediapipe_face_mesh()
     try:
-        pad_detector = AntiSpoofingDetector()
+        pad_detector = AntiSpoofingDetector(
+            artifact_profile=pad_artifact_profile,
+            artifact_tag=pad_artifact_tag,
+        )
     except Exception as exc:
         raise RuntimeError(
             "Failed to initialize PAD runtime detector. "
@@ -472,7 +433,6 @@ def run_pipeline_cv():
     pad_runtime_state = create_pad_runtime_state()
     display_state = PadDisplayState()
     active_feature_set = get_active_pad_feature_set_name(pad_detector.pad_config)
-    configured_modes = get_pad_feature_modes()
 
     frame_counter = 0
     camera_read_failures = 0
@@ -497,19 +457,35 @@ def run_pipeline_cv():
     last_logged_distance_band = None
     last_logged_final_label = None
     startup_started_at = time.monotonic()
-    # log_cv_event(f"PAD run interval: {PAD_RUN_INTERVAL}")
-    # log_cv_event(
-    #     "PAD runtime feature set: "
-    #     f"{active_feature_set} | dim={pad_detector.pad_config['feature_dim']}"
-    # )
-    # log_cv_event(
-    #     "PAD runtime modes: "
-    #     f"debug={configured_modes['pad_debug_feature_mode']} | "
-    #     f"lft={configured_modes['pad_lft_mode']} | "
-    #     f"tgsd_tau={configured_modes.get('tgsd_tau')} | "
-    #     f"tgsd_top_percent={configured_modes.get('tgsd_top_percent')} | "
-    #     f"tgsd_grad={configured_modes.get('tgsd_gradient_operator')}"
-    # )  # Blocked for pose-only testing.
+    # Diagnostic startup logs for quick runtime checks. They report the
+    # active feature family, exported feature dimension, and runtime PAD
+    # smoothing thresholds loaded for the current session.
+    log_cv_event(f"PAD run interval: {PAD_RUN_INTERVAL}")
+    log_cv_event(
+        "PAD runtime artifact selection: "
+        f"profile={pad_artifact_profile} | tag={pad_artifact_tag or 'canonical'}"
+    )
+    log_cv_event(
+        "PAD runtime feature set: "
+        f"{active_feature_set} | dim={pad_detector.pad_config['feature_dim']}"
+    )
+    log_cv_event(
+        "PAD runtime modes: "
+        f"feature_mode={pad_detector.pad_config['pad_debug_feature_mode']} | "
+        f"lft={pad_detector.pad_config['pad_lft_mode']} | "
+        f"tgsd_tau={pad_detector.pad_config.get('tgsd_tau')} | "
+        f"tgsd_top_percent={pad_detector.pad_config.get('tgsd_top_percent')} | "
+        f"tgsd_grad={pad_detector.pad_config.get('tgsd_gradient_operator')}"
+    )
+    log_cv_event(
+        "PAD runtime thresholds: "
+        f"window={pad_runtime_state.window_size} | "
+        f"enter_live={pad_runtime_state.enter_live_threshold:.2f} | "
+        f"exit_live={pad_runtime_state.exit_live_threshold:.2f} | "
+        f"enter_spoof={pad_runtime_state.enter_spoof_threshold:.2f} | "
+        f"exit_spoof={pad_runtime_state.exit_spoof_threshold:.2f} | "
+        f"reset_after_misses={pad_runtime_state.reset_after_misses}"
+    )
 
     while True:
         ret, frame = cap.read()
@@ -644,6 +620,7 @@ def run_pipeline_cv():
                 if pad_state_result["mean_live_probability"] is not None
                 else "None"
             )
+            history_snapshot = pad_runtime_state.get_history_snapshot()
             pad_timings = pad_result.get("timings_ms", {})
             last_timing_text = build_pad_timing_summary(pad_timings)
             final_label = pad_state_result["final_label"]
@@ -677,6 +654,8 @@ def run_pipeline_cv():
                     f"prob_mismatch_usable={probability_usable_mismatch_count} | "
                     f"final={pad_state_result['final_label']} | "
                     f"avg_live={avg_live_text} | "
+                    f"history_len={len(history_snapshot)} | "
+                    f"history={history_snapshot} | "
                     f"pose={pose_text} | "
                     f"{spatial_text} | "
                     f"{light_text} | "
@@ -725,15 +704,17 @@ def run_pipeline_cv():
     cap.release()
     cv2.destroyAllWindows()
 
-    # log_cv_event("Distance band summary (PAD checks):")
-    # for band in ("near", "mid", "far"):
-    #     band_counts = distance_band_counts[band]
-    #     total = band_counts["live"] + band_counts["spoof"] + band_counts["unknown"]
-    #     log_cv_event(
-    #         f"{band}: total={total} | "
-    #         f"live={band_counts['live']} | "
-    #         f"spoof={band_counts['spoof']} | "
-    #         f"unknown={band_counts['unknown']}"
-    #     )  # Blocked for pose-only testing.
+    # Final diagnostic summary reporting how often the PAD runtime ended
+    # in live/spoof/unknown across near, mid, and far face-size bands.
+    log_cv_event("Distance band summary (PAD checks):")
+    for band in ("near", "mid", "far"):
+        band_counts = distance_band_counts[band]
+        total = band_counts["live"] + band_counts["spoof"] + band_counts["unknown"]
+        log_cv_event(
+            f"{band}: total={total} | "
+            f"live={band_counts['live']} | "
+            f"spoof={band_counts['spoof']} | "
+            f"unknown={band_counts['unknown']}"
+        )
     if hasattr(face_mesh, "close"):
         face_mesh.close()

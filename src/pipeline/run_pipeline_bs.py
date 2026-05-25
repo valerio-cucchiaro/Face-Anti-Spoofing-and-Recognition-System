@@ -107,13 +107,6 @@ class RecognitionDisplayState:
         self.state_since = None
         self.last_known_reinforcement = None
         self.incoherent_updates = 0
-        self.uncertain_reason = "bootstrap"
-        self.transition_counts = {
-            self.SEARCHING: 0,
-            self.ANALYZING: 0,
-            self.SHOW_KNOWN: 0,
-            self.SHOW_UNKNOWN: 0,
-        }
 
     def _transition(self, new_state, now, logger, reason, display_name=None):
         state_changed = self.state != new_state
@@ -130,7 +123,6 @@ class RecognitionDisplayState:
             self.last_known_reinforcement = None
 
         if state_changed or name_changed:
-            self.transition_counts[new_state] = self.transition_counts.get(new_state, 0) + 1
             shown_text = self.get_identity_text()
             logger(
                 "Overlay transition: "
@@ -141,9 +133,6 @@ class RecognitionDisplayState:
         if self.state_since is None:
             return False
         return (now - self.state_since) < DISPLAY_HOLD_SECONDS
-
-    def _set_uncertain_reason(self, reason):
-        self.uncertain_reason = reason
 
     def update(self, face_present, recognition_result, now, logger):
         """
@@ -200,12 +189,6 @@ class RecognitionDisplayState:
                 )
                 return
 
-            if history_size < DISPLAY_KNOWN_ENTRY_VOTES:
-                self._set_uncertain_reason("bootstrap")
-            elif candidate_name not in (None, "Unknown"):
-                self._set_uncertain_reason("conflict")
-            else:
-                self._set_uncertain_reason("unknown_pending")
             return
 
         if self.state == self.SHOW_KNOWN:
@@ -226,7 +209,6 @@ class RecognitionDisplayState:
                 return
 
             self.incoherent_updates += 1
-            self._set_uncertain_reason("decay")
 
             confirmation_timed_out = (
                 self.last_known_reinforcement is not None
@@ -280,7 +262,6 @@ class RecognitionDisplayState:
                 return
 
             self.incoherent_updates += 1
-            self._set_uncertain_reason("conflict")
             if self.incoherent_updates >= DISPLAY_UNKNOWN_EXIT_INCOHERENT:
                 self._transition(
                     self.ANALYZING,

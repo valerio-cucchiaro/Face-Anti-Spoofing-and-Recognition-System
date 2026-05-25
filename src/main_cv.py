@@ -6,8 +6,30 @@ anti-spoofing. It is useful when PAD and liveness behavior must be
 tested without the recognition stage.
 """
 
+import argparse
+
 from src.pipeline.run_pipeline_cv import run_pipeline_cv
-    
+
+
+def build_arg_parser():
+    """
+    Build the CLI for the PAD-only webcam runtime.
+    """
+
+    parser = argparse.ArgumentParser(
+        description="Run the PAD-only webcam runtime with optional artifact overrides."
+    )
+    parser.add_argument("--pad-artifact-profile", choices=["runtime", "full", "fast"])
+    parser.add_argument(
+        "--pad-artifact-tag",
+        help="Optional PAD artifact tag used to load a non-canonical PAD bundle.",
+    )
+    return parser
+
 
 if __name__ == "__main__":
-    run_pipeline_cv()
+    cli_args = build_arg_parser().parse_args()
+    run_pipeline_cv(
+        pad_artifact_profile=cli_args.pad_artifact_profile or "runtime",
+        pad_artifact_tag=cli_args.pad_artifact_tag,
+    )

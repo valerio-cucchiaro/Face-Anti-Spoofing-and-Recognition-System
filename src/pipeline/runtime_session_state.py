@@ -40,7 +40,15 @@ class RuntimeSessionState:
         self.locked_invalid_crop_counter = 0
         self.locked_spoof_counter = 0
         self.live_lock_started_at = None
-        self.last_recognition_result = {
+        self.last_recognition_result = self._build_default_recognition_result()
+        self.last_pad_result = self._build_default_pad_result()
+
+    def _build_default_recognition_result(self):
+        """
+        Return the empty recognition payload used at session start/reset.
+        """
+
+        return {
             "final_name": "Unknown",
             "stable_confidence": None,
             "stable_count": 0,
@@ -49,7 +57,13 @@ class RuntimeSessionState:
             "current_confidence": None,
             "missing_face_counter": 0,
         }
-        self.last_pad_result = {
+
+    def _build_default_pad_result(self):
+        """
+        Return the empty PAD payload used at session start/reset.
+        """
+
+        return {
             "final_label": "unknown",
             "mean_live_probability": None,
             "current_status": None,
@@ -171,20 +185,5 @@ class RuntimeSessionState:
         self.locked_invalid_crop_counter = 0
         self.locked_spoof_counter = 0
         self.live_lock_started_at = None
-        self.last_recognition_result = {
-            "final_name": "Unknown",
-            "stable_confidence": None,
-            "stable_count": 0,
-            "history_size": 0,
-            "current_name": None,
-            "current_confidence": None,
-            "missing_face_counter": 0,
-        }
-        self.last_pad_result = {
-            "final_label": "unknown",
-            "mean_live_probability": None,
-            "current_status": None,
-            "current_label": None,
-            "current_score": None,
-            "missing_face_counter": 0,
-        }
+        self.last_recognition_result = self._build_default_recognition_result()
+        self.last_pad_result = self._build_default_pad_result()

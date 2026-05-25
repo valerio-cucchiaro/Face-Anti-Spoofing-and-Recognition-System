@@ -8,10 +8,12 @@ trained PAD model.
 The PAD runtime, offline evaluators, and trainer must agree on the same
 feature-extraction configuration. To avoid silent mismatches, the
 selected PAD feature modes are stored next to the trained artifacts and
-reapplied whenever the model is loaded.
+reapplied whenever the model is loaded. The canonical runtime artifact
+set is distinct from the `full` and `fast` experiment snapshots.
 """
 
 import json
+import re
 from pathlib import Path
 
 from src.antispoofing.pad_feature_extractor import configure_pad_feature_modes
@@ -21,9 +23,41 @@ from src.antispoofing.pad_feature_extractor import configure_pad_feature_modes
 MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models"
 PAD_MODELS_ROOT = MODELS_ROOT / "pad"
 PAD_CONFIG_PATH = PAD_MODELS_ROOT / "pad_config.json"
+SYSTEM_PAD_THRESHOLD_CONFIG_PATH = PAD_MODELS_ROOT / "system_pad_threshold_config.json"
 
 
-def get_pad_artifact_paths(artifact_profile="runtime"):
+def normalize_pad_artifact_tag(artifact_tag):
+    """
+    Normalize and validate an optional PAD artifact tag.
+    """
+
+    if artifact_tag is None:
+        return None
+
+    normalized_tag = str(artifact_tag).strip()
+    if not normalized_tag:
+        raise ValueError("PAD artifact tag cannot be empty.")
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", normalized_tag):
+        raise ValueError(
+            "PAD artifact tag may contain only letters, numbers, '_' and '-'."
+        )
+
+    return normalized_tag
+
+
+def _append_tag(stem, artifact_tag):
+    """
+    Append an optional artifact tag to a filename stem.
+    """
+
+    normalized_tag = normalize_pad_artifact_tag(artifact_tag)
+    if normalized_tag is None:
+        return stem
+    return f"{stem}_{normalized_tag}"
+
+
+def get_pad_artifact_paths(artifact_profile="runtime", artifact_tag=None):
     """
     Resolve the PAD artifact paths associated with one profile.
 
@@ -31,21 +65,25 @@ def get_pad_artifact_paths(artifact_profile="runtime"):
     - runtime: canonical artifacts used by webcam runtimes
     - full: snapshot produced by full PAD experiments
     - fast: snapshot produced by fast PAD experiments
+
+    The runtime profile is intentionally separate from the experiment
+    profiles so only approved runs can promote artifacts to webcam
+    inference.
     """
 
     if artifact_profile == "runtime":
         return {
-            "model_path": PAD_MODELS_ROOT / "pad_svm.joblib",
-            "scaler_path": PAD_MODELS_ROOT / "pad_scaler.joblib",
-            "config_path": PAD_CONFIG_PATH,
+            "model_path": PAD_MODELS_ROOT / f"{_append_tag('pad_svm', artifact_tag)}.joblib",
+            "scaler_path": PAD_MODELS_ROOT / f"{_append_tag('pad_scaler', artifact_tag)}.joblib",
+            "config_path": PAD_MODELS_ROOT / f"{_append_tag('pad_config', artifact_tag)}.json",
         }
 
     if artifact_profile in {"full", "fast"}:
         suffix = artifact_profile
         return {
-            "model_path": PAD_MODELS_ROOT / f"pad_svm_{suffix}.joblib",
-            "scaler_path": PAD_MODELS_ROOT / f"pad_scaler_{suffix}.joblib",
-            "config_path": PAD_MODELS_ROOT / f"pad_config_{suffix}.json",
+            "model_path": PAD_MODELS_ROOT / f"{_append_tag(f'pad_svm_{suffix}', artifact_tag)}.joblib",
+            "scaler_path": PAD_MODELS_ROOT / f"{_append_tag(f'pad_scaler_{suffix}', artifact_tag)}.joblib",
+            "config_path": PAD_MODELS_ROOT / f"{_append_tag(f'pad_config_{suffix}', artifact_tag)}.json",
         }
 
     raise ValueError(
@@ -54,39 +92,12 @@ def get_pad_artifact_paths(artifact_profile="runtime"):
     )
 
 
-def infer_pad_feature_config_from_dim(feature_dim):
+def get_system_pad_threshold_config_path(artifact_tag=None):
     """
-    Infer a PAD feature configuration from the expected feature size.
-
-    This fallback is useful for legacy PAD artifacts created before the
-    configuration metadata file existed. The mapping covers the feature
-    dimensions produced by the PAD variants documented in the project.
+    Resolve the saved PAD system-threshold config path.
     """
 
-    known_configs = {
-        124: {
-            "pad_debug_feature_mode": "baseline",
-            "pad_lft_mode": "ggd_light",
-        },
-        126: {
-            "pad_debug_feature_mode": "tgsd",
-            "pad_lft_mode": "ggd_light",
-        },
-    }
-
-    if feature_dim not in known_configs:
-        raise ValueError(
-            "Unable to infer PAD feature configuration from feature_dim="
-            f"{feature_dim}. Save pad_config.json under models/pad by retraining the PAD model."
-        )
-
-    inferred_config = known_configs[feature_dim].copy()
-    inferred_config["feature_dim"] = int(feature_dim)
-    inferred_config["config_source"] = "inferred_from_feature_dim"
-    inferred_config["tgsd_tau"] = 170.0
-    inferred_config["tgsd_top_percent"] = 0.05
-    inferred_config["tgsd_gradient_operator"] = "sobel"
-    return inferred_config
+    return PAD_MODELS_ROOT / f"{_append_tag('system_pad_threshold_config', artifact_tag)}.json"
 
 
 def build_pad_model_config(
@@ -142,25 +153,19 @@ def save_pad_model_config(config, config_path=None):
 def load_pad_model_config(expected_feature_dim=None, config_path=None):
     """
     Load the PAD model configuration from disk.
-
-    If the metadata file does not exist yet, the configuration is
-    inferred from the expected feature dimension of the loaded scaler or
-    classifier. This keeps legacy PAD artifacts usable while making the
-    mismatch explicit and recoverable.
     """
 
     target_config_path = config_path or PAD_CONFIG_PATH
 
-    if target_config_path.exists():
-        with open(target_config_path, "r", encoding="utf-8") as file:
-            config = json.load(file)
-    else:
-        if expected_feature_dim is None:
-            raise FileNotFoundError(
-                "PAD configuration file not found and no expected feature "
-                "dimension was provided to infer a legacy configuration."
-            )
-        config = infer_pad_feature_config_from_dim(expected_feature_dim)
+    if not target_config_path.exists():
+        raise FileNotFoundError(
+            "PAD configuration file not found. The PAD runtime and offline "
+            "evaluators require an explicit saved config. Retrain or restore "
+            "a coherent PAD artifact set under models/pad."
+        )
+
+    with open(target_config_path, "r", encoding="utf-8") as file:
+        config = json.load(file)
 
     required_keys = {"pad_debug_feature_mode", "pad_lft_mode", "feature_dim"}
     missing_keys = required_keys - set(config.keys())
@@ -176,16 +181,12 @@ def load_pad_model_config(expected_feature_dim=None, config_path=None):
 
     config_feature_dim = int(config["feature_dim"])
     if expected_feature_dim is not None and config_feature_dim != int(expected_feature_dim):
-        inferred_config = infer_pad_feature_config_from_dim(expected_feature_dim)
         raise ValueError(
             "PAD configuration mismatch: config declares "
             f"{config['pad_debug_feature_mode']} + {config['pad_lft_mode']} "
             f"with feature_dim={config_feature_dim}, but the loaded artifact "
-            f"expects feature_dim={int(expected_feature_dim)}. "
-            "The artifact is more likely aligned with "
-            f"{inferred_config['pad_debug_feature_mode']} + "
-            f"{inferred_config['pad_lft_mode']}. "
-            "Realign the saved config or promote a coherent artifact set."
+            f"expects feature_dim={int(expected_feature_dim)}. Realign the "
+            "saved config or promote a coherent artifact set."
         )
 
     return config

@@ -1,14 +1,14 @@
 import numpy as np
 import pytest
 
-import src.antispoofing.training.pad_dataset_loader as pad_dataset_loader
 from src.antispoofing.pad_crop_utils import extract_pad_face_crop
 from src.antispoofing.pad_feature_extractor import (
     configure_pad_feature_modes,
     get_pad_feature_modes,
 )
 from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
-from src.antispoofing.training.pad_dataset_loader import (
+import src.antispoofing.training.pad_dataset_preprocessing as pad_dataset_preprocessing
+from src.antispoofing.training.pad_dataset_preprocessing import (
     extract_pad_features_from_dataset_image,
     extract_pad_features_from_final_crop,
     extract_pad_features_from_raw_frame,
@@ -73,7 +73,7 @@ def test_raw_frame_and_final_crop_paths_match(monkeypatch, sharp_gray_face):
     gray_frame = sharp_gray_face.copy()
 
     monkeypatch.setattr(
-        pad_dataset_loader,
+        pad_dataset_preprocessing,
         "get_valid_face",
         lambda img, detector, threshold_area: (face_rect, gray_frame, None),
     )
@@ -102,7 +102,7 @@ def test_extract_pad_features_from_raw_frame_returns_none_when_no_face_found(
     bgr_frame = np.stack([sharp_gray_face] * 3, axis=-1)
 
     monkeypatch.setattr(
-        pad_dataset_loader,
+        pad_dataset_preprocessing,
         "get_valid_face",
         lambda img, detector, threshold_area: (None, None, None),
     )
@@ -124,7 +124,7 @@ def test_raw_frame_path_with_quality_gate_keeps_blurry_crop_when_geometry_is_val
     face_rect = (16, 16, 96, 96)
 
     monkeypatch.setattr(
-        pad_dataset_loader,
+        pad_dataset_preprocessing,
         "get_valid_face",
         lambda img, detector, threshold_area: (face_rect, blurry_gray_face, None),
     )

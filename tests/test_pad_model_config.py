@@ -35,16 +35,12 @@ def test_load_pad_model_config_rejects_missing_required_keys(tmp_path):
         load_pad_model_config(expected_feature_dim=124, config_path=config_path)
 
 
-def test_load_pad_model_config_infers_legacy_config_from_feature_dim(tmp_path):
-    config = load_pad_model_config(
-        expected_feature_dim=124,
-        config_path=tmp_path / "missing_pad_config.json",
-    )
-
-    assert config["config_source"] == "inferred_from_feature_dim"
-    assert config["pad_debug_feature_mode"] == "baseline"
-    assert config["pad_lft_mode"] == "ggd_light"
-    assert config["feature_dim"] == 124
+def test_load_pad_model_config_rejects_missing_config_file(tmp_path):
+    with pytest.raises(FileNotFoundError, match="explicit saved config"):
+        load_pad_model_config(
+            expected_feature_dim=124,
+            config_path=tmp_path / "missing_pad_config.json",
+        )
 
 
 def test_build_pad_model_config_persists_custom_validation_metadata():

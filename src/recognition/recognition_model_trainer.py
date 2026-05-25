@@ -5,8 +5,9 @@ Description:
 This module trains the face recognition model using one selected
 gallery dataset or one of the supported mixed gallery configurations.
 
-The trained LBPH model and the corresponding label map are saved to the
-shared recognition model paths used by the rest of the project.
+Custom training updates the canonical runtime recognition artifacts used
+by the rest of the project. Non-custom training modes save isolated
+snapshots so experiments cannot overwrite the live custom recognizer.
 
 The trainer also supports configurable LBPH hyperparameters so the
 project can run small tuning campaigns without changing the training
@@ -20,17 +21,13 @@ from pathlib import Path
 import time
 from datetime import datetime, timezone
 
+from src.recognition.face_recognizer import get_recognition_artifact_paths
 from src.preprocessing.face_preprocessing import get_recognition_preprocessing_config
 from src.recognition.recognition_dataset_loader import load_gallery_dataset
 from src.preprocessing.pose_statistics import format_pose_summary
 
 
 # ----- CONSTANTS ----- #
-RECOGNITION_MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models" / "recognition"
-MODEL_PATH = RECOGNITION_MODELS_ROOT / "lbph_model.xml"
-LABEL_MAP_PATH = RECOGNITION_MODELS_ROOT / "label_map.pkl"
-RECOGNIZER_CONFIG_FILENAME = "recognizer_config.json"
-RECOGNIZER_CONFIG_PATH = RECOGNITION_MODELS_ROOT / RECOGNIZER_CONFIG_FILENAME
 TRAIN_MODE = "custom"
 DEFAULT_LBPH_PARAMS = {
     "radius": 1,
@@ -38,6 +35,13 @@ DEFAULT_LBPH_PARAMS = {
     "grid_x": 6,
     "grid_y": 6,
 }
+_CUSTOM_ARTIFACT_PATHS = get_recognition_artifact_paths("custom")
+# Backward-compatible aliases kept for tests and simple custom runtime
+# overrides. Non-custom training modes still resolve their own isolated
+# artifact paths dynamically.
+MODEL_PATH = _CUSTOM_ARTIFACT_PATHS["model_path"]
+LABEL_MAP_PATH = _CUSTOM_ARTIFACT_PATHS["label_map_path"]
+RECOGNIZER_CONFIG_PATH = _CUSTOM_ARTIFACT_PATHS["config_path"]
 
 
 def resolve_lbph_params(lbph_params=None):
@@ -55,13 +59,13 @@ def resolve_lbph_params(lbph_params=None):
     return resolved_params
 
 
-def save_recognizer_config(config_data):
+def save_recognizer_config(config_data, config_path):
     """
     Save the recognition model type and LBPH parameters used for training.
     """
 
-    RECOGNIZER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RECOGNIZER_CONFIG_PATH.write_text(
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
         json.dumps(config_data, indent=4) + "\n",
         encoding="utf-8",
     )
@@ -88,6 +92,15 @@ def train_recognition_model(
     selected_lfw_sample_ratio = 1.0 if lfw_sample_ratio is None else lfw_sample_ratio
     total_start_time = time.perf_counter()
     preprocessing_config = get_recognition_preprocessing_config()
+    if selected_mode == "custom":
+        model_path = MODEL_PATH
+        label_map_path = LABEL_MAP_PATH
+        recognizer_config_path = RECOGNIZER_CONFIG_PATH
+    else:
+        artifact_paths = get_recognition_artifact_paths(selected_mode)
+        model_path = artifact_paths["model_path"]
+        label_map_path = artifact_paths["label_map_path"]
+        recognizer_config_path = artifact_paths["config_path"]
 
     print(f"=== RECOGNITION TRAINING MODE: {selected_mode.upper()} ===")
     print(
@@ -143,8 +156,8 @@ def train_recognition_model(
     recognizer.train(faces, labels)
     training_elapsed = time.perf_counter() - training_start_time
 
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    recognizer.save(str(MODEL_PATH))
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    recognizer.save(str(model_path))
     save_recognizer_config(
         {
             "config_version": 2,
@@ -163,16 +176,17 @@ def train_recognition_model(
             "dataset_counts": dataset_counts,
             "loaded_faces": len(faces),
             "loaded_identities": len(label_map),
-        }
+        },
+        recognizer_config_path,
     )
 
-    with open(LABEL_MAP_PATH, "wb") as file:
+    with open(label_map_path, "wb") as file:
         pickle.dump(label_map, file)
 
     print("Recognition model trained and saved successfully")
-    print("Model path:", MODEL_PATH)
-    print("Label map path:", LABEL_MAP_PATH)
-    print("Recognizer config path:", RECOGNIZER_CONFIG_PATH)
+    print("Model path:", model_path)
+    print("Label map path:", label_map_path)
+    print("Recognizer config path:", recognizer_config_path)
     print(f"LBPH training completed in {training_elapsed:.2f}s")
     print(f"Total training time: {time.perf_counter() - total_start_time:.2f}s")
 

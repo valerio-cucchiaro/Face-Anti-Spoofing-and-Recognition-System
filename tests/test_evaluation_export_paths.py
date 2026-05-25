@@ -1,6 +1,9 @@
 import json
+import pytest
 
 from src.evaluation import system_evaluator
+from src.evaluation import recognition_model_evaluator
+from src.evaluation import pad_model_evaluator
 from src.evaluation.pad_metrics import export_pad_metrics_report
 from src.evaluation.recognition_metrics import export_recognition_metrics_report
 
@@ -123,3 +126,61 @@ def test_system_metrics_json_contains_all_export_paths(tmp_path, monkeypatch):
 
     assert exported_json["export_paths"] == export_paths
     assert set(export_paths) == {"json", "samples_csv"}
+
+
+def test_system_evaluator_uses_saved_pad_threshold_when_available(monkeypatch):
+    monkeypatch.setattr(
+        system_evaluator,
+        "load_system_pad_threshold_config",
+        lambda: {
+            "threshold": 0.73,
+            "threshold_source": "custom_internal_validation_target_apcer",
+        },
+    )
+
+    threshold, source, config = system_evaluator.resolve_pad_threshold(None)
+
+    assert threshold == 0.73
+    assert source == "custom_internal_validation_target_apcer"
+    assert config["threshold"] == 0.73
+
+
+def test_system_evaluator_pad_threshold_raises_when_no_saved_config(monkeypatch):
+    monkeypatch.setattr(
+        system_evaluator,
+        "load_system_pad_threshold_config",
+        lambda: None,
+    )
+
+    with pytest.raises(ValueError, match="No system PAD threshold config found"):
+        system_evaluator.resolve_pad_threshold(None)
+
+
+def test_pad_evaluator_saved_threshold_requires_matching_artifact_config(monkeypatch):
+    monkeypatch.setattr(
+        pad_model_evaluator,
+        "load_system_pad_threshold_config",
+        lambda: {
+            "threshold": 0.61,
+            "threshold_source": "custom_internal_validation_target_apcer",
+            "pad_config": {"feature_dim": 126, "pad_debug_feature_mode": "tgsd"},
+        },
+    )
+
+    with pytest.raises(ValueError, match="does not match the active PAD artifacts"):
+        pad_model_evaluator.resolve_saved_pad_evaluation_threshold(
+            {"feature_dim": 124, "pad_debug_feature_mode": "baseline"}
+        )
+
+
+def test_recognition_evaluator_requires_saved_threshold_config(monkeypatch):
+    monkeypatch.setattr(
+        recognition_model_evaluator,
+        "load_system_recognition_threshold_config",
+        lambda: None,
+    )
+
+    with pytest.raises(ValueError, match="No system recognition threshold config found"):
+        recognition_model_evaluator.resolve_saved_recognition_evaluation_threshold(
+            {"recognizer_type": "lbph_single"}
+        )

@@ -11,23 +11,26 @@
 - `tgsd_gradient_operator = sobel`
 - `tgsd_top_percent = 0.05`
 
-### Training augmentation promossa
+### Training augmentation sperimentale
 
-- augmentation live fotometrica: `mix`
-- augmentation scope promossa in `fast`: `runtime_only`
+- augmentation live fotometrica disponibile: `mix`
+- scope disponibili nei test:
+  - `runtime_only`
+  - `all`
 - stato:
-  - validata in `fast`
-  - `full` migliore ora: `mix` su tutti i live
+  - utile come ablation/test per misurare il tradeoff tra live retention e spoof leakage
+  - non promossa come baseline operativa
+  - baseline PAD corrente: augmentation `off`
 
 ### Configurazione in uso adesso
 
 - feature set: `baseline + TGSD + GGD(LFT)_light`
 - TGSD: `tau170 | sobel | top5`
-- augmentation training di riferimento `fast`: `runtime-only mix`
+- augmentation training baseline: `off`
 - PAD runtime: finestra `5` piena prima della decisione
 - PAD runtime: `enter_live = 0.65`, `enter_spoof = 0.30`
 - PAD runtime: `PAD_RUN_INTERVAL = 2` in `fast` e `full`
-- prossimo test `full` da provare: `mix` su tutti i live
+- augmentation fotometrica: mantenuta come test opzionale, non come configurazione di riferimento
 
 ## Test Fast
 
@@ -51,7 +54,7 @@
 
 ### Lettura
 
-- il miglior `fast` attuale e`:
+- il miglior `fast` storico con augmentation e`:
   - `baseline + TGSD + GGD(LFT)_light`
   - con `runtime-only mix`
 - rispetto al solo feature set promosso senza augmentation:
@@ -60,6 +63,7 @@
   - gli spoof passano da `84/85` a `85/85`
 - `runtime_repeat=2` non va promosso
 - `light_asymmetry` non va promossa
+- nonostante questi segnali interessanti, la baseline operativa resta augmentation `off`
 
 ## Test Full
 
@@ -69,8 +73,8 @@
 | --- | --- | --- | --- | --- | --- |
 | `full` feature validation | `baseline + TGSD + GGD(LFT)_light` con `tau170 | sobel | top5` | `0.9453 / 0.7699 / 0.7898 / 0.7797` | `0.9541 / 0.9462 / 0.8347 / 0.8870` | `0.8400 / 1.0000 / 0.5000 / 0.6667` | conferma del feature set promosso |
 | `full` runtime-only mix | `baseline + TGSD + GGD(LFT)_light` + `runtime-only mix` | `0.9451 / 0.7693 / 0.7894 / 0.7792` | `0.9542 / 0.9466 / 0.8347 / 0.8871` | `0.8240 / 1.0000 / 0.4500 / 0.6207` | runtime-only non confermata |
-| `full` all-live mix | `baseline + TGSD + GGD(LFT)_light` + `mix` su tutti i live | `0.9451 / 0.7693 / 0.7894 / 0.7792` | `0.9577 / 0.9319 / 0.8674 / 0.8985` | `0.8560 / 1.0000 / 0.5500 / 0.7097` | riferimento precedente |
-| `full` all-live mix + nuovi live | `baseline + TGSD + GGD(LFT)_light` + `mix` su tutti i live | `0.9447 / 0.7538 / 0.8154 / 0.7834` | `0.9601 / 0.9363 / 0.8744 / 0.9043` | `0.8960 / 0.9355 / 0.7250 / 0.8169` | **miglior full attuale** |
+| `full` all-live mix | `baseline + TGSD + GGD(LFT)_light` + `mix` su tutti i live | `0.9451 / 0.7693 / 0.7894 / 0.7792` | `0.9577 / 0.9319 / 0.8674 / 0.8985` | `0.8560 / 1.0000 / 0.5500 / 0.7097` | test sperimentale |
+| `full` all-live mix + nuovi live | `baseline + TGSD + GGD(LFT)_light` + `mix` su tutti i live | `0.9447 / 0.7538 / 0.8154 / 0.7834` | `0.9601 / 0.9363 / 0.8744 / 0.9043` | `0.8960 / 0.9355 / 0.7250 / 0.8169` | test sperimentale storico |
 
 Legenda metrica nelle celle:
 - `accuracy / precision / recall / f1`
@@ -91,7 +95,9 @@ Legenda metrica nelle celle:
 
 - il `full` attualmente documentato conferma bene il feature set
 - `runtime-only mix` migliora il `fast` ma non e` stata confermata nel `full`
-- il `full` migliore attuale e` `mix` su tutti i live, con i nuovi live aggiunti
+- `mix` su tutti i live resta un test utile per studiare il tradeoff:
+  meno live rifiutati, ma piu` spoof accettati
+- per scelta progettuale, la baseline operativa resta con augmentation disattivata
 - il runtime `full` ora usa lock piu` leggibile: `face_missing=2`, `movement=1`, `crop=1`
 - `cv` e` allineato al `full` su PAD interval e soglia `enter_live`, ma mantiene i log diagnostici su distanza e luce
 
@@ -145,15 +151,18 @@ Legenda metrica nelle celle:
 
 ### Augmentation
 
-- augmentation promossa:
+- augmentation mantenuta come test:
   - `mix`
-  - scope `runtime_only` in `fast`
-- miglior risultato `fast` attuale:
+  - scope `runtime_only` o `all` a seconda dell'ablation
+- miglior risultato `fast` storico con augmentation:
   - `0.880 / 1.0000 / 0.625 / 0.7692`
   - confusion matrix `[[85, 0], [15, 25]]`
-- migliore `full` attuale:
+- miglior risultato `full` storico con augmentation:
   - `0.8560 / 1.0000 / 0.5500 / 0.7097`
   - confusion matrix `[[85, 0], [18, 22]]`
+- decisione corrente:
+  - augmentation non promossa a baseline
+  - baseline PAD attiva = augmentation `off`
 
 ## Roadmap Operativa
 
@@ -164,13 +173,13 @@ Legenda metrica nelle celle:
 - spoof: forte
 - live: ancora il problema aperto
 - setup `fast` attuale: definito
-- `full` migliore attuale: `mix` su tutti i live
+- augmentation fotometrica: tenuta come test, non come baseline
 - runtime `full`: pulito dai log di debug, resta solo il flusso di fase
 - runtime `cv`: usato come banco diagnostico per distanza, controluce e reattivita` del PAD
 
 ### Prossimi passi
 
-1. tenere il `full` attuale come baseline operativa.
+1. tenere il `full` attuale con augmentation `off` come baseline operativa.
 2. usare `cv` per verificare se il limite residuo e` davvero controluce/distanza o solo soglia.
 3. raccogliere altri live mirati solo se i casi difficili restano riproducibili.
 4. pulire i log debug quando il comportamento del runtime e` definitivamente confermato.
@@ -189,10 +198,10 @@ Legenda metrica nelle celle:
 - configurazione attuale in uso:
   - `baseline + TGSD + GGD(LFT)_light`
   - `tau170 | sobel | top5`
-  - `runtime-only mix` come riferimento `fast`
+  - augmentation baseline: `off`
 - stato validazione:
-  - `fast`: validato con `runtime-only mix`
-  - `full`: migliore `mix` su tutti i live, con i nuovi live aggiunti
+  - augmentation `mix` validata come test utile
+  - baseline operativa confermata senza augmentation
 - problema aperto reale:
   - robustezza dei `live`
   - controluce e distanza troppo corta

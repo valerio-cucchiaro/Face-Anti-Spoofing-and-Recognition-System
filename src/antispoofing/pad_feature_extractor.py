@@ -9,7 +9,7 @@ The active default descriptor combines the baseline multi-scale stack
 (LBP + quality) with the promoted LFT GGD-light representation and the
 promoted TGSD refinement.
 
-The debug switch still allows controlled comparisons against the
+The feature-mode switch still allows controlled comparisons against the
 baseline-only branch for PAD ablation experiments.
 """
 
@@ -28,19 +28,15 @@ from src.antispoofing.pad_tgsd_features import (
 )
 
 
-# ----- DEBUG FEATURE CONFIGURATION ----- #
-# This switch is meant for temporary PAD debugging and feature ablation
-# experiments. It lets us compare different feature subsets without
-# manually commenting and uncommenting blocks before each run.
+# ----- FEATURE CONFIGURATION ----- #
+# This switch selects the active PAD feature branch while still letting
+# experiments compare the promoted TGSD stack against the baseline-only
+# ablation branch.
 #
 # Supported modes:
 # - baseline: multi-scale baseline only
 # - tgsd: baseline + TGSD (promoted default)
-#
-# The historical LFTP module is intentionally kept in the repository as
-# an archived descriptor block, but it is no longer wired into the
-# active PAD feature path.
-PAD_DEBUG_FEATURE_MODE = "tgsd"
+PAD_FEATURE_MODE = "tgsd"
 PAD_LFT_MODE = "ggd_light"
 
 
@@ -50,7 +46,7 @@ def get_pad_feature_modes():
     """
 
     active_modes = {
-        "pad_debug_feature_mode": PAD_DEBUG_FEATURE_MODE,
+        "pad_debug_feature_mode": PAD_FEATURE_MODE,
         "pad_lft_mode": PAD_LFT_MODE,
     }
     active_modes.update(get_tgsd_config())
@@ -71,15 +67,15 @@ def configure_pad_feature_modes(
     TGSD default and the baseline-only ablation branch, while keeping
     the promoted ``ggd_light`` LFT representation fixed across runs.
     """
-    global PAD_DEBUG_FEATURE_MODE, PAD_LFT_MODE
+    global PAD_FEATURE_MODE, PAD_LFT_MODE
 
     if debug_mode is not None:
         if debug_mode not in {"baseline", "tgsd"}:
             raise ValueError(
-                "Unsupported PAD_DEBUG_FEATURE_MODE: "
+                "Unsupported PAD_FEATURE_MODE: "
                 f"{debug_mode}. Use 'baseline' or 'tgsd'."
             )
-        PAD_DEBUG_FEATURE_MODE = debug_mode
+        PAD_FEATURE_MODE = debug_mode
 
     if lft_mode is not None:
         if lft_mode != "ggd_light":
@@ -165,19 +161,19 @@ def extract_pad_features_single_scale_with_timing(face_image, scale_name):
     return combined_features.astype(np.float32), timings_ms
 
 
-def select_debug_feature_subset(
+def select_pad_feature_subset(
     baseline_features,
     tgsd_features=None,
     mode=None,
 ):
     """
-    Select the final PAD feature vector for the current debug mode.
+    Select the final PAD feature vector for the current feature mode.
 
     The baseline branch is always built first. The "tgsd" mode appends
     only TGSD on top of that same baseline.
     """
 
-    selected_mode = mode or PAD_DEBUG_FEATURE_MODE
+    selected_mode = mode or PAD_FEATURE_MODE
 
     if selected_mode == "baseline":
         return baseline_features
@@ -191,7 +187,7 @@ def select_debug_feature_subset(
         ))
 
     raise ValueError(
-        "Unsupported PAD_DEBUG_FEATURE_MODE: "
+        "Unsupported PAD_FEATURE_MODE: "
         f"{selected_mode}. Use 'baseline' or 'tgsd'."
     )
 
@@ -201,11 +197,11 @@ def extract_pad_features(face_image):
     Extract the complete multi-scale PAD feature vector from a face image.
 
     The function always builds the two-scale baseline first. Depending on
-    ``PAD_DEBUG_FEATURE_MODE``, it can either return that baseline as-is
+    ``PAD_FEATURE_MODE``, it can either return that baseline as-is
     or append TGSD.
     """
 
-    selected_mode = PAD_DEBUG_FEATURE_MODE
+    selected_mode = PAD_FEATURE_MODE
     features_original = extract_pad_features_single_scale(face_image)
 
     # Blur before downsampling so the second scale emphasizes coarser spoof artefacts.
@@ -221,7 +217,7 @@ def extract_pad_features(face_image):
     if selected_mode == "tgsd":
         tgsd_features = extract_tgsd_features(face_image)
 
-    combined_features = select_debug_feature_subset(
+    combined_features = select_pad_feature_subset(
         baseline_features,
         tgsd_features,
         mode=selected_mode,
@@ -236,7 +232,7 @@ def extract_pad_features_with_timing(face_image):
     information for the main descriptor blocks.
     """
 
-    selected_mode = PAD_DEBUG_FEATURE_MODE
+    selected_mode = PAD_FEATURE_MODE
     timings_ms = {}
 
     original_features, original_timings = extract_pad_features_single_scale_with_timing(
@@ -270,7 +266,7 @@ def extract_pad_features_with_timing(face_image):
         timings_ms["tgsd"] = (time.perf_counter() - tgsd_start_time) * 1000.0
 
     select_start_time = time.perf_counter()
-    combined_features = select_debug_feature_subset(
+    combined_features = select_pad_feature_subset(
         baseline_features,
         tgsd_features,
         mode=selected_mode,

@@ -1,6 +1,7 @@
 from pathlib import Path
 
-import src.antispoofing.training.pad_dataset_loader as pad_dataset_loader
+import src.antispoofing.training.pad_dataset_builders as pad_dataset_builders
+import src.antispoofing.training.pad_dataset_splits as pad_dataset_splits
 
 
 def _write_pad_image(path: Path):
@@ -18,9 +19,9 @@ def test_resolve_custom_pad_train_validation_paths_is_deterministic_and_disjoint
     for index in range(8):
         _write_pad_image(spoof_dir / f"spoof_{index}.png")
 
-    monkeypatch.setattr(pad_dataset_loader, "CUSTOM_TRAIN_LIVE_PATH", live_dir)
-    monkeypatch.setattr(pad_dataset_loader, "CUSTOM_TRAIN_SPOOF_PATH", spoof_dir)
-    monkeypatch.setattr(pad_dataset_loader, "_CUSTOM_PAD_VALID_SPLIT_CACHE", {})
+    monkeypatch.setattr(pad_dataset_splits, "CUSTOM_TRAIN_LIVE_PATH", live_dir)
+    monkeypatch.setattr(pad_dataset_splits, "CUSTOM_TRAIN_SPOOF_PATH", spoof_dir)
+    monkeypatch.setattr(pad_dataset_splits, "_CUSTOM_PAD_VALID_SPLIT_CACHE", {})
 
     valid_live_paths = [
         live_dir / f"live_{index}.png"
@@ -37,16 +38,16 @@ def test_resolve_custom_pad_train_validation_paths_is_deterministic_and_disjoint
         return None, labels, sample_paths
 
     monkeypatch.setattr(
-        pad_dataset_loader,
+        pad_dataset_builders,
         "load_pad_split_dataset",
         fake_load_pad_split_dataset,
     )
 
-    split_a = pad_dataset_loader.resolve_custom_pad_train_validation_paths(
+    split_a = pad_dataset_splits.resolve_custom_pad_train_validation_paths(
         validation_ratio=0.2,
         validation_seed=42,
     )
-    split_b = pad_dataset_loader.resolve_custom_pad_train_validation_paths(
+    split_b = pad_dataset_splits.resolve_custom_pad_train_validation_paths(
         validation_ratio=0.2,
         validation_seed=42,
     )

@@ -6,12 +6,13 @@ This module evaluates the trained LBPH face recognition model on one
 selected probe dataset or on all supported probe datasets
 sequentially.
 
-Evaluation uses the single recognition model currently stored on disk,
-which is overwritten every time a new training run is executed. For
-selected evaluation pairs, it also stores the threshold reference used
-by offline system evaluation. This saved threshold is not consumed by
-the live webcam runtime, whose image quality and operating conditions
-are handled separately.
+Evaluation loads the artifact set associated with the selected
+recognition train mode. The `custom` mode owns the canonical runtime
+artifacts, while non-custom modes write isolated offline snapshots. For
+selected evaluation pairs, the evaluator also stores the threshold
+reference used by offline system evaluation. This saved threshold is
+not consumed by the live webcam runtime, whose image quality and
+operating conditions are handled separately.
 
 Besides the global accuracy summary, the evaluator also reports:
 - score statistics for genuine and impostor predictions
@@ -67,21 +68,21 @@ from src.recognition.recognition_decision import (
     DEFAULT_RELIABILITY_MODE,
     build_open_set_decisions_from_pairwise,
 )
+from src.recognition.face_recognizer import (
+    get_recognition_artifact_paths,
+    load_recognizer_config,
+)
 
 
 # ----- CONSTANTS ----- #
 RECOGNITION_MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "models" / "recognition"
-MODEL_PATH = RECOGNITION_MODELS_ROOT / "lbph_model.xml"
-LABEL_MAP_PATH = RECOGNITION_MODELS_ROOT / "label_map.pkl"
-RECOGNIZER_CONFIG_FILENAME = "recognizer_config.json"
-RECOGNIZER_CONFIG_PATH = RECOGNITION_MODELS_ROOT / RECOGNIZER_CONFIG_FILENAME
 SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH = (
     RECOGNITION_MODELS_ROOT / "system_recognition_threshold_config.json"
 )
-# Evaluator-only fallback used when no valid validation threshold can be
-# selected. It is kept local to avoid implying that offline reports and
-# live webcam runtime must share the same operating threshold.
-OFFLINE_FALLBACK_RECOGNITION_THRESHOLD = 44.0
+# Preview threshold used only to label intermediate validation scoring
+# output before the real open-set threshold sweep runs. It is not an
+# evaluation fallback and does not define the live webcam runtime.
+PREVIEW_RECOGNITION_SCORING_THRESHOLD = 44.0
 EVAL_MODE = "custom"
 PROBE_PROGRESS_STEP = 100
 DEBUG_LABEL_MAP_PREVIEW_LIMIT = 10
@@ -193,17 +194,15 @@ def _build_preprocessing_suffix(preprocessing_config):
     return ""
 
 
-def load_trained_recognition_model():
+def load_trained_recognition_model(train_mode=None):
     """
     Load the trained recognition model and label map from disk.
     """
-    if not LABEL_MAP_PATH.exists():
-        raise FileNotFoundError(f"Recognition label map not found: {LABEL_MAP_PATH}")
-
-    recognizer_config = None
-    if RECOGNIZER_CONFIG_PATH.exists():
-        with open(RECOGNIZER_CONFIG_PATH, "r", encoding="utf-8") as file:
-            recognizer_config = json.load(file)
+    selected_train_mode = train_mode or "custom"
+    artifact_paths = get_recognition_artifact_paths(selected_train_mode)
+    model_path = artifact_paths["model_path"]
+    label_map_path = artifact_paths["label_map_path"]
+    recognizer_config = load_recognizer_config(selected_train_mode)
 
     recognizer_type = "lbph_single"
     if recognizer_config is not None:
@@ -212,13 +211,16 @@ def load_trained_recognition_model():
     if recognizer_type != "lbph_single":
         raise ValueError(f"Unsupported recognition model type: {recognizer_type}")
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"Recognition model not found: {MODEL_PATH}")
+    if not label_map_path.exists():
+        raise FileNotFoundError(f"Recognition label map not found: {label_map_path}")
+
+    if not model_path.exists():
+        raise FileNotFoundError(f"Recognition model not found: {model_path}")
 
     recognizer = cv2.face.LBPHFaceRecognizer_create()
-    recognizer.read(str(MODEL_PATH))
+    recognizer.read(str(model_path))
 
-    with open(LABEL_MAP_PATH, "rb") as file:
+    with open(label_map_path, "rb") as file:
         label_map = pickle.load(file)
 
     return recognizer, label_map
@@ -261,6 +263,49 @@ def load_system_recognition_threshold_config():
         return json.load(file)
 
 
+def resolve_saved_recognition_evaluation_threshold(active_recognizer_config):
+    """
+    Resolve the saved recognition threshold required by direct offline evaluation.
+
+    Direct recognition evaluation does not invent a fallback threshold.
+    The threshold must come from an explicit saved offline calibration
+    and must match the active recognizer artifact configuration.
+    """
+
+    config = load_system_recognition_threshold_config()
+    if config is None:
+        raise ValueError(
+            "No system recognition threshold config found. Run a custom "
+            "recognition calibration with --save-system-threshold first."
+        )
+
+    threshold = config.get("unknown_threshold")
+    if threshold is None:
+        raise ValueError(
+            "System recognition threshold config does not contain "
+            "'unknown_threshold'. Re-run a custom recognition calibration "
+            "with --save-system-threshold."
+        )
+
+    saved_recognizer_config = config.get("recognizer_config")
+    if saved_recognizer_config is None:
+        raise ValueError(
+            "System recognition threshold config does not include the "
+            "recognizer metadata snapshot used for calibration. Re-run a "
+            "custom recognition calibration with --save-system-threshold."
+        )
+
+    if saved_recognizer_config != active_recognizer_config:
+        raise ValueError(
+            "System recognition threshold config does not match the active "
+            "recognition artifacts under evaluation. Re-run custom "
+            "recognition calibration on the active model or restore the "
+            "matching recognition artifacts."
+        )
+
+    return float(threshold), config.get("threshold_source", "recognition_config"), config
+
+
 def should_save_evaluation_threshold(
     train_mode,
     eval_mode,
@@ -271,8 +316,8 @@ def should_save_evaluation_threshold(
 
     The stored offline threshold is updated only for the approved
     reference pairs used by the project. The run must also contain both
-    genuine and impostor scores and must not rely on the fallback
-    threshold rule.
+    genuine and impostor scores and must derive a real calibration
+    threshold from the observed score distributions.
     """
     valid_pairs = {
         ("custom", "custom"),
@@ -313,7 +358,7 @@ def build_all_gallery_vs_all_probe_analysis(
     probe_records,
     recognizer,
     label_map,
-    threshold=OFFLINE_FALLBACK_RECOGNITION_THRESHOLD,
+    threshold=PREVIEW_RECOGNITION_SCORING_THRESHOLD,
     evaluation_scope="probe",
     preserve_identity_namespace=False,
 ):
@@ -440,8 +485,8 @@ def compute_suggested_threshold(genuine_scores, impostor_scores):
     When both genuine and impostor scores are available, use the midpoint
     between the worst genuine score and the best impostor score. This is
     less sensitive to single-score outliers than the previous fixed-margin
-    rule. If impostor scores are not available, fall back to a conservative
-    genuine-only estimate.
+    rule. If impostor scores are not available, no calibration threshold
+    is produced.
     """
     if not genuine_scores:
         return None, "unavailable"
@@ -452,7 +497,7 @@ def compute_suggested_threshold(genuine_scores, impostor_scores):
         min_impostor = min(impostor_scores)
         return (max_genuine + min_impostor) / 2, "midpoint_max_genuine_min_impostor"
 
-    return max_genuine + 5, "max_genuine_plus_5_fallback"
+    return None, "unavailable"
 
 
 def compute_open_set_threshold(known_scores, unknown_scores):
@@ -461,6 +506,8 @@ def compute_open_set_threshold(known_scores, unknown_scores):
 
     The goal is to separate accepted known identities from rejected
     unknown identities using the LBPH distance, where lower is better.
+    If unknown scores are not available, no calibration threshold is
+    produced.
     """
     if not known_scores:
         return None, "unavailable"
@@ -471,7 +518,7 @@ def compute_open_set_threshold(known_scores, unknown_scores):
         min_unknown = min(unknown_scores)
         return (max_known + min_unknown) / 2, "midpoint_max_known_min_unknown"
 
-    return max_known + 5, "max_known_plus_5_fallback"
+    return None, "unavailable"
 
 
 def compute_identity_accuracy(records):
@@ -1262,6 +1309,7 @@ def evaluate_custom_open_set_dataset(
     train_mode,
     recognizer,
     label_map,
+    recognizer_config,
     allow_config_update=False,
     output_stem=None,
     lfw_sample_ratio=None,
@@ -1336,7 +1384,7 @@ def evaluate_custom_open_set_dataset(
         validation_records,
         recognizer,
         label_map,
-        OFFLINE_FALLBACK_RECOGNITION_THRESHOLD,
+        PREVIEW_RECOGNITION_SCORING_THRESHOLD,
         "validation_scoring_only",
         preview=True,
         preserve_identity_namespace=namespace_identities,
@@ -1354,8 +1402,11 @@ def evaluate_custom_open_set_dataset(
         )
 
     if validation_threshold is None:
-        validation_threshold = OFFLINE_FALLBACK_RECOGNITION_THRESHOLD
-        validation_threshold_rule = "offline_fallback_threshold"
+        raise ValueError(
+            "Recognition threshold calibration failed: no valid validation "
+            "threshold could be derived from the custom open-set score "
+            "distributions. Official threshold-based evaluation was aborted."
+        )
 
     threshold_source = f"{train_mode}_to_{dataset_name}_validation"
     print("Selected validation threshold:", validation_threshold)
@@ -1401,9 +1452,7 @@ def evaluate_custom_open_set_dataset(
         bool(validation_predictions["known_scores"])
         and bool(validation_predictions["unknown_scores"])
     )
-    non_fallback_rule = validation_threshold_rule != "offline_fallback_threshold"
-
-    if can_update_system_threshold and has_validation_scores and non_fallback_rule:
+    if can_update_system_threshold and has_validation_scores:
         # Persist only calibrated custom-to-custom thresholds for offline
         # system evaluation. Live runtime code does not read this file.
         config_data = {
@@ -1413,6 +1462,7 @@ def evaluate_custom_open_set_dataset(
             "train_mode": train_mode,
             "eval_mode": dataset_name,
             "saved_by": "save_system_threshold",
+            "recognizer_config": recognizer_config,
             "preprocessing": preprocessing_config,
             "validation_known_split": validation_known_split,
             "validation_unknown_split": validation_unknown_split,
@@ -1469,11 +1519,6 @@ def evaluate_custom_open_set_dataset(
             print(
                 "System recognition threshold not updated: validation does not "
                 "contain both known and unknown scores."
-            )
-        elif not non_fallback_rule:
-            print(
-                "System recognition threshold not updated: fallback threshold rule "
-                "is not allowed for system threshold calibration."
             )
 
     probe_load_start_time = time.perf_counter()
@@ -1583,22 +1628,10 @@ def evaluate_custom_open_set_dataset(
     known_stats = compute_score_statistics(probe_predictions["known_scores"])
     unknown_stats = compute_score_statistics(probe_predictions["unknown_scores"])
 
-    conservative_threshold = None
-    if validation_predictions["unknown_scores"]:
-        conservative_threshold = max(0.0, validation_threshold - 5.0)
-
     threshold_candidates = [
         {
             "label": "validation_selected_threshold",
             "threshold": validation_threshold,
-        },
-        {
-            "label": "conservative_threshold",
-            "threshold": conservative_threshold,
-        },
-        {
-            "label": "offline_fallback_reference",
-            "threshold": OFFLINE_FALLBACK_RECOGNITION_THRESHOLD,
         },
     ]
     threshold_results = evaluate_open_set_threshold_candidates(
@@ -1632,6 +1665,7 @@ def evaluate_single_recognition_dataset(
     eval_mode,
     recognizer,
     label_map,
+    recognizer_config=None,
     namespace_identities=False,
     allow_config_update=False,
     output_stem=None,
@@ -1654,6 +1688,7 @@ def evaluate_single_recognition_dataset(
             train_mode,
             recognizer,
             label_map,
+            recognizer_config,
             allow_config_update=allow_config_update,
             output_stem=output_stem,
             lfw_sample_ratio=lfw_sample_ratio,
@@ -1676,6 +1711,7 @@ def evaluate_single_recognition_dataset(
             train_mode,
             recognizer,
             label_map,
+            recognizer_config,
             allow_config_update=allow_config_update,
             output_stem=output_stem,
             lfw_sample_ratio=lfw_sample_ratio,
@@ -1705,6 +1741,7 @@ def evaluate_single_recognition_dataset(
             train_mode,
             recognizer,
             label_map,
+            recognizer_config,
             allow_config_update=allow_config_update,
             output_stem=hr_output_stem,
             lfw_sample_ratio=lfw_sample_ratio,
@@ -1728,6 +1765,7 @@ def evaluate_single_recognition_dataset(
             train_mode,
             recognizer,
             label_map,
+            recognizer_config,
             allow_config_update=allow_config_update,
             output_stem=lr_output_stem,
             lfw_sample_ratio=lfw_sample_ratio,
@@ -1788,8 +1826,9 @@ def evaluate_single_recognition_dataset(
     correct = 0
     total = 0
     evaluation_start_time = time.perf_counter()
-    evaluation_threshold = OFFLINE_FALLBACK_RECOGNITION_THRESHOLD
-    threshold_source = "offline_fallback"
+    evaluation_threshold, threshold_source, _ = (
+        resolve_saved_recognition_evaluation_threshold(recognizer_config)
+    )
 
     for index, record in enumerate(probe_records, start=1):
         label, confidence = recognizer.predict(record["image"])
@@ -1918,10 +1957,6 @@ def evaluate_single_recognition_dataset(
         impostor_scores,
     )
 
-    conservative_threshold = None
-    if suggested_threshold is not None and impostor_scores:
-        conservative_threshold = max(0.0, suggested_threshold - 5.0)
-
     threshold_candidates = [
         {
             "label": "stored_threshold_reference",
@@ -1931,10 +1966,6 @@ def evaluate_single_recognition_dataset(
             "label": "suggested_threshold",
             "threshold": suggested_threshold,
         },
-        {
-            "label": "conservative_threshold",
-            "threshold": conservative_threshold,
-        },
     ]
     threshold_results = evaluate_threshold_candidates(
         evaluation_records,
@@ -1942,7 +1973,6 @@ def evaluate_single_recognition_dataset(
     )
 
     has_both_classes = bool(genuine_scores) and bool(impostor_scores)
-    non_fallback_rule = suggested_threshold_rule != "max_genuine_plus_5_fallback"
     can_update_evaluation_threshold = should_save_evaluation_threshold(
         train_mode,
         eval_mode,
@@ -1953,13 +1983,13 @@ def evaluate_single_recognition_dataset(
         can_update_evaluation_threshold
         and suggested_threshold is not None
         and has_both_classes
-        and non_fallback_rule
     ):
         config_data = {
             "unknown_threshold": suggested_threshold,
             "threshold_source": f"{train_mode}_to_{eval_mode}",
             "train_mode": train_mode,
             "eval_mode": eval_mode,
+            "recognizer_config": recognizer_config,
             "preprocessing": preprocessing_config,
             "genuine_matches": len(genuine_scores),
             "impostor_matches": len(impostor_scores),
@@ -1985,10 +2015,10 @@ def evaluate_single_recognition_dataset(
                 "Evaluation threshold not updated: evaluation does not contain both "
                 "genuine and impostor scores."
             )
-        elif not non_fallback_rule:
+        elif suggested_threshold is None:
             print(
-                "Evaluation threshold not updated: fallback threshold rule is not "
-                "allowed for the stored reference."
+                "Evaluation threshold not updated: no calibrated threshold could "
+                "be derived from the observed score distributions."
             )
 
     log_recognition_evaluation_diagnostics(
@@ -2037,7 +2067,8 @@ def evaluate_recognition_model(
     namespace_identities = should_namespace_identities(selected_train_mode)
     total_start_time = time.perf_counter()
 
-    recognizer, label_map = load_trained_recognition_model()
+    recognizer, label_map = load_trained_recognition_model(selected_train_mode)
+    recognizer_config = load_recognizer_config(selected_train_mode)
 
     if selected_eval_mode == "all":
         for mode in ("custom", "orl", "lfw", "multipie"):
@@ -2046,6 +2077,7 @@ def evaluate_recognition_model(
                 mode,
                 recognizer,
                 label_map,
+                recognizer_config=recognizer_config,
                 namespace_identities=namespace_identities,
                 allow_config_update=False,
                 lfw_sample_ratio=selected_lfw_sample_ratio,
@@ -2063,6 +2095,7 @@ def evaluate_recognition_model(
         selected_eval_mode,
         recognizer,
         label_map,
+        recognizer_config=recognizer_config,
         namespace_identities=namespace_identities,
         allow_config_update=save_system_threshold,
         lfw_sample_ratio=selected_lfw_sample_ratio,
