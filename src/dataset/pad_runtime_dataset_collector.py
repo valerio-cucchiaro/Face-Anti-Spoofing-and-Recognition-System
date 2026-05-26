@@ -36,11 +36,11 @@ from src.antispoofing.pad_frame_quality import (
 )
 from src.detection.face_detector import load_mediapipe_detector
 from src.preprocessing.face_bbox_visualization import draw_visual_face_bbox
-from src.preprocessing.frame_preprocessing import get_valid_face
+from src.preprocessing.frame_preprocessing import DEFAULT_MIN_FACE_AREA, get_valid_face
 
 
 # ----- CONSTANTS ----- #
-THRESHOLD_AREA = 8000
+THRESHOLD_AREA = DEFAULT_MIN_FACE_AREA
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 

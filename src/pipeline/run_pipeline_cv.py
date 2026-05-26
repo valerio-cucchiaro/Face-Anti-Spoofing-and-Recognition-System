@@ -33,11 +33,11 @@ from src.preprocessing.face_pose import (
     compute_pose_metrics_from_landmarks,
     format_pose_metrics_for_log,
 )
-from src.preprocessing.frame_preprocessing import get_valid_face
+from src.preprocessing.frame_preprocessing import DEFAULT_MIN_FACE_AREA, get_valid_face
 
 
 # ----- FACE DETECTION AND VALIDATION ----- #
-THRESHOLD_AREA = 8000
+THRESHOLD_AREA = DEFAULT_MIN_FACE_AREA
 
 # ----- PAD TEMPORAL SMOOTHING ----- #
 PAD_WINDOW_SIZE = 5

@@ -78,6 +78,10 @@ def get_output_split(video_path: Path, split_policy="legacy") -> str:
       raw/train -> train
       raw/devel -> validation
       raw/test  -> test
+
+    The current PAD training/evaluation stack supports the explicit
+    ``validation`` layout. The ``legacy`` option is kept only for
+    backward-compatible dataset regeneration.
     """
     if split_policy not in {"legacy", "validation"}:
         raise ValueError(
@@ -179,7 +183,9 @@ def build_arg_parser():
         default="legacy",
         help=(
             "Use 'legacy' to merge raw/devel into train, or 'validation' "
-            "to write raw/devel into validation."
+            "to write raw/devel into validation. The current PAD stack "
+            "supports the explicit validation layout; 'legacy' is kept "
+            "for backward-compatible regeneration."
         ),
     )
     return parser

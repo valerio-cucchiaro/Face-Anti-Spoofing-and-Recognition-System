@@ -30,7 +30,7 @@ from src.antispoofing.pad_runtime_detector import AntiSpoofingDetector
 from src.antispoofing.pad_runtime_state import PadRuntimeState
 from src.detection.face_detector import load_mediapipe_detector
 from src.preprocessing.face_bbox_visualization import draw_visual_face_bbox
-from src.preprocessing.frame_preprocessing import get_valid_face
+from src.preprocessing.frame_preprocessing import DEFAULT_MIN_FACE_AREA, get_valid_face
 from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
 from src.pipeline.runtime_session_state import RuntimeSessionState
 from src.recognition.face_recognizer import load_recognizer, predict_identity_safe
@@ -38,7 +38,7 @@ from src.recognition.recognition_runtime_state import RecognitionRuntimeState
 
 
 # ----- FACE DETECTION AND VALIDATION ----- #
-THRESHOLD_AREA = 8000
+THRESHOLD_AREA = DEFAULT_MIN_FACE_AREA
 FACE_TOO_CLOSE_MAX_AREA = 80000
 
 # ----- PAD TEMPORAL SMOOTHING ----- #

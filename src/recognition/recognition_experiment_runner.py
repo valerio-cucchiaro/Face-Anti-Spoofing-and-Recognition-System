@@ -174,16 +174,12 @@ def build_arg_parser():
             "not used by the live runtime decision and are disabled by default."
         ),
     )
-    # Preferred name reflects the actual consumer: offline system
-    # evaluation. The old runtime wording remains accepted for older notes.
     parser.add_argument(
         "--save-system-threshold",
-        "--save-runtime-threshold",
-        dest="save_system_threshold",
         action="store_true",
         help=(
             "Save the custom-to-custom recognition threshold for offline system "
-            "evaluation. --save-runtime-threshold is kept as a legacy alias."
+            "evaluation."
         ),
     )
     return parser

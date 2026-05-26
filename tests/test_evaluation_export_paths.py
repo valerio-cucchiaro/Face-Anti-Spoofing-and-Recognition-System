@@ -132,7 +132,7 @@ def test_system_evaluator_uses_saved_pad_threshold_when_available(monkeypatch):
     monkeypatch.setattr(
         system_evaluator,
         "load_system_pad_threshold_config",
-        lambda: {
+        lambda artifact_tag=None: {
             "threshold": 0.73,
             "threshold_source": "custom_internal_validation_target_apcer",
         },
@@ -149,7 +149,7 @@ def test_system_evaluator_pad_threshold_raises_when_no_saved_config(monkeypatch)
     monkeypatch.setattr(
         system_evaluator,
         "load_system_pad_threshold_config",
-        lambda: None,
+        lambda artifact_tag=None: None,
     )
 
     with pytest.raises(ValueError, match="No system PAD threshold config found"):
@@ -160,7 +160,7 @@ def test_pad_evaluator_saved_threshold_requires_matching_artifact_config(monkeyp
     monkeypatch.setattr(
         pad_model_evaluator,
         "load_system_pad_threshold_config",
-        lambda: {
+        lambda artifact_tag=None: {
             "threshold": 0.61,
             "threshold_source": "custom_internal_validation_target_apcer",
             "pad_config": {"feature_dim": 126, "pad_debug_feature_mode": "tgsd"},

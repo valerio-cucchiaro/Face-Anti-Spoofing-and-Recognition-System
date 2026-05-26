@@ -37,13 +37,13 @@ from src.preprocessing.face_pose import (
     format_pose_metrics_for_log,
 )
 from src.preprocessing.face_preprocessing import preprocess_face_for_recognition
-from src.preprocessing.frame_preprocessing import get_valid_face
+from src.preprocessing.frame_preprocessing import DEFAULT_MIN_FACE_AREA, get_valid_face
 from src.recognition.face_recognizer import load_recognizer, predict_identity_safe
 from src.recognition.recognition_runtime_state import RecognitionRuntimeState
 
 
 # ----- FACE DETECTION AND VALIDATION ----- #
-THRESHOLD_AREA = 8000
+THRESHOLD_AREA = DEFAULT_MIN_FACE_AREA
 
 # ----- RECOGNITION RUNTIME SETTINGS ----- #
 RECOGNITION_WINDOW_SIZE = 5

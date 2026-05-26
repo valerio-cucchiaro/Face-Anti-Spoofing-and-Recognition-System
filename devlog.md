@@ -2061,3 +2061,136 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
   - live and spoof states both appear, but the runtime remains unstable
   - the dominant issue still appears to be lighting, especially on `far` face crops with strong dark ratio / vertical illumination asymmetry
   - current practical decision: keep the rebalance for now and treat lighting robustness as the main remaining runtime issue
+
+## 2026/05/26
+
+**Recognition Report Naming And Threshold Cleanup**:
+
+- continued the recognition-side refactor with a small focused cleanup instead of splitting the loader yet
+- aligned recognition metric export naming with an artifact-like stem so offline reports can be separated cleanly when needed
+- introduced a shared recognition export-stem builder in the evaluator and reused it across:
+  - closed-set probe evaluation
+  - custom/public open-set evaluation
+  - recognition prediction CSV exports
+- extended the recognition quality-report path flow so quality diagnostics now follow the same run-specific stem instead of always writing into one shared global filename
+- propagated stem-aware quality exports through:
+  - recognition trainer gallery loading
+  - recognition evaluator validation loading
+  - recognition evaluator final probe loading
+- practical effect:
+  - recognition metric JSON/CSV exports are now easier to preserve run-by-run
+  - quality debug/summary exports no longer have to collapse into one ambiguous shared report path
+
+**Recognition Alias And Offline Threshold Semantics**:
+
+- removed the old CLI alias `--save-runtime-threshold` from the recognition experiment runner
+- kept only the explicit `--save-system-threshold` name, which matches the real consumer:
+  - offline system evaluation
+  - not the webcam runtime
+- rechecked recognition path aliases and confirmed the remaining custom path constants are still active compatibility shorthands rather than dead code:
+  - `MODEL_PATH`
+  - `LABEL_MAP_PATH`
+  - `RECOGNIZER_CONFIG_PATH`
+- these were intentionally left in place for now because they are still used by:
+  - the canonical custom training/runtime branch
+  - existing tests that monkeypatch the custom artifact paths directly
+
+**Recognition Offline Preview Clarification**:
+
+- removed the hardcoded offline preview threshold constant that could be misread as an evaluation fallback
+- open-set validation preview scoring now runs with no accept/reject threshold and explicitly marks preview rows as:
+  - `PREVIEW_ONLY`
+- official offline evaluation remains strict:
+  - final thresholded evaluation still requires a saved calibrated threshold config
+  - if the saved threshold/config is missing or mismatched, the offline evaluator still raises an error instead of inventing a fallback
+- practical reading:
+  - runtime still owns its own fallback threshold behavior inside the live recognizer helper
+  - offline recognition evaluation is now semantically cleaner and more obviously strict
+
+**Recognition Refactor Status**:
+
+- `src/recognition/` is now cleaner on export policy and threshold semantics
+- the remaining structural debt is still concentrated in `recognition_dataset_loader.py`
+- that larger loader split is intentionally postponed to a later dedicated pass
+
+**Preprocessing Shared Face-Area Threshold Cleanup**:
+
+- completed the small preprocessing pass-5 fix that was worth doing now
+- introduced a shared face-validation constant in:
+  - `src/preprocessing/frame_preprocessing.py`
+- centralised the minimum valid face area used by:
+  - `run_pipeline_full.py`
+  - `run_pipeline_bs.py`
+  - `run_pipeline_cv.py`
+  - `recognition_dataset_collector.py`
+  - `pad_runtime_dataset_collector.py`
+  - `pad_dataset_preprocessing.py`
+  - `recognition_dataset_loader.py`
+- kept the runtime/data/training behaviour unchanged:
+  - same threshold value `8000`
+  - same `get_valid_face(...)` contract
+  - no change to messages or per-module policy
+- practical effect:
+  - removes silent drift risk between runtime, collectors, and offline loaders
+  - keeps the fix limited to one shared source of truth without redesigning preprocessing config
+
+**Dataset Contract Clarifications**:
+
+- closed the `src/dataset/` pass with documentation-only cleanup rather than logic changes
+- clarified that the custom recognition splits:
+  - `validation_known_internal`
+  - `probe_known_internal`
+  - `validation_unknown_internal`
+  - `probe_unknown_internal`
+  are virtual internal subsets derived from the on-disk `probe_known` / `probe_unknown` folders
+- clarified that Replay-Attack extraction still supports both:
+  - `validation`
+  - `legacy`
+  split policies, but the current PAD stack supports the explicit validation layout directly
+- practical reading:
+  - dataset producers and loaders were already coherent
+  - the pass mainly removed ambiguity in the documented contract
+
+**Tests Coverage And Contract Alignment**:
+
+- closed the `tests/` refactor pass by extending coverage only where the previous review had found real gaps
+- added focused helper-level tests for the runtime pipeline layer instead of trying to test the webcam loops directly:
+  - `RuntimeSessionState`
+  - PAD overlay state helpers in `run_pipeline_full.py` and `run_pipeline_cv.py`
+  - recognition overlay state helper in `run_pipeline_bs.py`
+- added explicit coverage for the recognition quality-export naming policy introduced in the recent recognition refactor:
+  - quality report CSV stem-aware naming
+  - quality split-summary CSV stem-aware naming
+  - quality threshold-summary TXT stem-aware naming
+  - quality debug-values CSV stem-aware naming
+- added coverage for the previously uncovered dataset/manual utility layer:
+  - `replayattack_frame_extractor.py`
+  - `pad_runtime_dataset_collector.py`
+  - `recognition_dataset_collector.py`
+  - `multipie_dataset_splitter.py`
+- tightened test isolation around the recognition preprocessing global state:
+  - updated `tests/conftest.py` so tests now save and restore the active recognition preprocessing config instead of blindly forcing a hardcoded default
+- aligned older PAD threshold/export tests with the current evaluator contract:
+  - updated the affected test mocks so they now accept the current `artifact_tag` argument used by the real saved-threshold helpers
+- practical reading:
+  - the suite now covers the main refactor-sensitive contracts more explicitly without adding fragile webcam end-to-end tests
+  - the new tests stay at helper / contract level and do not touch real runtime artifacts
+  - full suite result after the updates: `117 / 117` tests passed
+
+**Recognition Loader Structural Split**:
+
+- completed the first structural split of the monolithic recognition dataset loader while keeping the public loading API stable
+- separated the internals into:
+  - `recognition_dataset_splits.py` for dataset paths, mode resolution, logical split resolution, and deterministic sampling helpers
+  - `recognition_dataset_protocol.py` for identity naming and the deterministic custom internal validation/probe split logic
+  - `recognition_dataset_preprocessing.py` for sample-level loading, custom raw detection/preprocessing, pose collection, and quality filtering
+  - `recognition_dataset_builders.py` for gallery/probe dataset builders
+- kept `recognition_dataset_loader.py` as a thin compatibility facade so the public recognition loader API remains stable during the transition
+- preserved the real attachment points that depend on the loader contract:
+  - recognition trainer
+  - recognition evaluator
+  - system evaluator
+  - existing loader tests that exercise split resolution and custom internal split semantics
+- practical reading:
+  - the recognition loader is now divided by responsibility in a way similar to the PAD loader split, while still respecting the extra protocol semantics that are specific to open-set recognition
+  - future cleanup can now happen inside focused modules instead of revisiting one all-purpose loader file again

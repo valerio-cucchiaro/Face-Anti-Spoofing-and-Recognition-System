@@ -44,6 +44,16 @@ LABEL_MAP_PATH = _CUSTOM_ARTIFACT_PATHS["label_map_path"]
 RECOGNIZER_CONFIG_PATH = _CUSTOM_ARTIFACT_PATHS["config_path"]
 
 
+def _build_lfw_sample_suffix(lfw_sample_ratio):
+    """Build a stable suffix for sampled LFW recognition runs."""
+
+    if lfw_sample_ratio is None or lfw_sample_ratio >= 1.0:
+        return ""
+
+    ratio_tag = f"{lfw_sample_ratio:.3f}".rstrip("0").rstrip(".")
+    return f"_lfw_r{ratio_tag.replace('.', 'p')}"
+
+
 def resolve_lbph_params(lbph_params=None):
     """
     Resolve the effective LBPH hyperparameters for the current run.
@@ -122,6 +132,10 @@ def train_recognition_model(
         lfw_sample_ratio=selected_lfw_sample_ratio,
         quality_filter_mode=quality_filter_mode,
         debug_quality=debug_quality,
+        quality_output_stem=(
+            f"recognition_{selected_mode}_gallery"
+            f"{_build_lfw_sample_suffix(selected_lfw_sample_ratio)}"
+        ),
     )
     load_elapsed = time.perf_counter() - load_start_time
 

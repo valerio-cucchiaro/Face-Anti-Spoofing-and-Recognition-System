@@ -4,7 +4,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.preprocessing.face_preprocessing import configure_recognition_preprocessing
+from src.preprocessing.face_preprocessing import (
+    configure_recognition_preprocessing,
+    get_recognition_preprocessing_config,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -17,9 +20,11 @@ def restore_recognition_preprocessing():
     """
     Keep tests isolated from recognition preprocessing global state.
     """
-    configure_recognition_preprocessing(crop_padding_ratio=0.10)
+    original_config = get_recognition_preprocessing_config()
+    original_padding_ratio = original_config["crop_padding_ratio"]
+    configure_recognition_preprocessing(crop_padding_ratio=original_padding_ratio)
     yield
-    configure_recognition_preprocessing(crop_padding_ratio=0.10)
+    configure_recognition_preprocessing(crop_padding_ratio=original_padding_ratio)
 
 
 @pytest.fixture

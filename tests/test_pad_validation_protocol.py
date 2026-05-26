@@ -304,7 +304,7 @@ def test_evaluate_custom_pad_protocol_saves_system_threshold_config(monkeypatch)
     monkeypatch.setattr(
         pad_model_evaluator,
         "save_system_pad_threshold_config",
-        lambda config_data: saved_configs.append(config_data),
+        lambda config_data, artifact_tag=None: saved_configs.append(config_data),
     )
 
     pad_model_evaluator.evaluate_custom_pad_protocol(
@@ -408,7 +408,7 @@ def test_evaluate_all_pad_protocol_uses_one_combined_validation_threshold(monkey
     monkeypatch.setattr(
         pad_model_evaluator,
         "save_system_pad_threshold_config",
-        lambda config_data: saved_configs.append(config_data),
+        lambda config_data, artifact_tag=None: saved_configs.append(config_data),
     )
 
     pad_model_evaluator.evaluate_all_pad_protocol(

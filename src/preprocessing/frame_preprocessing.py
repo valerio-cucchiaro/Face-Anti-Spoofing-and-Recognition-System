@@ -16,6 +16,9 @@ from src.preprocessing.face_preprocessing import to_grayscale
 from src.detection.face_detector import detect_faces
 
 
+DEFAULT_MIN_FACE_AREA = 8000
+
+
 def get_valid_face(frame, detector, threshold_area):
     """
     Detect and validate a face from a webcam frame using the shared

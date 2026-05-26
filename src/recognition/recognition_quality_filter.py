@@ -21,22 +21,10 @@ RECOGNITION_QUALITY_METRICS_DIR = PROJECT_ROOT / "logs" / "metrics" / "recogniti
 RECOGNITION_QUALITY_OFFICIAL_DIR = RECOGNITION_QUALITY_METRICS_DIR / "official"
 RECOGNITION_QUALITY_DEBUG_METRICS_DIR = RECOGNITION_QUALITY_METRICS_DIR / "debug"
 RECOGNITION_QUALITY_DEBUG_ROOT = PROJECT_ROOT / "logs" / "debug" / "recognition_quality"
-RECOGNITION_QUALITY_REPORT_PATH = (
-    RECOGNITION_QUALITY_DEBUG_METRICS_DIR / "recognition_quality_report.csv"
-)
-RECOGNITION_QUALITY_SPLIT_SUMMARY_PATH = (
-    RECOGNITION_QUALITY_OFFICIAL_DIR / "recognition_quality_split_summary.csv"
-)
-RECOGNITION_QUALITY_DEBUG_VALUES_PATH = (
-    RECOGNITION_QUALITY_DEBUG_ROOT / "quality_debug_values.csv"
-)
-RECOGNITION_QUALITY_THRESHOLD_SUMMARY_PATH = (
-    RECOGNITION_QUALITY_DEBUG_ROOT / "quality_threshold_summary.txt"
-)
 RECOGNITION_QUALITY_DEBUG_LIMIT = 20
-_QUALITY_REPORT_INITIALIZED = False
-_QUALITY_SPLIT_SUMMARY_INITIALIZED = False
-_QUALITY_DEBUG_VALUES_INITIALIZED = False
+_QUALITY_REPORT_INITIALIZED_PATHS = set()
+_QUALITY_SPLIT_SUMMARY_INITIALIZED_PATHS = set()
+_QUALITY_DEBUG_VALUES_INITIALIZED_PATHS = set()
 _QUALITY_DEBUG_COUNTS = {}
 
 # Conservative quality thresholds. They are intentionally broad so report-only
@@ -156,6 +144,15 @@ def _relative_project_path(path):
         return path.resolve().relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def _resolve_quality_output_path(root_dir, output_stem, default_name, stem_suffix):
+    """Resolve one optional stem-aware quality export path."""
+
+    if output_stem is None:
+        return root_dir / default_name
+
+    return root_dir / f"{output_stem}_{stem_suffix}"
 
 
 def _as_grayscale(image):
@@ -392,31 +389,44 @@ def save_quality_debug_image(record, image, debug_counts):
     return debug_image_path
 
 
-def export_quality_debug_record(record, debug_image_path):
+def export_quality_debug_record(record, debug_image_path, output_stem=None):
     """Append one saved debug-image row with its quality values."""
-
-    global _QUALITY_DEBUG_VALUES_INITIALIZED
 
     if debug_image_path is None:
         return None
 
+    output_path = _resolve_quality_output_path(
+        RECOGNITION_QUALITY_DEBUG_ROOT,
+        output_stem,
+        "quality_debug_values.csv",
+        "quality_debug_values.csv",
+    )
+    output_key = str(output_path.resolve())
+    write_header = output_key not in _QUALITY_DEBUG_VALUES_INITIALIZED_PATHS
+
     RECOGNITION_QUALITY_DEBUG_ROOT.mkdir(parents=True, exist_ok=True)
-    write_mode = "a" if _QUALITY_DEBUG_VALUES_INITIALIZED else "w"
-    with open(RECOGNITION_QUALITY_DEBUG_VALUES_PATH, write_mode, newline="", encoding="utf-8") as file:
+    write_mode = "a" if not write_header else "w"
+    with open(output_path, write_mode, newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=DEBUG_FIELDNAMES)
-        if not _QUALITY_DEBUG_VALUES_INITIALIZED:
+        if write_header:
             writer.writeheader()
         row = {key: record.get(key) for key in DEBUG_FIELDNAMES}
         row["debug_image_path"] = _relative_project_path(debug_image_path)
         writer.writerow(row)
 
-    _QUALITY_DEBUG_VALUES_INITIALIZED = True
-    return RECOGNITION_QUALITY_DEBUG_VALUES_PATH
+    _QUALITY_DEBUG_VALUES_INITIALIZED_PATHS.add(output_key)
+    return output_path
 
 
-def export_quality_threshold_summary():
+def export_quality_threshold_summary(output_stem=None):
     """Write the active quality thresholds for debugging."""
 
+    output_path = _resolve_quality_output_path(
+        RECOGNITION_QUALITY_DEBUG_ROOT,
+        output_stem,
+        "quality_threshold_summary.txt",
+        "quality_threshold_summary.txt",
+    )
     RECOGNITION_QUALITY_DEBUG_ROOT.mkdir(parents=True, exist_ok=True)
     lines = [
         "Recognition quality thresholds",
@@ -431,32 +441,39 @@ def export_quality_threshold_summary():
         f"too_much_roll warning-only: abs(roll_degrees) > {RECOGNITION_MAX_ABS_ROLL_DEGREES}",
         f"poor_spatial_pose warning-only: sp_score < {RECOGNITION_MIN_SP_SCORE}",
     ]
-    RECOGNITION_QUALITY_THRESHOLD_SUMMARY_PATH.write_text(
+    output_path.write_text(
         "\n".join(lines) + "\n",
         encoding="utf-8",
     )
-    return RECOGNITION_QUALITY_THRESHOLD_SUMMARY_PATH
+    return output_path
 
 
-def export_quality_records(records):
-    """Append quality records to the shared recognition quality CSV."""
-
-    global _QUALITY_REPORT_INITIALIZED
+def export_quality_records(records, output_stem=None):
+    """Append quality records to one recognition quality CSV."""
 
     if not records:
         return None
 
-    RECOGNITION_QUALITY_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    write_mode = "a" if _QUALITY_REPORT_INITIALIZED else "w"
-    with open(RECOGNITION_QUALITY_REPORT_PATH, write_mode, newline="", encoding="utf-8") as file:
+    output_path = _resolve_quality_output_path(
+        RECOGNITION_QUALITY_DEBUG_METRICS_DIR,
+        output_stem,
+        "recognition_quality_report.csv",
+        "quality_report.csv",
+    )
+    output_key = str(output_path.resolve())
+    write_header = output_key not in _QUALITY_REPORT_INITIALIZED_PATHS
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_mode = "a" if not write_header else "w"
+    with open(output_path, write_mode, newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=QUALITY_FIELDNAMES)
-        if not _QUALITY_REPORT_INITIALIZED:
+        if write_header:
             writer.writeheader()
         for record in records:
             writer.writerow({key: record.get(key) for key in QUALITY_FIELDNAMES})
 
-    _QUALITY_REPORT_INITIALIZED = True
-    return RECOGNITION_QUALITY_REPORT_PATH
+    _QUALITY_REPORT_INITIALIZED_PATHS.add(output_key)
+    return output_path
 
 
 def _build_quality_split_summary_rows(records, quality_filter_mode):
@@ -528,10 +545,12 @@ def _build_quality_split_summary_rows(records, quality_filter_mode):
     return rows
 
 
-def export_quality_split_summary(records, quality_filter_mode="report_only"):
-    """Append per-split quality summary rows to the shared summary CSV."""
-
-    global _QUALITY_SPLIT_SUMMARY_INITIALIZED
+def export_quality_split_summary(
+    records,
+    quality_filter_mode="report_only",
+    output_stem=None,
+):
+    """Append per-split quality summary rows to one summary CSV."""
 
     if not records:
         return None
@@ -540,24 +559,33 @@ def export_quality_split_summary(records, quality_filter_mode="report_only"):
     if not rows:
         return None
 
-    RECOGNITION_QUALITY_SPLIT_SUMMARY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    write_mode = "a" if _QUALITY_SPLIT_SUMMARY_INITIALIZED else "w"
+    output_path = _resolve_quality_output_path(
+        RECOGNITION_QUALITY_OFFICIAL_DIR,
+        output_stem,
+        "recognition_quality_split_summary.csv",
+        "quality_split_summary.csv",
+    )
+    output_key = str(output_path.resolve())
+    write_header = output_key not in _QUALITY_SPLIT_SUMMARY_INITIALIZED_PATHS
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_mode = "a" if not write_header else "w"
     with open(
-        RECOGNITION_QUALITY_SPLIT_SUMMARY_PATH,
+        output_path,
         write_mode,
         newline="",
         encoding="utf-8",
     ) as file:
         writer = csv.DictWriter(file, fieldnames=QUALITY_SPLIT_SUMMARY_FIELDNAMES)
-        if not _QUALITY_SPLIT_SUMMARY_INITIALIZED:
+        if write_header:
             writer.writeheader()
         for row in rows:
             writer.writerow(
                 {key: row.get(key) for key in QUALITY_SPLIT_SUMMARY_FIELDNAMES}
             )
 
-    _QUALITY_SPLIT_SUMMARY_INITIALIZED = True
-    return RECOGNITION_QUALITY_SPLIT_SUMMARY_PATH
+    _QUALITY_SPLIT_SUMMARY_INITIALIZED_PATHS.add(output_key)
+    return output_path
 
 
 def format_quality_summary(records, title=None):

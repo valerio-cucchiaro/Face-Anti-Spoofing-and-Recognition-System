@@ -79,10 +79,6 @@ RECOGNITION_MODELS_ROOT = Path(__file__).resolve().parent.parent.parent / "model
 SYSTEM_RECOGNITION_THRESHOLD_CONFIG_PATH = (
     RECOGNITION_MODELS_ROOT / "system_recognition_threshold_config.json"
 )
-# Preview threshold used only to label intermediate validation scoring
-# output before the real open-set threshold sweep runs. It is not an
-# evaluation fallback and does not define the live webcam runtime.
-PREVIEW_RECOGNITION_SCORING_THRESHOLD = 44.0
 EVAL_MODE = "custom"
 PROBE_PROGRESS_STEP = 100
 DEBUG_LABEL_MAP_PREVIEW_LIMIT = 10
@@ -192,6 +188,21 @@ def _build_preprocessing_suffix(preprocessing_config):
     Build a compact export suffix for non-default preprocessing variants.
     """
     return ""
+
+
+def _build_recognition_output_stem(
+    train_mode,
+    report_mode_name,
+    preprocessing_config,
+    lfw_sample_ratio,
+):
+    """Build one artifact-like export stem for recognition reports."""
+
+    return (
+        f"recognition_{train_mode}_{report_mode_name}"
+        f"{_build_preprocessing_suffix(preprocessing_config)}"
+        f"{_build_lfw_sample_suffix(lfw_sample_ratio)}"
+    )
 
 
 def load_trained_recognition_model(train_mode=None):
@@ -358,7 +369,7 @@ def build_all_gallery_vs_all_probe_analysis(
     probe_records,
     recognizer,
     label_map,
-    threshold=PREVIEW_RECOGNITION_SCORING_THRESHOLD,
+    threshold=None,
     evaluation_scope="probe",
     preserve_identity_namespace=False,
 ):
@@ -1194,13 +1205,17 @@ def collect_open_set_predictions(
             preserve_namespace=preserve_identity_namespace,
         )
         is_known_split = not is_unknown_recognition_split(record["split"])
-        accepted = confidence < threshold
-        decision = build_probe_prediction_decision(
-            is_known_split,
-            true_name,
-            predicted_name,
-            accepted,
-        )
+        if threshold is None:
+            accepted = None
+            decision = "PREVIEW_ONLY"
+        else:
+            accepted = confidence < threshold
+            decision = build_probe_prediction_decision(
+                is_known_split,
+                true_name,
+                predicted_name,
+                accepted,
+            )
 
         if is_known_split:
             known_scores.append(confidence)
@@ -1273,6 +1288,7 @@ def load_open_set_split_pair(
     lfw_sample_ratio=None,
     quality_filter_mode="report_only",
     debug_quality=False,
+    quality_output_stem=None,
 ):
     """
     Load known and unknown branches for one open-set evaluation phase.
@@ -1286,6 +1302,7 @@ def load_open_set_split_pair(
         lfw_sample_ratio=lfw_sample_ratio if lfw_sample_ratio is not None else 1.0,
         quality_filter_mode=quality_filter_mode,
         debug_quality=debug_quality,
+        quality_output_stem=quality_output_stem,
     )
     unknown_records, unknown_dataset_counts, unknown_pose_summary = load_probe_dataset(
         dataset_name,
@@ -1295,6 +1312,7 @@ def load_open_set_split_pair(
         lfw_sample_ratio=lfw_sample_ratio if lfw_sample_ratio is not None else 1.0,
         quality_filter_mode=quality_filter_mode,
         debug_quality=debug_quality,
+        quality_output_stem=quality_output_stem,
     )
 
     return {
@@ -1354,6 +1372,13 @@ def evaluate_custom_open_set_dataset(
     if lfw_sample_ratio is not None and lfw_sample_ratio < 1.0:
         print(f"LFW sample ratio: {lfw_sample_ratio:.3f}")
 
+    report_stem = output_stem or _build_recognition_output_stem(
+        train_mode,
+        report_mode_name,
+        preprocessing_config,
+        lfw_sample_ratio,
+    )
+
     load_start_time = time.perf_counter()
     validation_data = load_open_set_split_pair(
         dataset_name,
@@ -1364,6 +1389,7 @@ def evaluate_custom_open_set_dataset(
         lfw_sample_ratio=lfw_sample_ratio,
         quality_filter_mode=quality_filter_mode,
         debug_quality=debug_quality,
+        quality_output_stem=f"{report_stem}_validation",
     )
     validation_load_elapsed = time.perf_counter() - load_start_time
 
@@ -1384,8 +1410,8 @@ def evaluate_custom_open_set_dataset(
         validation_records,
         recognizer,
         label_map,
-        PREVIEW_RECOGNITION_SCORING_THRESHOLD,
-        "validation_scoring_only",
+        None,
+        "validation_preview_only",
         preview=True,
         preserve_identity_namespace=namespace_identities,
     )
@@ -1531,6 +1557,7 @@ def evaluate_custom_open_set_dataset(
         lfw_sample_ratio=lfw_sample_ratio,
         quality_filter_mode=quality_filter_mode,
         debug_quality=debug_quality,
+        quality_output_stem=f"{report_stem}_probe",
     )
     probe_load_elapsed = time.perf_counter() - probe_load_start_time
     load_elapsed = validation_load_elapsed + probe_load_elapsed
@@ -1549,13 +1576,6 @@ def evaluate_custom_open_set_dataset(
         threshold_source,
         preview=False,
         preserve_identity_namespace=namespace_identities,
-    )
-
-    preprocessing_suffix = _build_preprocessing_suffix(preprocessing_config)
-    report_stem = output_stem or (
-        f"{train_mode}_{report_mode_name}"
-        f"{preprocessing_suffix}"
-        f"{_build_lfw_sample_suffix(lfw_sample_ratio)}"
     )
 
     metrics_report = compute_recognition_evaluation_metrics(
@@ -1802,6 +1822,13 @@ def evaluate_single_recognition_dataset(
     if eval_mode == "lfw" and lfw_sample_ratio is not None and lfw_sample_ratio < 1.0:
         print(f"LFW sample ratio: {lfw_sample_ratio:.3f}")
 
+    report_stem = output_stem or _build_recognition_output_stem(
+        train_mode,
+        eval_mode,
+        preprocessing_config,
+        lfw_sample_ratio,
+    )
+
     load_start_time = time.perf_counter()
     probe_records, dataset_counts, pose_summary = load_probe_dataset(
         eval_mode,
@@ -1810,6 +1837,7 @@ def evaluate_single_recognition_dataset(
         lfw_sample_ratio=lfw_sample_ratio if lfw_sample_ratio is not None else 1.0,
         quality_filter_mode=quality_filter_mode,
         debug_quality=debug_quality,
+        quality_output_stem=report_stem,
     )
     load_elapsed = time.perf_counter() - load_start_time
 
@@ -1894,13 +1922,6 @@ def evaluate_single_recognition_dataset(
     genuine_stats = compute_score_statistics(genuine_scores)
     impostor_stats = compute_score_statistics(impostor_scores)
     identity_stats = compute_identity_accuracy(evaluation_records)
-    preprocessing_suffix = _build_preprocessing_suffix(preprocessing_config)
-    report_stem = output_stem or (
-        f"{train_mode}_{eval_mode}"
-        f"{preprocessing_suffix}"
-        f"{_build_lfw_sample_suffix(lfw_sample_ratio)}"
-    )
-
     metrics_report = compute_recognition_evaluation_metrics(
         normalized_records,
         evaluation_threshold,

@@ -15,10 +15,10 @@ from src.antispoofing.pad_frame_quality import PAD_MIN_VARIANCE_LAPLACIAN
 from src.antispoofing.pad_inference_preprocessing import extract_pad_features_from_crop
 from src.preprocessing.face_pose import compute_pose_metrics_from_image
 from src.preprocessing.pose_statistics import update_pose_summary
-from src.preprocessing.frame_preprocessing import get_valid_face
+from src.preprocessing.frame_preprocessing import DEFAULT_MIN_FACE_AREA, get_valid_face
 
 
-THRESHOLD_AREA = 8000
+THRESHOLD_AREA = DEFAULT_MIN_FACE_AREA
 PAD_IMAGE_PROGRESS_STEP = 500
 LIVE_PHOTOMETRIC_AUGMENTATION_SEED = 42
 LIVE_PHOTOMETRIC_AUGMENTATION_MODE = "mix"
