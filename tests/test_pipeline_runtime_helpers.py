@@ -1,5 +1,5 @@
-from src.pipeline import run_pipeline_bs
-from src.pipeline import run_pipeline_cv
+from src.pipeline import run_pipeline_pad
+from src.pipeline import run_pipeline_recognition
 from src.pipeline import run_pipeline_full
 from src.pipeline.runtime_session_state import RuntimeSessionState
 
@@ -119,8 +119,8 @@ def test_full_pad_display_state_promotes_live_then_decays():
     assert any("live_decay" in message for message in log_messages)
 
 
-def test_cv_pad_display_state_promotes_spoof():
-    display_state = run_pipeline_cv.PadDisplayState()
+def test_pad_only_display_state_promotes_spoof():
+    display_state = run_pipeline_pad.PadDisplayState()
     log_messages = []
 
     display_state.update(
@@ -152,14 +152,14 @@ def test_cv_pad_display_state_promotes_spoof():
         logger=log_messages.append,
     )
 
-    assert display_state.state == run_pipeline_cv.PadDisplayState.SHOW_SPOOF
+    assert display_state.state == run_pipeline_pad.PadDisplayState.SHOW_SPOOF
     assert display_state.get_pad_text() == "PAD: SPOOF"
     assert display_state.get_box_color() == (0, 0, 255)
     assert any("spoof_confirmed" in message for message in log_messages)
 
 
-def test_bs_recognition_display_state_promotes_known_identity():
-    display_state = run_pipeline_bs.RecognitionDisplayState()
+def test_recognition_only_display_state_promotes_known_identity():
+    display_state = run_pipeline_recognition.RecognitionDisplayState()
     log_messages = []
 
     display_state.update(
@@ -175,14 +175,17 @@ def test_bs_recognition_display_state_promotes_known_identity():
         logger=log_messages.append,
     )
 
-    assert display_state.state == run_pipeline_bs.RecognitionDisplayState.SHOW_KNOWN
+    assert (
+        display_state.state
+        == run_pipeline_recognition.RecognitionDisplayState.SHOW_KNOWN
+    )
     assert display_state.get_identity_text() == "Identity: custom: alice"
     assert display_state.get_identity_color() == (0, 255, 0)
     assert any("known_confirmed:custom:alice" in message for message in log_messages)
 
 
-def test_bs_recognition_display_state_promotes_unknown_identity():
-    display_state = run_pipeline_bs.RecognitionDisplayState()
+def test_recognition_only_display_state_promotes_unknown_identity():
+    display_state = run_pipeline_recognition.RecognitionDisplayState()
     log_messages = []
 
     display_state.update(
@@ -197,7 +200,10 @@ def test_bs_recognition_display_state_promotes_unknown_identity():
         logger=log_messages.append,
     )
 
-    assert display_state.state == run_pipeline_bs.RecognitionDisplayState.SHOW_UNKNOWN
+    assert (
+        display_state.state
+        == run_pipeline_recognition.RecognitionDisplayState.SHOW_UNKNOWN
+    )
     assert display_state.get_identity_text() == "Identity: Unknown"
     assert display_state.get_identity_color() == (0, 0, 255)
     assert any("unknown_confirmed" in message for message in log_messages)

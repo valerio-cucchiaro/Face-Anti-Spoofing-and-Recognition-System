@@ -98,7 +98,7 @@ LOCK_MOVEMENT_MAX_DELTA_H = 24
 CAMERA_READ_MAX_FAILURES = 10
 
 # ----- RUNTIME DEBUG ----- #
-FULL_RUNTIME_VERBOSE_LOGS = False
+FULL_RUNTIME_LOG_LEVEL = "normal"
 
 
 def create_pad_runtime_state():
@@ -498,7 +498,7 @@ def log_runtime_verbose(message):
     enabled for the full pipeline.
     """
 
-    if FULL_RUNTIME_VERBOSE_LOGS:
+    if FULL_RUNTIME_LOG_LEVEL == "verbose":
         print(f"[RUNTIME] {message}")
 
 
@@ -599,10 +599,12 @@ def draw_face_overlay(
     x, y, w, h = face_rect
     frame_width = frame.shape[1]
     box_center_x = x + (w // 2)
-    top_line_y = max(25, y - 72)
-    second_top_line_y = max(50, y - 44)
     bottom_line_1_y = y + h + 25
     bottom_line_2_y = y + h + 55
+    phase_text_x = 20
+    phase_text_y = 35
+    pad_text_x = 20
+    pad_text_y = 65
 
     def centered_text_origin(text, font_scale, thickness):
         text_size, _ = cv2.getTextSize(
@@ -619,7 +621,7 @@ def draw_face_overlay(
     cv2.putText(
         frame,
         phase_text,
-        (centered_text_origin(phase_text, 0.6, 2), top_line_y),
+        (phase_text_x, phase_text_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.6,
         (255, 255, 255),
@@ -629,7 +631,7 @@ def draw_face_overlay(
     cv2.putText(
         frame,
         pad_text,
-        (centered_text_origin(pad_text, 0.7, 2), second_top_line_y),
+        (pad_text_x, pad_text_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         box_color,
@@ -677,7 +679,7 @@ def get_box_color(session_state, final_pad_label):
     return (0, 255, 255)
 
 
-def run_pipeline_full():
+def run_pipeline_full(log_level="normal"):
     """
     Execute the full real-time biometric runtime pipeline.
 
@@ -686,6 +688,9 @@ def run_pipeline_full():
     where recognition can accumulate evidence without being disrupted by
     continuous heavy PAD reevaluation.
     """
+
+    global FULL_RUNTIME_LOG_LEVEL
+    FULL_RUNTIME_LOG_LEVEL = log_level
 
     cap = cv2.VideoCapture(0)
 
@@ -729,6 +734,7 @@ def run_pipeline_full():
     log_runtime_event(
         f"Recognition runtime threshold: {runtime_threshold:.2f}"
     )
+    log_runtime_event(f"Runtime log level: {log_level}")
     log_runtime_event("Runtime initialized: waiting for a centered face")
 
     while True:
@@ -978,7 +984,12 @@ def run_pipeline_full():
 
             pad_text = pad_display_state.get_pad_text()
 
-            recognition_text = "Checking liveness..."
+            if pad_display_state.state == PadDisplayState.SHOW_SPOOF:
+                recognition_text = "Recognition blocked"
+            elif pad_display_state.state == PadDisplayState.SHOW_LIVE:
+                recognition_text = "Recognition locked"
+            else:
+                recognition_text = "Checking liveness..."
             draw_face_overlay(
                 frame,
                 face_rect,

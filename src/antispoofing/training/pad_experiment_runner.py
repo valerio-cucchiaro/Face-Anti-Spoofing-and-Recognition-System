@@ -192,8 +192,8 @@ def build_arg_parser():
     Build the command-line interface for PAD experiments.
 
     The CLI exposes the runner parameters needed for scripted PAD
-    campaigns, including the PAD feature-mode overrides documented in
-    `antispoofing.md`.
+    campaigns, including the PAD feature-mode overrides available in
+    the runtime and experiment configuration.
     """
     parser = argparse.ArgumentParser(
         description="Run a PAD experiment with optional sampling and feature overrides."

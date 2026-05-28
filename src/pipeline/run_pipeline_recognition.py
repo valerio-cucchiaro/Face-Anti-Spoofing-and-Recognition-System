@@ -1,8 +1,8 @@
 """
-Module: run_pipeline_bs
+Module: run_pipeline_recognition
 
 Description:
-This module runs the biometric-systems runtime focused on face
+This module runs the recognition-only runtime focused on face
 recognition only.
 
 The pipeline keeps the webcam loop intentionally simple:
@@ -296,12 +296,73 @@ class RecognitionDisplayState:
         return (255, 255, 0)
 
 
-def log_bs_event(message):
+def log_recognition_event(message):
     """
     Print a concise recognition-runtime debug message.
     """
 
-    print(f"[BS] {message}")
+    print(f"[RECOGNITION] {message}")
+
+
+def build_normal_recognition_check_log(
+    recognition_frame_usable,
+    accepted_text,
+    predicted_name,
+    confidence_text,
+    gate_reason_text,
+    recognition_result,
+):
+    """
+    Build a compact recognition-check log line for normal runtime use.
+    """
+
+    return (
+        "Recognition check: "
+        f"usable={recognition_frame_usable} | "
+        f"decision={accepted_text} | "
+        f"name={predicted_name} | "
+        f"distance={confidence_text} | "
+        f"gate={gate_reason_text} | "
+        f"candidate={recognition_result['candidate_name']} | "
+        f"final={recognition_result['final_name']} | "
+        f"votes={recognition_result['stable_count']}/"
+        f"{recognition_result['history_size']}"
+    )
+
+
+def build_verbose_recognition_check_log(
+    recognition_frame_usable,
+    threshold_text,
+    accepted_text,
+    predicted_name,
+    geometry_text,
+    pose_text,
+    confidence_text,
+    light_text,
+    recognition_result,
+):
+    """
+    Build the full recognition-check diagnostic log line for verbose mode.
+    """
+
+    return (
+        "Recognition check: "
+        f"usable={recognition_frame_usable} | "
+        f"threshold={threshold_text} | "
+        f"decision={accepted_text} | "
+        f"name={predicted_name} | "
+        f"{geometry_text} | "
+        f"pose={pose_text} | "
+        f"current={recognition_result['current_name']} | "
+        f"distance={confidence_text} | "
+        f"light={light_text} | "
+        f"candidate={recognition_result['candidate_name']} | "
+        f"candidate_votes={recognition_result['candidate_votes']} | "
+        f"unknown_votes={recognition_result['unknown_votes']} | "
+        f"final={recognition_result['final_name']} | "
+        f"votes={recognition_result['stable_count']}/"
+        f"{recognition_result['history_size']}"
+    )
 
 
 def classify_light_band(mean_luma, dark_ratio, bright_ratio, asymmetry):
@@ -595,15 +656,15 @@ def draw_recognition_overlay(
     """
 
     x, y, w, h = face_rect
-    top_line_y = max(25, y - 35)
+    header_line_1_y = 35
+    header_line_2_y = 65
     bottom_line_1_y = y + h + 25
-    bottom_line_2_y = y + h + 55
 
     draw_visual_face_bbox(frame, face_rect, (0, 255, 0), 2)
     cv2.putText(
         frame,
         "State: RECOGNITION",
-        (x, top_line_y),
+        (20, header_line_1_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.6,
         (255, 255, 255),
@@ -613,7 +674,7 @@ def draw_recognition_overlay(
     cv2.putText(
         frame,
         recognition_text,
-        (x, bottom_line_1_y),
+        (20, header_line_2_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         (255, 255, 0),
@@ -623,7 +684,7 @@ def draw_recognition_overlay(
     cv2.putText(
         frame,
         identity_text,
-        (x, bottom_line_2_y),
+        (x, bottom_line_1_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         identity_color,
@@ -632,13 +693,13 @@ def draw_recognition_overlay(
     )
 
 
-def run_pipeline_bs():
+def run_pipeline_recognition(log_level="normal"):
     """
     Execute the recognition-only runtime pipeline.
 
-    This entry point is meant for biometric-system experiments where
-    the recognition module must be observed without interference from
-    PAD logic.
+    This entry point is meant for runtime experiments where the
+    recognition module must be observed without interference from PAD
+    logic.
     """
 
     cap = cv2.VideoCapture(0)
@@ -675,22 +736,23 @@ def run_pipeline_bs():
 
     frame_counter = 0
     camera_read_failures = 0
-    log_bs_event(
+    log_recognition_event(
         f"Recognition runtime threshold: {RUNTIME_RECOGNITION_THRESHOLD:.2f}"
     )
+    log_recognition_event(f"Recognition runtime log level: {log_level}")
 
     while True:
         ret, frame = cap.read()
 
         if not ret:
             camera_read_failures += 1
-            log_bs_event(
+            log_recognition_event(
                 "Webcam frame read failed: "
                 f"{camera_read_failures}/{CAMERA_READ_MAX_FAILURES}"
             )
             if camera_read_failures >= CAMERA_READ_MAX_FAILURES:
                 raise RuntimeError(
-                    "Webcam read failed repeatedly; stopping BS runtime session"
+                    "Webcam read failed repeatedly; stopping recognition runtime session"
                 )
             continue
 
@@ -711,10 +773,13 @@ def run_pipeline_bs():
                 face_present=False,
                 recognition_result=recognition_result,
                 now=time.monotonic(),
-                logger=log_bs_event,
+                logger=log_recognition_event,
             )
             runtime_log_stats.register_overlay_transition(display_state.state)
-            runtime_log_stats.maybe_log_summary(time.monotonic(), log_bs_event)
+            runtime_log_stats.maybe_log_summary(
+                time.monotonic(),
+                log_recognition_event,
+            )
             display_message = (
                 "Searching face" if message == "No face detected" else message
             )
@@ -888,24 +953,30 @@ def run_pipeline_bs():
                         f"gate={gate_reason_text}"
                     )
                     pose_text = format_pose_metrics_for_log(pose_metrics)
-                    log_bs_event(
-                        "Recognition check: "
-                        f"usable={recognition_frame_usable} | "
-                        f"threshold={threshold_text} | "
-                        f"decision={accepted_text} | "
-                        f"name={predicted_name} | "
-                        f"{geometry_text} | "
-                        f"pose={pose_text} | "
-                        f"current={recognition_result['current_name']} | "
-                        f"distance={confidence_text} | "
-                        f"light={light_text} | "
-                        f"candidate={recognition_result['candidate_name']} | "
-                        f"candidate_votes={recognition_result['candidate_votes']} | "
-                        f"unknown_votes={recognition_result['unknown_votes']} | "
-                        f"final={recognition_result['final_name']} | "
-                        f"votes={recognition_result['stable_count']}/"
-                        f"{recognition_result['history_size']}"
-                    )
+                    if pose_text == "pose=None":
+                        pose_text = "None"
+                    if log_level == "verbose":
+                        log_message = build_verbose_recognition_check_log(
+                            recognition_frame_usable=recognition_frame_usable,
+                            threshold_text=threshold_text,
+                            accepted_text=accepted_text,
+                            predicted_name=predicted_name,
+                            geometry_text=geometry_text,
+                            pose_text=pose_text,
+                            confidence_text=confidence_text,
+                            light_text=light_text,
+                            recognition_result=recognition_result,
+                        )
+                    else:
+                        log_message = build_normal_recognition_check_log(
+                            recognition_frame_usable=recognition_frame_usable,
+                            accepted_text=accepted_text,
+                            predicted_name=predicted_name,
+                            confidence_text=confidence_text,
+                            gate_reason_text=gate_reason_text,
+                            recognition_result=recognition_result,
+                        )
+                    log_recognition_event(log_message)
                     last_logged_signature = current_signature
             last_recognition_result = recognition_result
         else:
@@ -915,10 +986,13 @@ def run_pipeline_bs():
             face_present=True,
             recognition_result=recognition_result,
             now=time.monotonic(),
-            logger=log_bs_event,
+            logger=log_recognition_event,
         )
         runtime_log_stats.register_overlay_transition(display_state.state)
-        runtime_log_stats.maybe_log_summary(time.monotonic(), log_bs_event)
+        runtime_log_stats.maybe_log_summary(
+            time.monotonic(),
+            log_recognition_event,
+        )
 
         recognition_text = "Recognition active"
         identity_text = display_state.get_identity_text()
@@ -942,4 +1016,4 @@ def run_pipeline_bs():
     if hasattr(face_mesh, "close"):
         face_mesh.close()
     cv2.destroyAllWindows()
-    log_bs_event(runtime_log_stats.format_final_summary())
+    log_recognition_event(runtime_log_stats.format_final_summary())

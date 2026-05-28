@@ -1,8 +1,8 @@
 """
-Module: run_pipeline_cv
+Module: run_pipeline_pad
 
 Description:
-This module runs the computer-vision runtime focused on face
+This module runs the PAD-only runtime focused on face
 anti-spoofing only.
 
 The pipeline detects a valid face, extracts the PAD crop, applies the
@@ -67,12 +67,86 @@ PAD_DISTANCE_MID_MAX_AREA_RATIO = 0.16
 CAMERA_READ_MAX_FAILURES = 10
 
 
-def log_cv_event(message):
+def log_pad_event(message):
     """
     Print a concise PAD-runtime debug message.
     """
 
-    print(f"[CV] {message}")
+    print(f"[PAD] {message}")
+
+
+def build_normal_pad_check_log(
+    distance_band,
+    pad_frame_usable,
+    pad_state_result,
+    score_text,
+    live_score_text,
+    avg_live_text,
+    quality_result,
+    pad_result,
+):
+    """
+    Build a compact PAD-check log line for normal runtime use.
+    """
+
+    return (
+        "PAD check: "
+        f"band={distance_band} | "
+        f"usable={pad_frame_usable} | "
+        f"instant={pad_state_result['current_label']} | "
+        f"score={score_text} | "
+        f"prob_label={pad_result.get('probability_label')} | "
+        f"live_score={live_score_text} | "
+        f"final={pad_state_result['final_label']} | "
+        f"avg_live={avg_live_text} | "
+        f"crop_valid={quality_result['is_valid_crop']} | "
+        f"sharp={quality_result['is_sharp_enough']}"
+    )
+
+
+def build_verbose_pad_check_log(
+    active_feature_set,
+    distance_band,
+    pad_frame_usable,
+    pad_state_result,
+    score_text,
+    live_score_text,
+    avg_live_text,
+    history_snapshot,
+    pose_text,
+    spatial_text,
+    light_text,
+    last_timing_text,
+    pad_result,
+    probability_mismatch_count,
+    probability_check_count,
+    probability_usable_mismatch_count,
+):
+    """
+    Build the full PAD-check diagnostic log line for verbose mode.
+    """
+
+    return (
+        "PAD check: "
+        f"feature_set={active_feature_set} | "
+        f"distance_band={distance_band} | "
+        f"usable={pad_frame_usable} | "
+        f"current={pad_state_result['current_label']} | "
+        f"score={score_text} | "
+        f"prob_label={pad_result.get('probability_label')} | "
+        f"live_score={live_score_text} | "
+        f"prob_mismatch={pad_result.get('prediction_probability_mismatch')} | "
+        f"prob_mismatch_total={probability_mismatch_count}/{probability_check_count} | "
+        f"prob_mismatch_usable={probability_usable_mismatch_count} | "
+        f"final={pad_state_result['final_label']} | "
+        f"avg_live={avg_live_text} | "
+        f"history_len={len(history_snapshot)} | "
+        f"history={history_snapshot} | "
+        f"pose={pose_text} | "
+        f"{spatial_text} | "
+        f"{light_text} | "
+        f"{last_timing_text}"
+    )
 
 
 def create_pad_runtime_state():
@@ -245,16 +319,17 @@ def draw_pad_overlay(frame, face_rect, box_color, pad_text, details_text):
     Draw a compact overlay for the PAD-only runtime.
     """
 
-    x, y, w, h = face_rect
-    top_line_y = max(25, y - 35)
-    bottom_line_1_y = y + h + 25
-    bottom_line_2_y = y + h + 55
+    _x, _y, _w, _h = face_rect
+    header_line_1_y = 35
+    header_line_2_y = 65
+
+    header_line_3_y = 95
 
     draw_visual_face_bbox(frame, face_rect, box_color, 2)
     cv2.putText(
         frame,
         "State: PAD ONLY",
-        (x, top_line_y),
+        (20, header_line_1_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.6,
         (255, 255, 255),
@@ -264,7 +339,7 @@ def draw_pad_overlay(frame, face_rect, box_color, pad_text, details_text):
     cv2.putText(
         frame,
         pad_text,
-        (x, bottom_line_1_y),
+        (20, header_line_2_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         box_color,
@@ -274,14 +349,13 @@ def draw_pad_overlay(frame, face_rect, box_color, pad_text, details_text):
     cv2.putText(
         frame,
         details_text,
-        (x, bottom_line_2_y),
+        (20, header_line_3_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         (255, 255, 0),
         2,
         cv2.LINE_AA,
     )
-
 
 def format_timing_ms(value):
     """
@@ -405,12 +479,16 @@ def classify_pad_distance_band(face_area_ratio):
     return "far"
 
 
-def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
+def run_pipeline_pad(
+    pad_artifact_profile="runtime",
+    pad_artifact_tag=None,
+    log_level="normal",
+):
     """
     Execute the anti-spoofing-only runtime pipeline.
 
-    This entry point is meant for computer-vision experiments where the
-    PAD module must be observed without the recognition stage.
+    This entry point is meant for runtime experiments where the PAD
+    module must be observed without the recognition stage.
     """
 
     cap = cv2.VideoCapture(0)
@@ -460,16 +538,16 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
     # Diagnostic startup logs for quick runtime checks. They report the
     # active feature family, exported feature dimension, and runtime PAD
     # smoothing thresholds loaded for the current session.
-    log_cv_event(f"PAD run interval: {PAD_RUN_INTERVAL}")
-    log_cv_event(
+    log_pad_event(f"PAD run interval: {PAD_RUN_INTERVAL}")
+    log_pad_event(
         "PAD runtime artifact selection: "
         f"profile={pad_artifact_profile} | tag={pad_artifact_tag or 'canonical'}"
     )
-    log_cv_event(
+    log_pad_event(
         "PAD runtime feature set: "
         f"{active_feature_set} | dim={pad_detector.pad_config['feature_dim']}"
     )
-    log_cv_event(
+    log_pad_event(
         "PAD runtime modes: "
         f"feature_mode={pad_detector.pad_config['pad_debug_feature_mode']} | "
         f"lft={pad_detector.pad_config['pad_lft_mode']} | "
@@ -477,7 +555,7 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
         f"tgsd_top_percent={pad_detector.pad_config.get('tgsd_top_percent')} | "
         f"tgsd_grad={pad_detector.pad_config.get('tgsd_gradient_operator')}"
     )
-    log_cv_event(
+    log_pad_event(
         "PAD runtime thresholds: "
         f"window={pad_runtime_state.window_size} | "
         f"enter_live={pad_runtime_state.enter_live_threshold:.2f} | "
@@ -486,19 +564,20 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
         f"exit_spoof={pad_runtime_state.exit_spoof_threshold:.2f} | "
         f"reset_after_misses={pad_runtime_state.reset_after_misses}"
     )
+    log_pad_event(f"PAD runtime log level: {log_level}")
 
     while True:
         ret, frame = cap.read()
 
         if not ret:
             camera_read_failures += 1
-            log_cv_event(
+            log_pad_event(
                 "Webcam frame read failed: "
                 f"{camera_read_failures}/{CAMERA_READ_MAX_FAILURES}"
             )
             if camera_read_failures >= CAMERA_READ_MAX_FAILURES:
                 raise RuntimeError(
-                    "Webcam read failed repeatedly; stopping CV runtime session"
+                    "Webcam read failed repeatedly; stopping PAD runtime session"
                 )
             continue
 
@@ -531,7 +610,7 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
                 },
                 pad_frame_usable=False,
                 now=now,
-                logger=log_cv_event,
+                logger=log_pad_event,
             )
             previous_face_rect = None
             display_message = (
@@ -587,7 +666,7 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
             if quality_result["is_valid_crop"]:
                 pad_result = pad_detector.predict_safe(pad_face_crop)
                 if pad_result["status"] == "predict_failed":
-                    log_cv_event(
+                    log_pad_event(
                         "PAD prediction failed: "
                         f"error={pad_result.get('error')}"
                     )
@@ -636,31 +715,43 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
             )
             if should_log_details:
                 pose_text = format_pose_metrics_for_log(pose_metrics)
+                if pose_text == "pose=None":
+                    pose_text = "None"
                 live_score = pad_result.get("live_score")
                 live_score_text = (
                     f"{live_score:.2f}" if live_score is not None else "None"
                 )
-                log_cv_event(
-                    "PAD check: "
-                    f"feature_set={active_feature_set} | "
-                    f"distance_band={distance_band} | "
-                    f"usable={pad_frame_usable} | "
-                    f"current={pad_state_result['current_label']} | "
-                    f"score={score_text} | "
-                    f"prob_label={pad_result.get('probability_label')} | "
-                    f"live_score={live_score_text} | "
-                    f"prob_mismatch={pad_result.get('prediction_probability_mismatch')} | "
-                    f"prob_mismatch_total={probability_mismatch_count}/{probability_check_count} | "
-                    f"prob_mismatch_usable={probability_usable_mismatch_count} | "
-                    f"final={pad_state_result['final_label']} | "
-                    f"avg_live={avg_live_text} | "
-                    f"history_len={len(history_snapshot)} | "
-                    f"history={history_snapshot} | "
-                    f"pose={pose_text} | "
-                    f"{spatial_text} | "
-                    f"{light_text} | "
-                    f"{last_timing_text}"
-                )
+                if log_level == "verbose":
+                    log_message = build_verbose_pad_check_log(
+                        active_feature_set=active_feature_set,
+                        distance_band=distance_band,
+                        pad_frame_usable=pad_frame_usable,
+                        pad_state_result=pad_state_result,
+                        score_text=score_text,
+                        live_score_text=live_score_text,
+                        avg_live_text=avg_live_text,
+                        history_snapshot=history_snapshot,
+                        pose_text=pose_text,
+                        spatial_text=spatial_text,
+                        light_text=light_text,
+                        last_timing_text=last_timing_text,
+                        pad_result=pad_result,
+                        probability_mismatch_count=probability_mismatch_count,
+                        probability_check_count=probability_check_count,
+                        probability_usable_mismatch_count=probability_usable_mismatch_count,
+                    )
+                else:
+                    log_message = build_normal_pad_check_log(
+                        distance_band=distance_band,
+                        pad_frame_usable=pad_frame_usable,
+                        pad_state_result=pad_state_result,
+                        score_text=score_text,
+                        live_score_text=live_score_text,
+                        avg_live_text=avg_live_text,
+                        quality_result=quality_result,
+                        pad_result=pad_result,
+                    )
+                log_pad_event(log_message)
                 last_logged_distance_band = distance_band
                 if final_label in ("live", "spoof"):
                     last_logged_final_label = final_label
@@ -673,7 +764,7 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
             pad_state_result=pad_state_result,
             pad_frame_usable=pad_frame_usable,
             now=now,
-            logger=log_cv_event,
+            logger=log_pad_event,
         )
 
         pad_text = display_state.get_pad_text()
@@ -685,8 +776,6 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
             f"crop_valid={quality_result['is_valid_crop']} | "
             f"sharp={quality_result['is_sharp_enough']}"
         )
-        if should_run_pad:
-            details_text = f"{details_text} | {last_timing_text}"
         draw_pad_overlay(
             frame,
             face_rect,
@@ -706,11 +795,11 @@ def run_pipeline_cv(pad_artifact_profile="runtime", pad_artifact_tag=None):
 
     # Final diagnostic summary reporting how often the PAD runtime ended
     # in live/spoof/unknown across near, mid, and far face-size bands.
-    log_cv_event("Distance band summary (PAD checks):")
+    log_pad_event("Distance band summary (PAD checks):")
     for band in ("near", "mid", "far"):
         band_counts = distance_band_counts[band]
         total = band_counts["live"] + band_counts["spoof"] + band_counts["unknown"]
-        log_cv_event(
+        log_pad_event(
             f"{band}: total={total} | "
             f"live={band_counts['live']} | "
             f"spoof={band_counts['spoof']} | "

@@ -2194,3 +2194,103 @@ This closed the PAD feature-search phase and shifted the remaining focus toward 
 - practical reading:
   - the recognition loader is now divided by responsibility in a way similar to the PAD loader split, while still respecting the extra protocol semantics that are specific to open-set recognition
   - future cleanup can now happen inside focused modules instead of revisiting one all-purpose loader file again
+
+## 2026/05/27
+
+**Neutral Runtime Naming Cleanup**:
+
+- started the cleanup that turns the repository back into a neutral personal project instead of keeping the old exam-oriented runtime naming
+- renamed the dedicated runtime entry points:
+  - `src/main_cv.py` -> `src/main_pad.py`
+  - `src/main_bs.py` -> `src/main_recognition.py`
+- renamed the dedicated runtime pipeline modules:
+  - `src/pipeline/run_pipeline_cv.py` -> `src/pipeline/run_pipeline_pad.py`
+  - `src/pipeline/run_pipeline_bs.py` -> `src/pipeline/run_pipeline_recognition.py`
+- updated the corresponding runtime function names and imports:
+  - `run_pipeline_cv(...)` -> `run_pipeline_pad(...)`
+  - `run_pipeline_bs()` -> `run_pipeline_recognition()`
+- removed explicit `Computer Vision` / `Biometric Systems` wording from:
+  - entry-point docstrings
+  - runtime pipeline docstrings
+  - runtime log prefixes
+  - runtime stop/error messages
+- the runtime variants are now described only by their function:
+  - `full`
+  - `pad-only`
+  - `recognition-only`
+
+**Helper Document Removal**:
+
+- removed the old helper reports:
+  - `recognition.md`
+  - `antispoofing.md`
+- decision rationale:
+  - both files had become mostly historical experiment notes
+  - both still carried the old `CV` / `BS` naming
+  - their useful historical content remains recoverable through git history and the development log
+
+**Test Alignment After Runtime Rename**:
+
+- updated the runtime-helper tests to import the neutral module names
+- renamed the affected helper-level test labels so they no longer refer to `cv` / `bs`
+- kept the test logic unchanged: only module names and test naming were aligned
+
+**PAD Documentation Pointer Cleanup**:
+
+- removed the stale internal docstring reference from `pad_experiment_runner.py` that still pointed to `antispoofing.md`
+- the PAD runner documentation now refers only to the active runtime/experiment configuration rather than to a removed side document
+
+**Validation Status**:
+
+- the runtime rename and helper-document removal were checked with:
+  - full test suite
+  - offline recognition experiment runner
+  - offline system evaluator
+  - runtime smoke checks for:
+    - `main_pad`
+    - `main_recognition`
+    - `main`
+- practical reading:
+  - the cleanup changed naming and documentation surface, not the intended runtime or offline behavior
+  - the project now has a cleaner base for the upcoming README rewrite
+
+**Runtime CLI Helper Alignment And README Rewrite**:
+
+- completed the first small CLI-alignment pass on the user-facing runtime entry points
+- added minimal `argparse`-based `--help` support to:
+  - `src/main.py`
+  - `src/main_recognition.py`
+- `src/main_pad.py` already exposed a runtime helper CLI, so the runtime entry points are now more uniform from a user perspective
+- practical effect:
+  - the runtime entry points can now be inspected safely with `--help` without opening the webcam loop
+  - this makes the user-facing entry layer more consistent with the offline runners, which already exposed richer CLIs
+
+- rewrote `README.md` from scratch as the main neutral project README
+- removed the old exam-oriented wording and replaced it with project-level documentation covering:
+  - project overview
+  - main features
+  - repository structure
+  - installation
+  - runtime commands
+  - offline experiment commands
+  - datasets
+  - models and outputs
+  - testing
+  - command-line helper usage
+- practical reading:
+  - the repository now has a main README that matches the current codebase and naming
+  - command discovery is clearer because the README explicitly documents which entry points support `--help`
+
+2026/05/28
+
+**Full Runtime PAD-Phase Overlay Clarification**:
+
+- refined the third overlay line shown during the full runtime `PAD_CHECK` phase
+- previously the lower status line stayed fixed on `Checking liveness...` even when the PAD overlay had already switched to `PAD: SPOOF`
+- updated the text to reflect the visible PAD state more honestly:
+  - `Checking liveness...` while PAD is still analyzing
+  - `Recognition blocked` when PAD is showing spoof
+  - `Recognition locked` when PAD is showing live before the runtime advances to the recognition-locked phase
+- practical reading:
+  - this does not change PAD or recognition logic
+  - it only makes the user-facing overlay less misleading during liveness-only decisions
