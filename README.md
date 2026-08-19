@@ -97,6 +97,30 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Required Runtime Artifacts
+
+The webcam runtimes are not self-contained from source code alone. A
+working runtime setup requires the final trained artifacts under
+`models/`.
+
+Required PAD runtime artifacts:
+
+- `models/pad/pad_svm.joblib`
+- `models/pad/pad_scaler.joblib`
+- `models/pad/pad_config.json`
+- `models/pad/system_pad_threshold_config.json`
+
+Required recognition runtime artifacts:
+
+- `models/recognition/lbph_model.xml`
+- `models/recognition/label_map.pkl`
+- `models/recognition/recognizer_config.json`
+- `models/recognition/system_recognition_threshold_config.json`
+
+If these files are missing, `python -m src.main_pad`,
+`python -m src.main_recognition`, and `python -m src.main` are not
+guaranteed to start correctly on a fresh clone.
+
 ## How To Run
 
 The project uses a `src` layout. Run modules with `python -m ...` so Python
@@ -184,11 +208,15 @@ python -m src.recognition.recognition_experiment_runner --train-mode custom --ev
 
 ### PAD
 
-Example custom PAD train + evaluation run:
+Canonical PAD train + evaluation run used to refresh the final runtime
+artifact set and save the offline system threshold:
 
 ```bash
-python -m src.antispoofing.training.pad_experiment_runner --train-mode custom --eval-mode custom --experiment-speed full
+python -m src.antispoofing.training.pad_experiment_runner --train-mode all --eval-mode all --experiment-speed full --save-system-threshold
 ```
+
+This is the only untagged PAD run that promotes the webcam runtime PAD
+artifacts. Other PAD runs remain experiment-specific.
 
 The repository also includes a batch runner:
 
@@ -243,6 +271,92 @@ The repository also contains utilities to:
 - prepare CASIA PAD splits
 - extract Replay-Attack PAD frames
 
+### Expected Dataset Layout
+
+The repository expects datasets under `data/`. The exact collection
+contents depend on the experiment being executed, but the structure is
+split by task.
+
+Recognition datasets are expected under:
+
+- `data/recognition/custom/`
+- `data/recognition/orl/`
+- `data/recognition/lfw/`
+- `data/recognition/multipie/`
+
+PAD datasets are expected under:
+
+- `data/pad/custom/`
+- `data/pad/casia/`
+- `data/pad/replay/`
+
+These datasets are needed for offline training and evaluation. They are
+not required to run the final webcam runtimes if the final artifacts are
+already present under `models/`.
+
+## Threshold Types
+
+The project uses different threshold concepts in different contexts.
+
+- Webcam threshold: threshold used by the live runtime during webcam
+  inference.
+- Benchmark threshold: threshold selected during an offline evaluation
+  protocol on validation data and then applied to benchmark splits.
+- System threshold: final offline threshold saved to
+  `models/pad/system_pad_threshold_config.json` or
+  `models/recognition/system_recognition_threshold_config.json` for the
+  integrated system configuration.
+
+These threshold roles should not be treated as interchangeable. Offline
+benchmark calibration and final runtime behavior are related, but they
+are not the same step in the pipeline.
+
+## Final Delivered Configuration
+
+The project delivery is based on one declared final configuration.
+
+### Recognition
+
+- Model: `LBPH`
+- LBPH parameters:
+  - `radius=1`
+  - `neighbors=8`
+  - `grid_x=6`
+  - `grid_y=6`
+- Preprocessing:
+  - `normalization_mode=equalize`
+  - `crop_padding_ratio=0.1`
+- Webcam runtime threshold:
+  - `40.0`
+- Canonical runtime artifacts:
+  - `models/recognition/lbph_model.xml`
+  - `models/recognition/label_map.pkl`
+  - `models/recognition/recognizer_config.json`
+  - `models/recognition/system_recognition_threshold_config.json`
+
+### PAD
+
+- Feature stack: `tgsd + ggd_light`
+- TGSD configuration:
+  - `tau=170`
+  - `top_percent=0.05`
+  - `gradient_operator=sobel`
+- Canonical protocol:
+  - `train-mode=all`
+  - `eval-mode=all`
+  - `experiment-speed=full`
+- Final sampling setup for the canonical `all -> all | full` protocol:
+  - `CASIA sample ratio=0.25`
+  - `Replay sample ratio=1.0`
+  - `custom_repeat=20`
+- Validation operating point:
+  - `target APCER=2%`
+- Canonical runtime artifacts:
+  - `models/pad/pad_svm.joblib`
+  - `models/pad/pad_scaler.joblib`
+  - `models/pad/pad_config.json`
+  - `models/pad/system_pad_threshold_config.json`
+
 ## Models And Outputs
 
 ### Recognition Artifacts
@@ -258,10 +372,13 @@ Typical recognition artifacts are stored under:
 
 Typical PAD artifacts are stored under:
 
-- `models/antispoofing/`
+- `models/pad/pad_svm.joblib`
+- `models/pad/pad_scaler.joblib`
+- `models/pad/pad_config.json`
+- `models/pad/system_pad_threshold_config.json`
 
-This includes the trained PAD classifier, scaler, config, and runtime/offline
-artifact variants used by the project.
+Additional experiment-only PAD artifact snapshots may also exist under
+`models/pad/`, but the files above are the canonical runtime artifacts.
 
 ### Metrics And Reports
 
@@ -291,6 +408,14 @@ The test suite covers:
 - dataset utility behavior
 
 ## Notes
+
+- The final webcam runtime depends on pre-generated artifacts under
+  `models/`; a source-only clone is not sufficient unless those
+  artifacts are included or recreated.
+- PAD performance is sensitive to capture distance, lighting, and domain
+  mismatch between collected custom data and public datasets.
+- Public and custom datasets used for offline experiments are not
+  included in the repository by default.
 
 - Always run modules with `python -m ...` rather than executing files
   directly.
