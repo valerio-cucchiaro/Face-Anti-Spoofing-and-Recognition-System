@@ -38,6 +38,16 @@ dist/
 
 # Generated model artifacts and local runtime configs
 models/*
+!models/pad/
+!models/pad/pad_svm.joblib
+!models/pad/pad_scaler.joblib
+!models/pad/pad_config.json
+!models/pad/system_pad_threshold_config.json
+!models/recognition/
+!models/recognition/lbph_model.xml
+!models/recognition/label_map.pkl
+!models/recognition/recognizer_config.json
+!models/recognition/system_recognition_threshold_config.json
 
 # Runtime logs
 logs/*

@@ -1,0 +1,23 @@
+{
+    "config_version": 2,
+    "recognizer_type": "lbph_single",
+    "created_at_utc": "2026-05-17T07:25:20.630721+00:00",
+    "train_mode": "orl",
+    "lbph_params": {
+        "radius": 1,
+        "neighbors": 8,
+        "grid_x": 6,
+        "grid_y": 6
+    },
+    "preprocessing": {
+        "normalization_mode": "equalize",
+        "crop_padding_ratio": 0.1
+    },
+    "quality_filter_mode": "report_only",
+    "lfw_sample_ratio": 1.0,
+    "dataset_counts": {
+        "orl": 150
+    },
+    "loaded_faces": 150,
+    "loaded_identities": 30
+}

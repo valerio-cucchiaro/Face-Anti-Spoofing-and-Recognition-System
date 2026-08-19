@@ -1,0 +1,45 @@
+{
+    "eval_mode": "all",
+    "threshold": 0.6139597018765315,
+    "threshold_source": "all_combined_validation_target_apcer",
+    "threshold_rule": "target_apcer",
+    "target_apcer": 0.02,
+    "constraint_satisfied": true,
+    "selected_metrics": {
+        "threshold": 0.6139597018765315,
+        "total": 19025,
+        "live_total": 4566,
+        "spoof_total": 14459,
+        "tp": 3320,
+        "tn": 14170,
+        "fp": 289,
+        "fn": 1246,
+        "far": 0.01998755100629366,
+        "frr": 0.2728865527814279,
+        "gar": 0.7271134472185721,
+        "apcer": 0.01998755100629366,
+        "bpcer": 0.2728865527814279,
+        "acer": 0.1464370518938608,
+        "confusion_matrix": [
+            [
+                14170,
+                289
+            ],
+            [
+                1246,
+                3320
+            ]
+        ]
+    },
+    "pad_config": {
+        "pad_debug_feature_mode": "tgsd",
+        "pad_lft_mode": "ggd_light",
+        "feature_dim": 126,
+        "tgsd_tau": 170.0,
+        "tgsd_top_percent": 0.05,
+        "tgsd_gradient_operator": "sobel",
+        "config_source": "saved_by_trainer",
+        "custom_validation_enabled": false
+    },
+    "saved_by": "save_system_threshold"
+}

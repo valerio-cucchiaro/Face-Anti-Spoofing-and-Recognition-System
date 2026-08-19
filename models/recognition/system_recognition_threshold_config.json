@@ -1,0 +1,62 @@
+{
+    "config_type": "system_recognition_threshold",
+    "unknown_threshold": 31.78961871736288,
+    "threshold_source": "custom_to_custom_validation",
+    "train_mode": "custom",
+    "eval_mode": "custom",
+    "saved_by": "save_system_threshold",
+    "recognizer_config": {
+        "config_version": 2,
+        "recognizer_type": "lbph_single",
+        "created_at_utc": "2026-05-26T14:28:00.011904+00:00",
+        "train_mode": "custom",
+        "lbph_params": {
+            "radius": 1,
+            "neighbors": 8,
+            "grid_x": 6,
+            "grid_y": 6
+        },
+        "preprocessing": {
+            "normalization_mode": "equalize",
+            "crop_padding_ratio": 0.1
+        },
+        "quality_filter_mode": "report_only",
+        "lfw_sample_ratio": 1.0,
+        "dataset_counts": {
+            "custom": 116
+        },
+        "loaded_faces": 116,
+        "loaded_identities": 4
+    },
+    "preprocessing": {
+        "normalization_mode": "equalize",
+        "crop_padding_ratio": 0.1
+    },
+    "validation_known_split": "validation_known_internal",
+    "validation_unknown_split": "validation_unknown_internal",
+    "final_known_split": "probe_known_internal",
+    "final_unknown_split": "probe_unknown_internal",
+    "quality_filter_mode": "report_only",
+    "validation_known_samples": 16,
+    "validation_unknown_samples": 8,
+    "validation_threshold_candidate_count": 26,
+    "validation_threshold_misidentification_weight": 2.0,
+    "validation_threshold_metrics": {
+        "threshold": 31.78961871736288,
+        "total_known": 16,
+        "total_unknown": 8,
+        "correct_identification": 16,
+        "false_reject": 0,
+        "misidentification": 0,
+        "false_accept": 0,
+        "true_reject": 8,
+        "DIR": 1.0,
+        "FAR": 0.0,
+        "FRR": 0.0,
+        "GAR": 1.0,
+        "misidentification_rate": 0.0
+    },
+    "mean_validation_known_confidence": 19.405070059149367,
+    "mean_validation_unknown_confidence": 33.29358757033586,
+    "threshold_rule": "max_dir_with_far_misidentification_constraints"
+}

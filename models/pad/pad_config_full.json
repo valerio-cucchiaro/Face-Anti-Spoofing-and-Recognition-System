@@ -1,0 +1,10 @@
+{
+  "pad_debug_feature_mode": "tgsd",
+  "pad_lft_mode": "ggd_light",
+  "feature_dim": 126,
+  "tgsd_tau": 170.0,
+  "tgsd_top_percent": 0.05,
+  "tgsd_gradient_operator": "sobel",
+  "config_source": "saved_by_trainer",
+  "custom_validation_enabled": false
+}
