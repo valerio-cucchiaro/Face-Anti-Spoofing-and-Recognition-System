@@ -25,7 +25,7 @@ RECOGNIZER_CONFIG_PATH = RECOGNITION_MODELS_ROOT / "recognizer_config.json"
 # Fallback for direct runtime calls that do not pass an explicit
 # threshold. Offline evaluator/system calibration writes a separate
 # system_recognition_threshold_config.json and does not overwrite this.
-DEFAULT_PREDICTION_THRESHOLD = 44.0
+DEFAULT_PREDICTION_THRESHOLD = 40.0
 
 
 def get_recognition_artifact_paths(train_mode="custom"):

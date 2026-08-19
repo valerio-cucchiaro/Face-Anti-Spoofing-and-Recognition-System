@@ -108,18 +108,28 @@ Required PAD runtime artifacts:
 - `models/pad/pad_svm.joblib`
 - `models/pad/pad_scaler.joblib`
 - `models/pad/pad_config.json`
-- `models/pad/system_pad_threshold_config.json`
 
 Required recognition runtime artifacts:
 
 - `models/recognition/lbph_model.xml`
 - `models/recognition/label_map.pkl`
 - `models/recognition/recognizer_config.json`
-- `models/recognition/system_recognition_threshold_config.json`
 
 If these files are missing, `python -m src.main_pad`,
 `python -m src.main_recognition`, and `python -m src.main` are not
 guaranteed to start correctly on a fresh clone.
+
+## Required Offline Evaluation Artifacts
+
+The integrated offline evaluator also requires the saved system-level
+threshold references:
+
+- `models/pad/system_pad_threshold_config.json`
+- `models/recognition/system_recognition_threshold_config.json`
+
+These files are required by `python -m src.evaluation.system_evaluator`
+and related offline evaluation flows. They are not required by the
+three webcam runtimes.
 
 ## How To Run
 
@@ -279,16 +289,16 @@ split by task.
 
 Recognition datasets are expected under:
 
-- `data/recognition/custom/`
+- `data/recognition/custom_raw/`
 - `data/recognition/orl/`
 - `data/recognition/lfw/`
 - `data/recognition/multipie/`
 
 PAD datasets are expected under:
 
-- `data/pad/custom/`
-- `data/pad/casia/`
-- `data/pad/replay/`
+- `data/pad/pad_custom_raw/`
+- `data/pad/casia_pad/`
+- `data/pad/replay_attack_pad/`
 
 These datasets are needed for offline training and evaluation. They are
 not required to run the final webcam runtimes if the final artifacts are
@@ -332,6 +342,7 @@ The project delivery is based on one declared final configuration.
   - `models/recognition/lbph_model.xml`
   - `models/recognition/label_map.pkl`
   - `models/recognition/recognizer_config.json`
+- Offline evaluation artifact:
   - `models/recognition/system_recognition_threshold_config.json`
 
 ### PAD
@@ -355,6 +366,7 @@ The project delivery is based on one declared final configuration.
   - `models/pad/pad_svm.joblib`
   - `models/pad/pad_scaler.joblib`
   - `models/pad/pad_config.json`
+- Offline evaluation artifact:
   - `models/pad/system_pad_threshold_config.json`
 
 ## Models And Outputs
