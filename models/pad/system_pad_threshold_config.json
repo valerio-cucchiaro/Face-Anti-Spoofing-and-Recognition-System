@@ -1,12 +1,12 @@
 {
     "eval_mode": "all",
-    "threshold": 0.6139597018765315,
+    "threshold": 0.6139530954814493,
     "threshold_source": "all_combined_validation_target_apcer",
     "threshold_rule": "target_apcer",
     "target_apcer": 0.02,
     "constraint_satisfied": true,
     "selected_metrics": {
-        "threshold": 0.6139597018765315,
+        "threshold": 0.6139530954814493,
         "total": 19025,
         "live_total": 4566,
         "spoof_total": 14459,

@@ -51,3 +51,8 @@ models/*
 
 # Runtime logs
 logs/*
+!logs/metrics/
+!logs/metrics/**
+logs/debug/
+logs/pad_runs.txt
+logs/recognition_runs.txt

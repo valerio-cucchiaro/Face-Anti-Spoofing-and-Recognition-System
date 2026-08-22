@@ -1,0 +1,3037 @@
+{
+  "selected_threshold": 26.058970859493876,
+  "threshold_source": "orl_to_orl_validation",
+  "evaluation_scope": "probe",
+  "selected_metrics": {
+    "threshold": 26.058970859493876,
+    "total_known": 90,
+    "total_unknown": 50,
+    "correct_identification": 79,
+    "false_reject": 11,
+    "misidentification": 0,
+    "false_accept": 0,
+    "true_reject": 50,
+    "DIR": 0.8777777777777778,
+    "FAR": 0.0,
+    "FRR": 0.12222222222222222,
+    "GAR": 0.8777777777777778,
+    "misidentification_rate": 0.0
+  },
+  "eer_results": {
+    "eer_value": 0.1,
+    "eer_threshold": 26.961308771999935
+  },
+  "threshold_summary": {
+    "low": {
+      "threshold": 21.429082505116256,
+      "total_known": 90,
+      "total_unknown": 50,
+      "correct_identification": 34,
+      "false_reject": 56,
+      "misidentification": 0,
+      "false_accept": 0,
+      "true_reject": 50,
+      "DIR": 0.37777777777777777,
+      "FAR": 0.0,
+      "FRR": 0.6222222222222222,
+      "GAR": 0.37777777777777777,
+      "misidentification_rate": 0.0
+    },
+    "mid": {
+      "threshold": 24.745432723059796,
+      "total_known": 90,
+      "total_unknown": 50,
+      "correct_identification": 69,
+      "false_reject": 21,
+      "misidentification": 0,
+      "false_accept": 0,
+      "true_reject": 50,
+      "DIR": 0.7666666666666667,
+      "FAR": 0.0,
+      "FRR": 0.23333333333333334,
+      "GAR": 0.7666666666666666,
+      "misidentification_rate": 0.0
+    },
+    "high": {
+      "threshold": 28.171616809633452,
+      "total_known": 90,
+      "total_unknown": 50,
+      "correct_identification": 85,
+      "false_reject": 4,
+      "misidentification": 1,
+      "false_accept": 19,
+      "true_reject": 31,
+      "DIR": 0.9444444444444444,
+      "FAR": 0.38,
+      "FRR": 0.044444444444444446,
+      "GAR": 0.9555555555555556,
+      "misidentification_rate": 0.011111111111111112
+    },
+    "selected_thresholds": {
+      "low": 21.474380780017135,
+      "mid": 24.772241378642985,
+      "high": 28.16860285811456
+    }
+  },
+  "pairwise_analysis": {
+    "available": true,
+    "reason": null,
+    "protocol": "all gallery vs all probe",
+    "threshold": 26.058970859493876,
+    "probe_count": 140,
+    "known_probe_count": 90,
+    "unknown_probe_count": 50,
+    "gallery_template_count": 150,
+    "gallery_identity_count": 30,
+    "comparison_count": 21000,
+    "identity_columns": [
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s13",
+      "s14",
+      "s17",
+      "s19",
+      "s20",
+      "s21",
+      "s22",
+      "s23",
+      "s24",
+      "s25",
+      "s26",
+      "s27",
+      "s29",
+      "s3",
+      "s30",
+      "s31",
+      "s32",
+      "s33",
+      "s34",
+      "s35",
+      "s36",
+      "s37",
+      "s38",
+      "s4",
+      "s40",
+      "s5"
+    ],
+    "rank_summary": {
+      "rank_1_accuracy": 0.9777777777777777,
+      "rank_3_accuracy": 0.9888888888888889,
+      "rank_5_accuracy": 1.0
+    },
+    "mean_true_rank": 1.0555555555555556,
+    "median_true_rank": 1.0,
+    "best_distance_stats": {
+      "count": 140,
+      "mean": 25.18745028112323,
+      "std": 3.947894240292413,
+      "min": 17.951177232121978,
+      "max": 34.22078043466984
+    },
+    "margin_stats": {
+      "count": 140,
+      "mean": 4.088316180455541,
+      "std": 3.3818055817779835,
+      "min": 0.029453714236140627,
+      "max": 12.50021786284578
+    },
+    "open_set_summary": {
+      "threshold": 26.058970859493876,
+      "total_known": 90,
+      "total_unknown": 50,
+      "correct_identification": 79,
+      "false_reject": 11,
+      "misidentification": 0,
+      "false_accept": 0,
+      "true_reject": 50,
+      "DIR": 0.8777777777777778,
+      "FAR": 0.0,
+      "FRR": 0.12222222222222222,
+      "GAR": 0.8777777777777778,
+      "misidentification_rate": 0.0
+    },
+    "cms_curve": {
+      "available": true,
+      "max_rank": 10,
+      "points": [
+        {
+          "rank": 1,
+          "cms": 0.9777777777777777,
+          "hit_count": 88,
+          "total": 90
+        },
+        {
+          "rank": 2,
+          "cms": 0.9777777777777777,
+          "hit_count": 88,
+          "total": 90
+        },
+        {
+          "rank": 3,
+          "cms": 0.9888888888888889,
+          "hit_count": 89,
+          "total": 90
+        },
+        {
+          "rank": 4,
+          "cms": 1.0,
+          "hit_count": 90,
+          "total": 90
+        },
+        {
+          "rank": 5,
+          "cms": 1.0,
+          "hit_count": 90,
+          "total": 90
+        },
+        {
+          "rank": 6,
+          "cms": 1.0,
+          "hit_count": 90,
+          "total": 90
+        },
+        {
+          "rank": 7,
+          "cms": 1.0,
+          "hit_count": 90,
+          "total": 90
+        },
+        {
+          "rank": 8,
+          "cms": 1.0,
+          "hit_count": 90,
+          "total": 90
+        },
+        {
+          "rank": 9,
+          "cms": 1.0,
+          "hit_count": 90,
+          "total": 90
+        },
+        {
+          "rank": 10,
+          "cms": 1.0,
+          "hit_count": 90,
+          "total": 90
+        }
+      ]
+    },
+    "preview_rows": [
+      {
+        "example_type": "best_rank",
+        "probe_index": 51,
+        "split": "probe_known",
+        "true_identity": "s29",
+        "is_known": true,
+        "best_identity": "s29",
+        "best_distance": 27.8665393788431,
+        "second_best_identity": "s40",
+        "second_best_distance": 28.928572088267753,
+        "margin": 1.0620327094246527,
+        "true_identity_rank": 1,
+        "true_identity_distance": 27.8665393788431,
+        "accepted_at_threshold": false,
+        "final_identity": "Unknown",
+        "decision_correct": false
+      },
+      {
+        "example_type": "median_rank",
+        "probe_index": 16,
+        "split": "probe_known",
+        "true_identity": "s14",
+        "is_known": true,
+        "best_identity": "s14",
+        "best_distance": 23.964850352219795,
+        "second_best_identity": "s37",
+        "second_best_distance": 30.431940819364563,
+        "margin": 6.467090467144768,
+        "true_identity_rank": 1,
+        "true_identity_distance": 23.964850352219795,
+        "accepted_at_threshold": true,
+        "final_identity": "s14",
+        "decision_correct": true
+      },
+      {
+        "example_type": "hardest_rank",
+        "probe_index": 19,
+        "split": "probe_known",
+        "true_identity": "s17",
+        "is_known": true,
+        "best_identity": "s36",
+        "best_distance": 30.62421494046942,
+        "second_best_identity": "s5",
+        "second_best_distance": 31.016848859788166,
+        "margin": 0.3926339193187438,
+        "true_identity_rank": 4,
+        "true_identity_distance": 31.629924566940282,
+        "accepted_at_threshold": false,
+        "final_identity": "Unknown",
+        "decision_correct": false
+      },
+      {
+        "example_type": "highest_margin",
+        "probe_index": 64,
+        "split": "probe_known",
+        "true_identity": "s33",
+        "is_known": true,
+        "best_identity": "s33",
+        "best_distance": 17.951177232121978,
+        "second_best_identity": "s38",
+        "second_best_distance": 30.451395094967758,
+        "margin": 12.50021786284578,
+        "true_identity_rank": 1,
+        "true_identity_distance": 17.951177232121978,
+        "accepted_at_threshold": true,
+        "final_identity": "s33",
+        "decision_correct": true
+      },
+      {
+        "example_type": "unknown_best_distance",
+        "probe_index": 103,
+        "split": "probe_unknown",
+        "true_identity": "s16",
+        "is_known": false,
+        "best_identity": "s1",
+        "best_distance": 26.560364088624333,
+        "second_best_identity": "s24",
+        "second_best_distance": 27.50593870302951,
+        "margin": 0.945574614405178,
+        "true_identity_rank": null,
+        "true_identity_distance": null,
+        "accepted_at_threshold": false,
+        "final_identity": "Unknown",
+        "decision_correct": true
+      },
+      {
+        "example_type": "unknown_low_margin",
+        "probe_index": 135,
+        "split": "probe_unknown",
+        "true_identity": "s8",
+        "is_known": false,
+        "best_identity": "s30",
+        "best_distance": 33.68850797682761,
+        "second_best_identity": "s4",
+        "second_best_distance": 33.71796169106375,
+        "margin": 0.029453714236140627,
+        "true_identity_rank": null,
+        "true_identity_distance": null,
+        "accepted_at_threshold": false,
+        "final_identity": "Unknown",
+        "decision_correct": true
+      }
+    ]
+  },
+  "doddington_analysis": {
+    "available": true,
+    "reason": null,
+    "threshold": 26.058970859493876,
+    "summary_counts": {
+      "total_probes": 140,
+      "known_probes": 90,
+      "unknown_probes": 50,
+      "identity_count": 30,
+      "threshold": 26.058970859493876
+    },
+    "per_identity": [
+      {
+        "identity": "s1",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 0,
+        "false_rejects": 3,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 2,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 0.0,
+        "genuine_reject_rate": 1.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.014598540145985401,
+        "scores": {
+          "sheep": 3.0,
+          "goat": 2.0,
+          "lamb": 0.0,
+          "wolf": 0.014598540145985401
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 3.0,
+        "second_tag": "goat",
+        "second_score": 2.0,
+        "score_gap": 1.0
+      },
+      {
+        "identity": "s10",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 1,
+        "false_rejects": 2,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 0.3333333333333333,
+        "genuine_reject_rate": 0.6666666666666666,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 3.6666666666666665,
+          "goat": 1.3333333333333335,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 3.6666666666666665,
+        "second_tag": "goat",
+        "second_score": 1.3333333333333335,
+        "score_gap": 2.333333333333333
+      },
+      {
+        "identity": "s11",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 3,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.021897810218978103,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.021897810218978103
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.021897810218978103,
+        "score_gap": 4.978102189781022
+      },
+      {
+        "identity": "s12",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 1,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0072992700729927005,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0072992700729927005
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.0072992700729927005,
+        "score_gap": 4.992700729927007
+      },
+      {
+        "identity": "s13",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 2,
+        "false_rejects": 1,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 0.6666666666666666,
+        "genuine_reject_rate": 0.3333333333333333,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 4.333333333333334,
+          "goat": 0.6666666666666667,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 4.333333333333334,
+        "second_tag": "goat",
+        "second_score": 0.6666666666666667,
+        "score_gap": 3.666666666666667
+      },
+      {
+        "identity": "s14",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 3,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.021897810218978103,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.021897810218978103
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.021897810218978103,
+        "score_gap": 4.978102189781022
+      },
+      {
+        "identity": "s17",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 2,
+        "false_rejects": 1,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 1,
+        "rank_1_hits": 2,
+        "rank_3_hits": 2,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 0.6666666666666666,
+        "rank_3_accuracy": 0.6666666666666666,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 0.6666666666666666,
+        "genuine_reject_rate": 0.3333333333333333,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0072992700729927005,
+        "scores": {
+          "sheep": 3.333333333333333,
+          "goat": 1.0,
+          "lamb": 0.0,
+          "wolf": 0.0072992700729927005
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 3.333333333333333,
+        "second_tag": "goat",
+        "second_score": 1.0,
+        "score_gap": 2.333333333333333
+      },
+      {
+        "identity": "s19",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s20",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 1,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0072992700729927005,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0072992700729927005
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.0072992700729927005,
+        "score_gap": 4.992700729927007
+      },
+      {
+        "identity": "s21",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s22",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 2,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.014598540145985401,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.014598540145985401
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.014598540145985401,
+        "score_gap": 4.985401459854015
+      },
+      {
+        "identity": "s23",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 4,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.029197080291970802,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.029197080291970802
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.029197080291970802,
+        "score_gap": 4.970802919708029
+      },
+      {
+        "identity": "s24",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s25",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s26",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s27",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 10,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.072992700729927,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.072992700729927
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.072992700729927,
+        "score_gap": 4.927007299270073
+      },
+      {
+        "identity": "s29",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 2,
+        "false_rejects": 1,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 0.6666666666666666,
+        "genuine_reject_rate": 0.3333333333333333,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 4.333333333333334,
+          "goat": 0.6666666666666667,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 4.333333333333334,
+        "second_tag": "goat",
+        "second_score": 0.6666666666666667,
+        "score_gap": 3.666666666666667
+      },
+      {
+        "identity": "s3",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 2,
+        "false_rejects": 1,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 0.6666666666666666,
+        "genuine_reject_rate": 0.3333333333333333,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 4.333333333333334,
+          "goat": 0.6666666666666667,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 4.333333333333334,
+        "second_tag": "goat",
+        "second_score": 0.6666666666666667,
+        "score_gap": 3.666666666666667
+      },
+      {
+        "identity": "s30",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 1,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0072992700729927005,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0072992700729927005
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.0072992700729927005,
+        "score_gap": 4.992700729927007
+      },
+      {
+        "identity": "s31",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 2,
+        "false_rejects": 1,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 0.6666666666666666,
+        "genuine_reject_rate": 0.3333333333333333,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 4.333333333333334,
+          "goat": 0.6666666666666667,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 4.333333333333334,
+        "second_tag": "goat",
+        "second_score": 0.6666666666666667,
+        "score_gap": 3.666666666666667
+      },
+      {
+        "identity": "s32",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s33",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s34",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 4,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.029197080291970802,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.029197080291970802
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.029197080291970802,
+        "score_gap": 4.970802919708029
+      },
+      {
+        "identity": "s35",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s36",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 3,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.021897810218978103,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.021897810218978103
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.021897810218978103,
+        "score_gap": 4.978102189781022
+      },
+      {
+        "identity": "s37",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 0,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "goat",
+        "second_score": 0.0,
+        "score_gap": 5.0
+      },
+      {
+        "identity": "s38",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 4,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.029197080291970802,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.029197080291970802
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.029197080291970802,
+        "score_gap": 4.970802919708029
+      },
+      {
+        "identity": "s4",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 10,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.072992700729927,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.072992700729927
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.072992700729927,
+        "score_gap": 4.927007299270073
+      },
+      {
+        "identity": "s40",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 2,
+        "false_rejects": 1,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 2,
+        "rank_1_hits": 2,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 0.6666666666666666,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 0.6666666666666666,
+        "genuine_reject_rate": 0.3333333333333333,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.014598540145985401,
+        "scores": {
+          "sheep": 3.666666666666666,
+          "goat": 1.0,
+          "lamb": 0.0,
+          "wolf": 0.014598540145985401
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 3.666666666666666,
+        "second_tag": "goat",
+        "second_score": 1.0,
+        "score_gap": 2.666666666666666
+      },
+      {
+        "identity": "s5",
+        "known_probe_count": 3,
+        "other_probe_count": 137,
+        "genuine_accepts": 3,
+        "false_rejects": 0,
+        "misidentifications_out": 0,
+        "impostor_accepts": 0,
+        "unknown_accepts": 0,
+        "wrong_known_accepts": 0,
+        "best_match_from_others": 1,
+        "rank_1_hits": 3,
+        "rank_3_hits": 3,
+        "rank_5_hits": 3,
+        "rank_1_accuracy": 1.0,
+        "rank_3_accuracy": 1.0,
+        "rank_5_accuracy": 1.0,
+        "genuine_accept_rate": 1.0,
+        "genuine_reject_rate": 0.0,
+        "misidentification_rate": 0.0,
+        "impostor_accept_rate": 0.0,
+        "unknown_accept_rate": 0.0,
+        "lure_rate": 0.0072992700729927005,
+        "scores": {
+          "sheep": 5.0,
+          "goat": 0.0,
+          "lamb": 0.0,
+          "wolf": 0.0072992700729927005
+        },
+        "dominant_tag": "sheep",
+        "dominant_score": 5.0,
+        "second_tag": "wolf",
+        "second_score": 0.0072992700729927005,
+        "score_gap": 4.992700729927007
+      }
+    ],
+    "categories": {
+      "sheep": {
+        "count": 30,
+        "identities": [
+          "s19",
+          "s21",
+          "s24",
+          "s25",
+          "s26",
+          "s32",
+          "s33",
+          "s35",
+          "s37",
+          "s12",
+          "s20",
+          "s30",
+          "s5",
+          "s22",
+          "s11",
+          "s14",
+          "s36",
+          "s23",
+          "s34",
+          "s38",
+          "s27",
+          "s4",
+          "s13",
+          "s29",
+          "s3",
+          "s31",
+          "s10",
+          "s40",
+          "s17",
+          "s1"
+        ],
+        "top": [
+          {
+            "identity": "s19",
+            "score": 5.0,
+            "score_gap": 5.0
+          },
+          {
+            "identity": "s21",
+            "score": 5.0,
+            "score_gap": 5.0
+          },
+          {
+            "identity": "s24",
+            "score": 5.0,
+            "score_gap": 5.0
+          }
+        ]
+      },
+      "goat": {
+        "count": 0,
+        "identities": [],
+        "top": []
+      },
+      "lamb": {
+        "count": 0,
+        "identities": [],
+        "top": []
+      },
+      "wolf": {
+        "count": 0,
+        "identities": [],
+        "top": []
+      }
+    }
+  },
+  "srr_analysis": null,
+  "reliability_gated_report": null,
+  "export_paths": {
+    "json": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\recognition\\official\\orl_orl_open_set_metrics_report.json",
+    "summary_csv": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\recognition\\official\\orl_orl_open_set_threshold_summary.csv",
+    "all_gallery_vs_all_probe_cms_csv": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\recognition\\official\\orl_orl_open_set_all_gallery_vs_all_probe_cms_points.csv",
+    "probe_predictions_csv": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\recognition\\official\\orl_orl_open_set_probe_predictions.csv"
+  },
+  "sweep_results": {
+    "thresholds": [
+      17.95117746447501,
+      17.951177464475013,
+      18.493385829646627,
+      18.556305587756153,
+      19.048652485943148,
+      19.252260178815025,
+      19.266079330538773,
+      19.47325020557541,
+      19.521422832817773,
+      19.634951206307047,
+      19.75724719318235,
+      19.814952848880708,
+      19.876161927621833,
+      20.058368302000847,
+      20.27961900882636,
+      20.331348838859437,
+      20.439943420950794,
+      20.50050829031142,
+      20.513064405343293,
+      20.52367590737958,
+      20.638492493211256,
+      20.64024030757563,
+      20.644462741824245,
+      20.710222212017484,
+      20.772118012897508,
+      20.798105533671514,
+      20.873480487838865,
+      21.060786462940552,
+      21.08896648643784,
+      21.093784433499007,
+      21.246569829267806,
+      21.374602218476227,
+      21.38306747304572,
+      21.391612593026952,
+      21.40165588220959,
+      21.429082505116256,
+      21.610275604719774,
+      21.962230139109067,
+      21.993793578378327,
+      22.02717096599086,
+      22.045797129080558,
+      22.08502407177166,
+      22.31713943045935,
+      22.47924149981948,
+      22.502319159037974,
+      22.6350218048527,
+      22.66230939903384,
+      22.843287146986277,
+      22.887841719516302,
+      22.922380876955774,
+      22.94482986221216,
+      23.08920468158907,
+      23.212918561775336,
+      23.26436761430591,
+      23.40305583934289,
+      23.442708282063798,
+      23.59039466212552,
+      23.690357213381922,
+      23.703561443725494,
+      23.75912538646379,
+      23.764844313540916,
+      23.964850638951795,
+      24.01721080574204,
+      24.38203560843386,
+      24.388041568276677,
+      24.477996878749686,
+      24.52207429775484,
+      24.582636611337495,
+      24.681485077360893,
+      24.695308412594226,
+      24.745432723059796,
+      24.799050034226173,
+      24.812727849267976,
+      24.82895810199655,
+      25.0438686882447,
+      25.150711045946093,
+      25.229310869206994,
+      25.295393718316785,
+      25.380008934148645,
+      25.702552114811606,
+      26.56036434229748,
+      26.56491213296847,
+      26.697004077863134,
+      26.705746052770518,
+      26.778577178986602,
+      26.828150499474404,
+      26.84306594463554,
+      26.961308771999935,
+      27.297992072259433,
+      27.505959566738113,
+      27.513536204380323,
+      27.7379808635633,
+      27.784217981652745,
+      27.79945652128278,
+      27.81498807693475,
+      27.859540323265076,
+      27.86446730297146,
+      27.866539744764925,
+      27.897499414590513,
+      27.951480330499496,
+      27.963899342251086,
+      27.969792645857225,
+      28.027671682978667,
+      28.0967004961855,
+      28.109558059799976,
+      28.15956100355789,
+      28.171616809633452,
+      28.31613074062849,
+      28.346153237773105,
+      28.364388329242047,
+      28.45541923924543,
+      28.54915095987274,
+      28.615483984850766,
+      28.63015393587115,
+      28.790230229556315,
+      29.037461784898028,
+      29.086221720419054,
+      29.16983478312542,
+      29.303663745551287,
+      29.495918697353964,
+      29.602304792252784,
+      29.641178045502404,
+      29.685182482697282,
+      29.872263388914185,
+      29.925117244632503,
+      30.033355179402296,
+      30.287294749238825,
+      30.35291350214566,
+      30.41244498728308,
+      30.624215300849258,
+      31.136490335744142,
+      31.155049693557636,
+      31.238705822830745,
+      31.419161252768966,
+      32.175844304643725,
+      32.3942021713908,
+      33.01374457946663,
+      33.04846162179299,
+      33.44558146270611,
+      33.68850827407919,
+      34.22078080244676,
+      34.22078080244677
+    ],
+    "roc_points": [
+      {
+        "threshold": 17.95117746447501,
+        "far": 0.0,
+        "gar": 0.0
+      },
+      {
+        "threshold": 17.951177464475013,
+        "far": 0.0,
+        "gar": 0.0
+      },
+      {
+        "threshold": 18.493385829646627,
+        "far": 0.0,
+        "gar": 0.011111111111111072
+      },
+      {
+        "threshold": 18.556305587756153,
+        "far": 0.0,
+        "gar": 0.022222222222222254
+      },
+      {
+        "threshold": 19.048652485943148,
+        "far": 0.0,
+        "gar": 0.033333333333333326
+      },
+      {
+        "threshold": 19.252260178815025,
+        "far": 0.0,
+        "gar": 0.0444444444444444
+      },
+      {
+        "threshold": 19.266079330538773,
+        "far": 0.0,
+        "gar": 0.05555555555555558
+      },
+      {
+        "threshold": 19.47325020557541,
+        "far": 0.0,
+        "gar": 0.06666666666666665
+      },
+      {
+        "threshold": 19.521422832817773,
+        "far": 0.0,
+        "gar": 0.07777777777777772
+      },
+      {
+        "threshold": 19.634951206307047,
+        "far": 0.0,
+        "gar": 0.0888888888888889
+      },
+      {
+        "threshold": 19.75724719318235,
+        "far": 0.0,
+        "gar": 0.09999999999999998
+      },
+      {
+        "threshold": 19.814952848880708,
+        "far": 0.0,
+        "gar": 0.11111111111111116
+      },
+      {
+        "threshold": 19.876161927621833,
+        "far": 0.0,
+        "gar": 0.12222222222222223
+      },
+      {
+        "threshold": 20.058368302000847,
+        "far": 0.0,
+        "gar": 0.1333333333333333
+      },
+      {
+        "threshold": 20.27961900882636,
+        "far": 0.0,
+        "gar": 0.1444444444444445
+      },
+      {
+        "threshold": 20.331348838859437,
+        "far": 0.0,
+        "gar": 0.15555555555555556
+      },
+      {
+        "threshold": 20.439943420950794,
+        "far": 0.0,
+        "gar": 0.16666666666666663
+      },
+      {
+        "threshold": 20.50050829031142,
+        "far": 0.0,
+        "gar": 0.1777777777777778
+      },
+      {
+        "threshold": 20.513064405343293,
+        "far": 0.0,
+        "gar": 0.18888888888888888
+      },
+      {
+        "threshold": 20.52367590737958,
+        "far": 0.0,
+        "gar": 0.19999999999999996
+      },
+      {
+        "threshold": 20.638492493211256,
+        "far": 0.0,
+        "gar": 0.21111111111111114
+      },
+      {
+        "threshold": 20.64024030757563,
+        "far": 0.0,
+        "gar": 0.2222222222222222
+      },
+      {
+        "threshold": 20.644462741824245,
+        "far": 0.0,
+        "gar": 0.23333333333333328
+      },
+      {
+        "threshold": 20.710222212017484,
+        "far": 0.0,
+        "gar": 0.24444444444444446
+      },
+      {
+        "threshold": 20.772118012897508,
+        "far": 0.0,
+        "gar": 0.25555555555555554
+      },
+      {
+        "threshold": 20.798105533671514,
+        "far": 0.0,
+        "gar": 0.2666666666666667
+      },
+      {
+        "threshold": 20.873480487838865,
+        "far": 0.0,
+        "gar": 0.2777777777777778
+      },
+      {
+        "threshold": 21.060786462940552,
+        "far": 0.0,
+        "gar": 0.28888888888888886
+      },
+      {
+        "threshold": 21.08896648643784,
+        "far": 0.0,
+        "gar": 0.30000000000000004
+      },
+      {
+        "threshold": 21.093784433499007,
+        "far": 0.0,
+        "gar": 0.3111111111111111
+      },
+      {
+        "threshold": 21.246569829267806,
+        "far": 0.0,
+        "gar": 0.3222222222222222
+      },
+      {
+        "threshold": 21.374602218476227,
+        "far": 0.0,
+        "gar": 0.33333333333333337
+      },
+      {
+        "threshold": 21.38306747304572,
+        "far": 0.0,
+        "gar": 0.34444444444444444
+      },
+      {
+        "threshold": 21.391612593026952,
+        "far": 0.0,
+        "gar": 0.3555555555555555
+      },
+      {
+        "threshold": 21.40165588220959,
+        "far": 0.0,
+        "gar": 0.3666666666666667
+      },
+      {
+        "threshold": 21.429082505116256,
+        "far": 0.0,
+        "gar": 0.37777777777777777
+      },
+      {
+        "threshold": 21.610275604719774,
+        "far": 0.0,
+        "gar": 0.38888888888888884
+      },
+      {
+        "threshold": 21.962230139109067,
+        "far": 0.0,
+        "gar": 0.4
+      },
+      {
+        "threshold": 21.993793578378327,
+        "far": 0.0,
+        "gar": 0.4111111111111111
+      },
+      {
+        "threshold": 22.02717096599086,
+        "far": 0.0,
+        "gar": 0.4222222222222223
+      },
+      {
+        "threshold": 22.045797129080558,
+        "far": 0.0,
+        "gar": 0.43333333333333335
+      },
+      {
+        "threshold": 22.08502407177166,
+        "far": 0.0,
+        "gar": 0.4444444444444444
+      },
+      {
+        "threshold": 22.31713943045935,
+        "far": 0.0,
+        "gar": 0.4555555555555556
+      },
+      {
+        "threshold": 22.47924149981948,
+        "far": 0.0,
+        "gar": 0.4666666666666667
+      },
+      {
+        "threshold": 22.502319159037974,
+        "far": 0.0,
+        "gar": 0.47777777777777775
+      },
+      {
+        "threshold": 22.6350218048527,
+        "far": 0.0,
+        "gar": 0.48888888888888893
+      },
+      {
+        "threshold": 22.66230939903384,
+        "far": 0.0,
+        "gar": 0.5
+      },
+      {
+        "threshold": 22.843287146986277,
+        "far": 0.0,
+        "gar": 0.5111111111111111
+      },
+      {
+        "threshold": 22.887841719516302,
+        "far": 0.0,
+        "gar": 0.5222222222222221
+      },
+      {
+        "threshold": 22.922380876955774,
+        "far": 0.0,
+        "gar": 0.5333333333333333
+      },
+      {
+        "threshold": 22.94482986221216,
+        "far": 0.0,
+        "gar": 0.5444444444444445
+      },
+      {
+        "threshold": 23.08920468158907,
+        "far": 0.0,
+        "gar": 0.5555555555555556
+      },
+      {
+        "threshold": 23.212918561775336,
+        "far": 0.0,
+        "gar": 0.5666666666666667
+      },
+      {
+        "threshold": 23.26436761430591,
+        "far": 0.0,
+        "gar": 0.5777777777777777
+      },
+      {
+        "threshold": 23.40305583934289,
+        "far": 0.0,
+        "gar": 0.5888888888888889
+      },
+      {
+        "threshold": 23.442708282063798,
+        "far": 0.0,
+        "gar": 0.6
+      },
+      {
+        "threshold": 23.59039466212552,
+        "far": 0.0,
+        "gar": 0.6111111111111112
+      },
+      {
+        "threshold": 23.690357213381922,
+        "far": 0.0,
+        "gar": 0.6222222222222222
+      },
+      {
+        "threshold": 23.703561443725494,
+        "far": 0.0,
+        "gar": 0.6333333333333333
+      },
+      {
+        "threshold": 23.75912538646379,
+        "far": 0.0,
+        "gar": 0.6444444444444444
+      },
+      {
+        "threshold": 23.764844313540916,
+        "far": 0.0,
+        "gar": 0.6555555555555556
+      },
+      {
+        "threshold": 23.964850638951795,
+        "far": 0.0,
+        "gar": 0.6666666666666667
+      },
+      {
+        "threshold": 24.01721080574204,
+        "far": 0.0,
+        "gar": 0.6777777777777778
+      },
+      {
+        "threshold": 24.38203560843386,
+        "far": 0.0,
+        "gar": 0.6888888888888889
+      },
+      {
+        "threshold": 24.388041568276677,
+        "far": 0.0,
+        "gar": 0.7
+      },
+      {
+        "threshold": 24.477996878749686,
+        "far": 0.0,
+        "gar": 0.7111111111111111
+      },
+      {
+        "threshold": 24.52207429775484,
+        "far": 0.0,
+        "gar": 0.7222222222222222
+      },
+      {
+        "threshold": 24.582636611337495,
+        "far": 0.0,
+        "gar": 0.7333333333333334
+      },
+      {
+        "threshold": 24.681485077360893,
+        "far": 0.0,
+        "gar": 0.7444444444444445
+      },
+      {
+        "threshold": 24.695308412594226,
+        "far": 0.0,
+        "gar": 0.7555555555555555
+      },
+      {
+        "threshold": 24.745432723059796,
+        "far": 0.0,
+        "gar": 0.7666666666666666
+      },
+      {
+        "threshold": 24.799050034226173,
+        "far": 0.0,
+        "gar": 0.7777777777777778
+      },
+      {
+        "threshold": 24.812727849267976,
+        "far": 0.0,
+        "gar": 0.7888888888888889
+      },
+      {
+        "threshold": 24.82895810199655,
+        "far": 0.0,
+        "gar": 0.8
+      },
+      {
+        "threshold": 25.0438686882447,
+        "far": 0.0,
+        "gar": 0.8111111111111111
+      },
+      {
+        "threshold": 25.150711045946093,
+        "far": 0.0,
+        "gar": 0.8222222222222222
+      },
+      {
+        "threshold": 25.229310869206994,
+        "far": 0.0,
+        "gar": 0.8333333333333334
+      },
+      {
+        "threshold": 25.295393718316785,
+        "far": 0.0,
+        "gar": 0.8444444444444444
+      },
+      {
+        "threshold": 25.380008934148645,
+        "far": 0.0,
+        "gar": 0.8555555555555556
+      },
+      {
+        "threshold": 25.702552114811606,
+        "far": 0.0,
+        "gar": 0.8666666666666667
+      },
+      {
+        "threshold": 26.56036434229748,
+        "far": 0.0,
+        "gar": 0.8777777777777778
+      },
+      {
+        "threshold": 26.56491213296847,
+        "far": 0.02,
+        "gar": 0.8777777777777778
+      },
+      {
+        "threshold": 26.697004077863134,
+        "far": 0.02,
+        "gar": 0.8888888888888888
+      },
+      {
+        "threshold": 26.705746052770518,
+        "far": 0.04,
+        "gar": 0.8888888888888888
+      },
+      {
+        "threshold": 26.778577178986602,
+        "far": 0.06,
+        "gar": 0.8888888888888888
+      },
+      {
+        "threshold": 26.828150499474404,
+        "far": 0.08,
+        "gar": 0.8888888888888888
+      },
+      {
+        "threshold": 26.84306594463554,
+        "far": 0.08,
+        "gar": 0.9
+      },
+      {
+        "threshold": 26.961308771999935,
+        "far": 0.1,
+        "gar": 0.9
+      },
+      {
+        "threshold": 27.297992072259433,
+        "far": 0.12,
+        "gar": 0.9
+      },
+      {
+        "threshold": 27.505959566738113,
+        "far": 0.14,
+        "gar": 0.9
+      },
+      {
+        "threshold": 27.513536204380323,
+        "far": 0.16,
+        "gar": 0.9
+      },
+      {
+        "threshold": 27.7379808635633,
+        "far": 0.18,
+        "gar": 0.9
+      },
+      {
+        "threshold": 27.784217981652745,
+        "far": 0.18,
+        "gar": 0.9111111111111111
+      },
+      {
+        "threshold": 27.79945652128278,
+        "far": 0.18,
+        "gar": 0.9222222222222223
+      },
+      {
+        "threshold": 27.81498807693475,
+        "far": 0.18,
+        "gar": 0.9333333333333333
+      },
+      {
+        "threshold": 27.859540323265076,
+        "far": 0.2,
+        "gar": 0.9333333333333333
+      },
+      {
+        "threshold": 27.86446730297146,
+        "far": 0.22,
+        "gar": 0.9333333333333333
+      },
+      {
+        "threshold": 27.866539744764925,
+        "far": 0.24,
+        "gar": 0.9333333333333333
+      },
+      {
+        "threshold": 27.897499414590513,
+        "far": 0.24,
+        "gar": 0.9444444444444444
+      },
+      {
+        "threshold": 27.951480330499496,
+        "far": 0.26,
+        "gar": 0.9444444444444444
+      },
+      {
+        "threshold": 27.963899342251086,
+        "far": 0.28,
+        "gar": 0.9444444444444444
+      },
+      {
+        "threshold": 27.969792645857225,
+        "far": 0.3,
+        "gar": 0.9444444444444444
+      },
+      {
+        "threshold": 28.027671682978667,
+        "far": 0.3,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.0967004961855,
+        "far": 0.32,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.109558059799976,
+        "far": 0.34,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.15956100355789,
+        "far": 0.36,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.171616809633452,
+        "far": 0.38,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.31613074062849,
+        "far": 0.4,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.346153237773105,
+        "far": 0.42,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.364388329242047,
+        "far": 0.44,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.45541923924543,
+        "far": 0.46,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.54915095987274,
+        "far": 0.48,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.615483984850766,
+        "far": 0.5,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.63015393587115,
+        "far": 0.52,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 28.790230229556315,
+        "far": 0.54,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 29.037461784898028,
+        "far": 0.56,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 29.086221720419054,
+        "far": 0.58,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 29.16983478312542,
+        "far": 0.6,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 29.303663745551287,
+        "far": 0.62,
+        "gar": 0.9555555555555556
+      },
+      {
+        "threshold": 29.495918697353964,
+        "far": 0.62,
+        "gar": 0.9666666666666667
+      },
+      {
+        "threshold": 29.602304792252784,
+        "far": 0.62,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 29.641178045502404,
+        "far": 0.64,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 29.685182482697282,
+        "far": 0.66,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 29.872263388914185,
+        "far": 0.68,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 29.925117244632503,
+        "far": 0.7,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 30.033355179402296,
+        "far": 0.72,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 30.287294749238825,
+        "far": 0.74,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 30.35291350214566,
+        "far": 0.76,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 30.41244498728308,
+        "far": 0.78,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 30.624215300849258,
+        "far": 0.8,
+        "gar": 0.9777777777777777
+      },
+      {
+        "threshold": 31.136490335744142,
+        "far": 0.8,
+        "gar": 0.9888888888888889
+      },
+      {
+        "threshold": 31.155049693557636,
+        "far": 0.82,
+        "gar": 0.9888888888888889
+      },
+      {
+        "threshold": 31.238705822830745,
+        "far": 0.84,
+        "gar": 0.9888888888888889
+      },
+      {
+        "threshold": 31.419161252768966,
+        "far": 0.86,
+        "gar": 0.9888888888888889
+      },
+      {
+        "threshold": 32.175844304643725,
+        "far": 0.88,
+        "gar": 0.9888888888888889
+      },
+      {
+        "threshold": 32.3942021713908,
+        "far": 0.9,
+        "gar": 0.9888888888888889
+      },
+      {
+        "threshold": 33.01374457946663,
+        "far": 0.92,
+        "gar": 0.9888888888888889
+      },
+      {
+        "threshold": 33.04846162179299,
+        "far": 0.92,
+        "gar": 1.0
+      },
+      {
+        "threshold": 33.44558146270611,
+        "far": 0.94,
+        "gar": 1.0
+      },
+      {
+        "threshold": 33.68850827407919,
+        "far": 0.96,
+        "gar": 1.0
+      },
+      {
+        "threshold": 34.22078080244676,
+        "far": 0.98,
+        "gar": 1.0
+      },
+      {
+        "threshold": 34.22078080244677,
+        "far": 1.0,
+        "gar": 1.0
+      }
+    ],
+    "det_points": [
+      {
+        "threshold": 17.95117746447501,
+        "far": 0.0,
+        "frr": 1.0
+      },
+      {
+        "threshold": 17.951177464475013,
+        "far": 0.0,
+        "frr": 1.0
+      },
+      {
+        "threshold": 18.493385829646627,
+        "far": 0.0,
+        "frr": 0.9888888888888889
+      },
+      {
+        "threshold": 18.556305587756153,
+        "far": 0.0,
+        "frr": 0.9777777777777777
+      },
+      {
+        "threshold": 19.048652485943148,
+        "far": 0.0,
+        "frr": 0.9666666666666667
+      },
+      {
+        "threshold": 19.252260178815025,
+        "far": 0.0,
+        "frr": 0.9555555555555556
+      },
+      {
+        "threshold": 19.266079330538773,
+        "far": 0.0,
+        "frr": 0.9444444444444444
+      },
+      {
+        "threshold": 19.47325020557541,
+        "far": 0.0,
+        "frr": 0.9333333333333333
+      },
+      {
+        "threshold": 19.521422832817773,
+        "far": 0.0,
+        "frr": 0.9222222222222223
+      },
+      {
+        "threshold": 19.634951206307047,
+        "far": 0.0,
+        "frr": 0.9111111111111111
+      },
+      {
+        "threshold": 19.75724719318235,
+        "far": 0.0,
+        "frr": 0.9
+      },
+      {
+        "threshold": 19.814952848880708,
+        "far": 0.0,
+        "frr": 0.8888888888888888
+      },
+      {
+        "threshold": 19.876161927621833,
+        "far": 0.0,
+        "frr": 0.8777777777777778
+      },
+      {
+        "threshold": 20.058368302000847,
+        "far": 0.0,
+        "frr": 0.8666666666666667
+      },
+      {
+        "threshold": 20.27961900882636,
+        "far": 0.0,
+        "frr": 0.8555555555555555
+      },
+      {
+        "threshold": 20.331348838859437,
+        "far": 0.0,
+        "frr": 0.8444444444444444
+      },
+      {
+        "threshold": 20.439943420950794,
+        "far": 0.0,
+        "frr": 0.8333333333333334
+      },
+      {
+        "threshold": 20.50050829031142,
+        "far": 0.0,
+        "frr": 0.8222222222222222
+      },
+      {
+        "threshold": 20.513064405343293,
+        "far": 0.0,
+        "frr": 0.8111111111111111
+      },
+      {
+        "threshold": 20.52367590737958,
+        "far": 0.0,
+        "frr": 0.8
+      },
+      {
+        "threshold": 20.638492493211256,
+        "far": 0.0,
+        "frr": 0.7888888888888889
+      },
+      {
+        "threshold": 20.64024030757563,
+        "far": 0.0,
+        "frr": 0.7777777777777778
+      },
+      {
+        "threshold": 20.644462741824245,
+        "far": 0.0,
+        "frr": 0.7666666666666667
+      },
+      {
+        "threshold": 20.710222212017484,
+        "far": 0.0,
+        "frr": 0.7555555555555555
+      },
+      {
+        "threshold": 20.772118012897508,
+        "far": 0.0,
+        "frr": 0.7444444444444445
+      },
+      {
+        "threshold": 20.798105533671514,
+        "far": 0.0,
+        "frr": 0.7333333333333333
+      },
+      {
+        "threshold": 20.873480487838865,
+        "far": 0.0,
+        "frr": 0.7222222222222222
+      },
+      {
+        "threshold": 21.060786462940552,
+        "far": 0.0,
+        "frr": 0.7111111111111111
+      },
+      {
+        "threshold": 21.08896648643784,
+        "far": 0.0,
+        "frr": 0.7
+      },
+      {
+        "threshold": 21.093784433499007,
+        "far": 0.0,
+        "frr": 0.6888888888888889
+      },
+      {
+        "threshold": 21.246569829267806,
+        "far": 0.0,
+        "frr": 0.6777777777777778
+      },
+      {
+        "threshold": 21.374602218476227,
+        "far": 0.0,
+        "frr": 0.6666666666666666
+      },
+      {
+        "threshold": 21.38306747304572,
+        "far": 0.0,
+        "frr": 0.6555555555555556
+      },
+      {
+        "threshold": 21.391612593026952,
+        "far": 0.0,
+        "frr": 0.6444444444444445
+      },
+      {
+        "threshold": 21.40165588220959,
+        "far": 0.0,
+        "frr": 0.6333333333333333
+      },
+      {
+        "threshold": 21.429082505116256,
+        "far": 0.0,
+        "frr": 0.6222222222222222
+      },
+      {
+        "threshold": 21.610275604719774,
+        "far": 0.0,
+        "frr": 0.6111111111111112
+      },
+      {
+        "threshold": 21.962230139109067,
+        "far": 0.0,
+        "frr": 0.6
+      },
+      {
+        "threshold": 21.993793578378327,
+        "far": 0.0,
+        "frr": 0.5888888888888889
+      },
+      {
+        "threshold": 22.02717096599086,
+        "far": 0.0,
+        "frr": 0.5777777777777777
+      },
+      {
+        "threshold": 22.045797129080558,
+        "far": 0.0,
+        "frr": 0.5666666666666667
+      },
+      {
+        "threshold": 22.08502407177166,
+        "far": 0.0,
+        "frr": 0.5555555555555556
+      },
+      {
+        "threshold": 22.31713943045935,
+        "far": 0.0,
+        "frr": 0.5444444444444444
+      },
+      {
+        "threshold": 22.47924149981948,
+        "far": 0.0,
+        "frr": 0.5333333333333333
+      },
+      {
+        "threshold": 22.502319159037974,
+        "far": 0.0,
+        "frr": 0.5222222222222223
+      },
+      {
+        "threshold": 22.6350218048527,
+        "far": 0.0,
+        "frr": 0.5111111111111111
+      },
+      {
+        "threshold": 22.66230939903384,
+        "far": 0.0,
+        "frr": 0.5
+      },
+      {
+        "threshold": 22.843287146986277,
+        "far": 0.0,
+        "frr": 0.4888888888888889
+      },
+      {
+        "threshold": 22.887841719516302,
+        "far": 0.0,
+        "frr": 0.4777777777777778
+      },
+      {
+        "threshold": 22.922380876955774,
+        "far": 0.0,
+        "frr": 0.4666666666666667
+      },
+      {
+        "threshold": 22.94482986221216,
+        "far": 0.0,
+        "frr": 0.45555555555555555
+      },
+      {
+        "threshold": 23.08920468158907,
+        "far": 0.0,
+        "frr": 0.4444444444444444
+      },
+      {
+        "threshold": 23.212918561775336,
+        "far": 0.0,
+        "frr": 0.43333333333333335
+      },
+      {
+        "threshold": 23.26436761430591,
+        "far": 0.0,
+        "frr": 0.4222222222222222
+      },
+      {
+        "threshold": 23.40305583934289,
+        "far": 0.0,
+        "frr": 0.4111111111111111
+      },
+      {
+        "threshold": 23.442708282063798,
+        "far": 0.0,
+        "frr": 0.4
+      },
+      {
+        "threshold": 23.59039466212552,
+        "far": 0.0,
+        "frr": 0.3888888888888889
+      },
+      {
+        "threshold": 23.690357213381922,
+        "far": 0.0,
+        "frr": 0.37777777777777777
+      },
+      {
+        "threshold": 23.703561443725494,
+        "far": 0.0,
+        "frr": 0.36666666666666664
+      },
+      {
+        "threshold": 23.75912538646379,
+        "far": 0.0,
+        "frr": 0.35555555555555557
+      },
+      {
+        "threshold": 23.764844313540916,
+        "far": 0.0,
+        "frr": 0.34444444444444444
+      },
+      {
+        "threshold": 23.964850638951795,
+        "far": 0.0,
+        "frr": 0.3333333333333333
+      },
+      {
+        "threshold": 24.01721080574204,
+        "far": 0.0,
+        "frr": 0.32222222222222224
+      },
+      {
+        "threshold": 24.38203560843386,
+        "far": 0.0,
+        "frr": 0.3111111111111111
+      },
+      {
+        "threshold": 24.388041568276677,
+        "far": 0.0,
+        "frr": 0.3
+      },
+      {
+        "threshold": 24.477996878749686,
+        "far": 0.0,
+        "frr": 0.28888888888888886
+      },
+      {
+        "threshold": 24.52207429775484,
+        "far": 0.0,
+        "frr": 0.2777777777777778
+      },
+      {
+        "threshold": 24.582636611337495,
+        "far": 0.0,
+        "frr": 0.26666666666666666
+      },
+      {
+        "threshold": 24.681485077360893,
+        "far": 0.0,
+        "frr": 0.25555555555555554
+      },
+      {
+        "threshold": 24.695308412594226,
+        "far": 0.0,
+        "frr": 0.24444444444444444
+      },
+      {
+        "threshold": 24.745432723059796,
+        "far": 0.0,
+        "frr": 0.23333333333333334
+      },
+      {
+        "threshold": 24.799050034226173,
+        "far": 0.0,
+        "frr": 0.2222222222222222
+      },
+      {
+        "threshold": 24.812727849267976,
+        "far": 0.0,
+        "frr": 0.2111111111111111
+      },
+      {
+        "threshold": 24.82895810199655,
+        "far": 0.0,
+        "frr": 0.2
+      },
+      {
+        "threshold": 25.0438686882447,
+        "far": 0.0,
+        "frr": 0.18888888888888888
+      },
+      {
+        "threshold": 25.150711045946093,
+        "far": 0.0,
+        "frr": 0.17777777777777778
+      },
+      {
+        "threshold": 25.229310869206994,
+        "far": 0.0,
+        "frr": 0.16666666666666666
+      },
+      {
+        "threshold": 25.295393718316785,
+        "far": 0.0,
+        "frr": 0.15555555555555556
+      },
+      {
+        "threshold": 25.380008934148645,
+        "far": 0.0,
+        "frr": 0.14444444444444443
+      },
+      {
+        "threshold": 25.702552114811606,
+        "far": 0.0,
+        "frr": 0.13333333333333333
+      },
+      {
+        "threshold": 26.56036434229748,
+        "far": 0.0,
+        "frr": 0.12222222222222222
+      },
+      {
+        "threshold": 26.56491213296847,
+        "far": 0.02,
+        "frr": 0.12222222222222222
+      },
+      {
+        "threshold": 26.697004077863134,
+        "far": 0.02,
+        "frr": 0.1111111111111111
+      },
+      {
+        "threshold": 26.705746052770518,
+        "far": 0.04,
+        "frr": 0.1111111111111111
+      },
+      {
+        "threshold": 26.778577178986602,
+        "far": 0.06,
+        "frr": 0.1111111111111111
+      },
+      {
+        "threshold": 26.828150499474404,
+        "far": 0.08,
+        "frr": 0.1111111111111111
+      },
+      {
+        "threshold": 26.84306594463554,
+        "far": 0.08,
+        "frr": 0.1
+      },
+      {
+        "threshold": 26.961308771999935,
+        "far": 0.1,
+        "frr": 0.1
+      },
+      {
+        "threshold": 27.297992072259433,
+        "far": 0.12,
+        "frr": 0.1
+      },
+      {
+        "threshold": 27.505959566738113,
+        "far": 0.14,
+        "frr": 0.1
+      },
+      {
+        "threshold": 27.513536204380323,
+        "far": 0.16,
+        "frr": 0.1
+      },
+      {
+        "threshold": 27.7379808635633,
+        "far": 0.18,
+        "frr": 0.1
+      },
+      {
+        "threshold": 27.784217981652745,
+        "far": 0.18,
+        "frr": 0.08888888888888889
+      },
+      {
+        "threshold": 27.79945652128278,
+        "far": 0.18,
+        "frr": 0.07777777777777778
+      },
+      {
+        "threshold": 27.81498807693475,
+        "far": 0.18,
+        "frr": 0.06666666666666667
+      },
+      {
+        "threshold": 27.859540323265076,
+        "far": 0.2,
+        "frr": 0.06666666666666667
+      },
+      {
+        "threshold": 27.86446730297146,
+        "far": 0.22,
+        "frr": 0.06666666666666667
+      },
+      {
+        "threshold": 27.866539744764925,
+        "far": 0.24,
+        "frr": 0.06666666666666667
+      },
+      {
+        "threshold": 27.897499414590513,
+        "far": 0.24,
+        "frr": 0.05555555555555555
+      },
+      {
+        "threshold": 27.951480330499496,
+        "far": 0.26,
+        "frr": 0.05555555555555555
+      },
+      {
+        "threshold": 27.963899342251086,
+        "far": 0.28,
+        "frr": 0.05555555555555555
+      },
+      {
+        "threshold": 27.969792645857225,
+        "far": 0.3,
+        "frr": 0.05555555555555555
+      },
+      {
+        "threshold": 28.027671682978667,
+        "far": 0.3,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.0967004961855,
+        "far": 0.32,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.109558059799976,
+        "far": 0.34,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.15956100355789,
+        "far": 0.36,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.171616809633452,
+        "far": 0.38,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.31613074062849,
+        "far": 0.4,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.346153237773105,
+        "far": 0.42,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.364388329242047,
+        "far": 0.44,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.45541923924543,
+        "far": 0.46,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.54915095987274,
+        "far": 0.48,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.615483984850766,
+        "far": 0.5,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.63015393587115,
+        "far": 0.52,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 28.790230229556315,
+        "far": 0.54,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 29.037461784898028,
+        "far": 0.56,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 29.086221720419054,
+        "far": 0.58,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 29.16983478312542,
+        "far": 0.6,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 29.303663745551287,
+        "far": 0.62,
+        "frr": 0.044444444444444446
+      },
+      {
+        "threshold": 29.495918697353964,
+        "far": 0.62,
+        "frr": 0.03333333333333333
+      },
+      {
+        "threshold": 29.602304792252784,
+        "far": 0.62,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 29.641178045502404,
+        "far": 0.64,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 29.685182482697282,
+        "far": 0.66,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 29.872263388914185,
+        "far": 0.68,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 29.925117244632503,
+        "far": 0.7,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 30.033355179402296,
+        "far": 0.72,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 30.287294749238825,
+        "far": 0.74,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 30.35291350214566,
+        "far": 0.76,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 30.41244498728308,
+        "far": 0.78,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 30.624215300849258,
+        "far": 0.8,
+        "frr": 0.022222222222222223
+      },
+      {
+        "threshold": 31.136490335744142,
+        "far": 0.8,
+        "frr": 0.011111111111111112
+      },
+      {
+        "threshold": 31.155049693557636,
+        "far": 0.82,
+        "frr": 0.011111111111111112
+      },
+      {
+        "threshold": 31.238705822830745,
+        "far": 0.84,
+        "frr": 0.011111111111111112
+      },
+      {
+        "threshold": 31.419161252768966,
+        "far": 0.86,
+        "frr": 0.011111111111111112
+      },
+      {
+        "threshold": 32.175844304643725,
+        "far": 0.88,
+        "frr": 0.011111111111111112
+      },
+      {
+        "threshold": 32.3942021713908,
+        "far": 0.9,
+        "frr": 0.011111111111111112
+      },
+      {
+        "threshold": 33.01374457946663,
+        "far": 0.92,
+        "frr": 0.011111111111111112
+      },
+      {
+        "threshold": 33.04846162179299,
+        "far": 0.92,
+        "frr": 0.0
+      },
+      {
+        "threshold": 33.44558146270611,
+        "far": 0.94,
+        "frr": 0.0
+      },
+      {
+        "threshold": 33.68850827407919,
+        "far": 0.96,
+        "frr": 0.0
+      },
+      {
+        "threshold": 34.22078080244676,
+        "far": 0.98,
+        "frr": 0.0
+      },
+      {
+        "threshold": 34.22078080244677,
+        "far": 1.0,
+        "frr": 0.0
+      }
+    ]
+  }
+}

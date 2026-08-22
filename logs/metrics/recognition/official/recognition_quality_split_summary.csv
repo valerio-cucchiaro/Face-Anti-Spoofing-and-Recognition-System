@@ -1,0 +1,6 @@
+dataset,split,quality_filter_mode,total,kept_samples,valid_samples,warning_samples,rejected_samples,rejected_percent,top_reject_reason,identities_before,identities_after,reason_valid,reason_invalid_crop,reason_too_dark,reason_low_contrast,reason_poor_visibility,reason_too_blurry,reason_low_detail,reason_too_much_yaw,reason_too_much_pitch,reason_too_much_roll,reason_poor_spatial_pose,reason_landmarks_missing
+orl,gallery,report_only,150,150,144,6,0,0.0,n/a,30,30,144,0,0,0,0,0,0,0,6,0,0,0
+orl,validation_known,report_only,60,60,59,1,0,0.0,n/a,30,30,59,0,0,0,0,0,0,0,1,0,0,0
+orl,validation_unknown,report_only,50,50,50,0,0,0.0,n/a,5,5,50,0,0,0,0,0,0,0,0,0,0,0
+orl,probe_known,report_only,90,90,88,2,0,0.0,n/a,30,30,88,0,0,0,0,0,0,0,2,0,0,0
+orl,probe_unknown,report_only,50,50,49,1,0,0.0,n/a,5,5,49,0,0,0,0,0,0,0,1,0,0,0

@@ -1,0 +1,3 @@
+dataset,split,quality_filter_mode,total,kept_samples,valid_samples,warning_samples,rejected_samples,rejected_percent,top_reject_reason,identities_before,identities_after,reason_valid,reason_invalid_crop,reason_too_dark,reason_low_contrast,reason_poor_visibility,reason_too_blurry,reason_low_detail,reason_too_much_yaw,reason_too_much_pitch,reason_too_much_roll,reason_poor_spatial_pose,reason_landmarks_missing
+custom,validation_known_internal,report_only,39,39,38,1,0,0.0,n/a,4,4,38,0,0,0,0,0,0,0,1,0,0,0
+custom,validation_unknown_internal,report_only,20,20,20,0,0,0.0,n/a,2,2,20,0,0,0,0,0,0,0,0,0,0,0

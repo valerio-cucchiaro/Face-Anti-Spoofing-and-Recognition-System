@@ -1,0 +1,2 @@
+dataset,split,quality_filter_mode,total,kept_samples,valid_samples,warning_samples,rejected_samples,rejected_percent,top_reject_reason,identities_before,identities_after,reason_valid,reason_invalid_crop,reason_too_dark,reason_low_contrast,reason_poor_visibility,reason_too_blurry,reason_low_detail,reason_too_much_yaw,reason_too_much_pitch,reason_too_much_roll,reason_poor_spatial_pose,reason_landmarks_missing
+custom,gallery,report_only,116,116,114,0,0,0.0,n/a,4,4,114,0,0,0,0,0,0,2,0,0,0,0

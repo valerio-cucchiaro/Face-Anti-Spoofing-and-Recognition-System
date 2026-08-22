@@ -8,7 +8,7 @@
     "recognizer_config": {
         "config_version": 2,
         "recognizer_type": "lbph_single",
-        "created_at_utc": "2026-05-26T14:28:00.011904+00:00",
+        "created_at_utc": "2026-08-22T09:21:46.091905+00:00",
         "train_mode": "custom",
         "lbph_params": {
             "radius": 1,

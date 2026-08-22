@@ -1,0 +1,175 @@
+{
+  "scenario": "open-set identification system-level evaluation with PAD gating",
+  "methodological_note": "Known-live and unknown-live samples come from the custom recognition probe splits so open-set recognition can be evaluated after PAD. Spoof attacks come from the custom PAD test split because presentation attacks are not part of the recognition dataset. Both sources are custom webcam-collected data, but this is an offline integrated evaluation, not a frame-by-frame reproduction of the live webcam loop or its temporal smoothing. Spoof attacks are evaluated at PAD level only and are not included in recognition FAR, which is computed only on unknown live users.",
+  "input_classes": {
+    "known_live": "enrolled live users",
+    "unknown_live": "non-enrolled live users / biometric impostors",
+    "spoof_attack": "presentation attacks"
+  },
+  "thresholds": {
+    "recognition_threshold": 31.78961871736288,
+    "recognition_threshold_source": "custom_to_custom_validation",
+    "recognition_threshold_config": {
+      "config_type": "system_recognition_threshold",
+      "unknown_threshold": 31.78961871736288,
+      "threshold_source": "custom_to_custom_validation",
+      "train_mode": "custom",
+      "eval_mode": "custom",
+      "saved_by": "save_system_threshold",
+      "recognizer_config": {
+        "config_version": 2,
+        "recognizer_type": "lbph_single",
+        "created_at_utc": "2026-05-26T14:28:00.011904+00:00",
+        "train_mode": "custom",
+        "lbph_params": {
+          "radius": 1,
+          "neighbors": 8,
+          "grid_x": 6,
+          "grid_y": 6
+        },
+        "preprocessing": {
+          "normalization_mode": "equalize",
+          "crop_padding_ratio": 0.1
+        },
+        "quality_filter_mode": "report_only",
+        "lfw_sample_ratio": 1.0,
+        "dataset_counts": {
+          "custom": 116
+        },
+        "loaded_faces": 116,
+        "loaded_identities": 4
+      },
+      "preprocessing": {
+        "normalization_mode": "equalize",
+        "crop_padding_ratio": 0.1
+      },
+      "validation_known_split": "validation_known_internal",
+      "validation_unknown_split": "validation_unknown_internal",
+      "final_known_split": "probe_known_internal",
+      "final_unknown_split": "probe_unknown_internal",
+      "quality_filter_mode": "report_only",
+      "validation_known_samples": 16,
+      "validation_unknown_samples": 8,
+      "validation_threshold_candidate_count": 26,
+      "validation_threshold_misidentification_weight": 2.0,
+      "validation_threshold_metrics": {
+        "threshold": 31.78961871736288,
+        "total_known": 16,
+        "total_unknown": 8,
+        "correct_identification": 16,
+        "false_reject": 0,
+        "misidentification": 0,
+        "false_accept": 0,
+        "true_reject": 8,
+        "DIR": 1.0,
+        "FAR": 0.0,
+        "FRR": 0.0,
+        "GAR": 1.0,
+        "misidentification_rate": 0.0
+      },
+      "mean_validation_known_confidence": 19.405070059149367,
+      "mean_validation_unknown_confidence": 33.29358757033586,
+      "threshold_rule": "max_dir_with_far_misidentification_constraints"
+    },
+    "pad_threshold": 0.6139597018765315,
+    "pad_threshold_source": "all_combined_validation_target_apcer",
+    "pad_threshold_config": {
+      "eval_mode": "all",
+      "threshold": 0.6139597018765315,
+      "threshold_source": "all_combined_validation_target_apcer",
+      "threshold_rule": "target_apcer",
+      "target_apcer": 0.02,
+      "constraint_satisfied": true,
+      "selected_metrics": {
+        "threshold": 0.6139597018765315,
+        "total": 19025,
+        "live_total": 4566,
+        "spoof_total": 14459,
+        "tp": 3320,
+        "tn": 14170,
+        "fp": 289,
+        "fn": 1246,
+        "far": 0.01998755100629366,
+        "frr": 0.2728865527814279,
+        "gar": 0.7271134472185721,
+        "apcer": 0.01998755100629366,
+        "bpcer": 0.2728865527814279,
+        "acer": 0.1464370518938608,
+        "confusion_matrix": [
+          [
+            14170,
+            289
+          ],
+          [
+            1246,
+            3320
+          ]
+        ]
+      },
+      "pad_config": {
+        "pad_debug_feature_mode": "tgsd",
+        "pad_lft_mode": "ggd_light",
+        "feature_dim": 126,
+        "tgsd_tau": 170.0,
+        "tgsd_top_percent": 0.05,
+        "tgsd_gradient_operator": "sobel",
+        "config_source": "saved_by_trainer",
+        "custom_validation_enabled": false
+      },
+      "saved_by": "save_system_threshold"
+    },
+    "pad_threshold_calibrated": true,
+    "pad_artifact_profile": "runtime",
+    "pad_artifact_tag": null
+  },
+  "recognition_only": {
+    "threshold": 31.78961871736288,
+    "far": 0.16666666666666666,
+    "frr": 0.0,
+    "eer": 0.0,
+    "eer_threshold": 31.475090798141093,
+    "dir": 1.0,
+    "misidentification_rate": 0.0,
+    "total_known": 23,
+    "total_unknown": 12
+  },
+  "pad_only": {
+    "threshold": 0.6139597018765315,
+    "apcer": 0.06,
+    "bpcer": 0.34285714285714286,
+    "acer": 0.20142857142857143,
+    "confusion_matrix": [
+      [
+        94,
+        6
+      ],
+      [
+        12,
+        23
+      ]
+    ]
+  },
+  "pad_gated_recognition": {
+    "final_unknown_live_far": 0.0,
+    "final_known_live_frr": 0.34782608695652173,
+    "final_known_live_dir": 0.6521739130434783,
+    "final_known_live_misidentification_rate": 0.0,
+    "spoof_attacks_blocked": 94,
+    "spoof_attacks_passed_pad": 6,
+    "live_samples_blocked_by_pad": 12,
+    "live_samples_passed_pad": 23,
+    "known_live_total": 23,
+    "unknown_live_total": 12,
+    "spoof_attack_total": 100,
+    "accepted_correct_known_live": 15,
+    "rejected_known_live": 8,
+    "accepted_unknown_live": 0,
+    "rejected_unknown_live": 12
+  },
+  "sample_count": 135,
+  "elapsed_seconds": 6.522210800030734,
+  "export_paths": {
+    "json": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\system\\official\\system_evaluation_report.json",
+    "samples_csv": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\system\\official\\system_evaluation_samples.csv"
+  }
+}
