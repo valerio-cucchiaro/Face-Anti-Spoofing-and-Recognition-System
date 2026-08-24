@@ -50,7 +50,6 @@ suite for the main contracts used by the project.
 |   |-- main_pad.py            # PAD-only runtime entry point
 |   `-- main_recognition.py    # recognition-only runtime entry point
 |-- tests/                     # automated test suite
-|-- devlog.md                  # development history
 |-- pytest.ini
 |-- requirements.txt
 `-- run_experiment_batch.ps1   # batch runner for offline experiments
@@ -433,5 +432,3 @@ The test suite covers:
   directly.
 - The repository contains both runtime code and offline experiment code; not
   every module is meant to be used as a user-facing entry point.
-- `devlog.md` is the historical development log for the project and is useful
-  when you need implementation history or refactor context.
