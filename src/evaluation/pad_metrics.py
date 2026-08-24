@@ -422,6 +422,11 @@ def export_pad_metrics_report(report, output_stem, output_root=None, export_curv
         "json": str(json_path),
         "summary_csv": str(summary_csv_path),
     }
+    report_export_paths = {
+        "json": json_path.relative_to(output_root).as_posix(),
+        "summary_csv": summary_csv_path.relative_to(output_root).as_posix(),
+    }
+
     if export_curves:
         curves_root.mkdir(parents=True, exist_ok=True)
         _write_csv(
@@ -436,8 +441,10 @@ def export_pad_metrics_report(report, output_stem, output_root=None, export_curv
         )
         export_paths["roc_csv"] = str(roc_csv_path)
         export_paths["det_csv"] = str(det_csv_path)
+        report_export_paths["roc_csv"] = roc_csv_path.relative_to(output_root).as_posix()
+        report_export_paths["det_csv"] = det_csv_path.relative_to(output_root).as_posix()
 
-    report["export_paths"] = export_paths
+    report["export_paths"] = report_export_paths
     with open(json_path, "w", encoding="utf-8") as file:
         json.dump(_json_ready_report(report), file, indent=2)
 

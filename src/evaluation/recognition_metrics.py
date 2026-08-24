@@ -400,6 +400,35 @@ def _recognition_curves_root(output_root):
 def _recognition_debug_root(output_root):
     return Path(output_root) / "debug"
 
+def _relative_export_path(path, output_root):
+    """
+    Convert an export artifact path into a portable path relative to
+    the recognition metrics root when possible.
+    """
+
+    artifact_path = Path(path)
+    try:
+        return str(artifact_path.relative_to(Path(output_root)))
+    except ValueError:
+        return str(artifact_path)
+
+
+def _resolve_recognition_export_path(path, output_root=None):
+    """
+    Resolve a stored recognition export path for filesystem access.
+    """
+
+    artifact_path = Path(path)
+    if artifact_path.is_absolute():
+        return artifact_path
+
+    metrics_root = (
+        Path(output_root)
+        if output_root is not None
+        else _default_recognition_metrics_root()
+    )
+    return metrics_root / artifact_path
+
 
 def _json_ready_report(report):
     """
@@ -453,9 +482,14 @@ def rewrite_recognition_metrics_json(report):
     """
 
     export_paths = report.get("export_paths", {})
-    json_path = export_paths.get("json")
-    if not json_path:
+    stored_json_path = export_paths.get("json")
+    if not stored_json_path:
         return None
+
+    json_path = _resolve_recognition_export_path(
+        stored_json_path,
+        report.get("_metrics_output_root"),
+    )
 
     with open(json_path, "w", encoding="utf-8") as file:
         json.dump(_json_ready_report(report), file, indent=2)
@@ -1824,25 +1858,42 @@ def export_recognition_metrics_report(
         )
         srr_csv_exported = True
 
-    export_paths = {
+    filesystem_export_paths = {
         "json": str(json_path),
         "summary_csv": str(summary_csv_path),
     }
-    if export_curves:
-        export_paths["roc_csv"] = str(roc_csv_path)
-        export_paths["det_csv"] = str(det_csv_path)
-    if pairwise_csv_exported:
-        export_paths[f"{pairwise_tag}_csv"] = str(pairwise_csv_path)
-    if cms_csv_exported:
-        export_paths[f"{pairwise_tag}_cms_csv"] = str(cms_csv_path)
-    if preview_csv_exported:
-        export_paths[f"{pairwise_tag}_preview_csv"] = str(preview_csv_path)
-    if doddington_csv_exported:
-        export_paths["doddington_zoo_csv"] = str(doddington_csv_path)
-    if srr_csv_exported:
-        export_paths["system_response_reliability_csv"] = str(srr_csv_path)
 
-    report["export_paths"] = export_paths
+    if export_curves:
+        filesystem_export_paths["roc_csv"] = str(roc_csv_path)
+        filesystem_export_paths["det_csv"] = str(det_csv_path)
+
+    if pairwise_csv_exported:
+        filesystem_export_paths[f"{pairwise_tag}_csv"] = str(pairwise_csv_path)
+
+    if cms_csv_exported:
+        filesystem_export_paths[f"{pairwise_tag}_cms_csv"] = str(cms_csv_path)
+
+    if preview_csv_exported:
+        filesystem_export_paths[f"{pairwise_tag}_preview_csv"] = str(
+            preview_csv_path
+        )
+
+    if doddington_csv_exported:
+        filesystem_export_paths["doddington_zoo_csv"] = str(
+            doddington_csv_path
+        )
+
+    if srr_csv_exported:
+        filesystem_export_paths["system_response_reliability_csv"] = str(
+            srr_csv_path
+        )
+
+    report["_metrics_output_root"] = str(output_root)
+    report["export_paths"] = {
+        key: _relative_export_path(path, output_root)
+        for key, path in filesystem_export_paths.items()
+    }
+
     rewrite_recognition_metrics_json(report)
 
-    return export_paths
+    return filesystem_export_paths

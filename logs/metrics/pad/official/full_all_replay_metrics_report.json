@@ -118,10 +118,10 @@
     }
   },
   "export_paths": {
-    "json": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\pad\\official\\full_all_replay_metrics_report.json",
-    "summary_csv": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\pad\\official\\full_all_replay_threshold_summary.csv",
-    "roc_csv": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\pad\\curves\\full_all_replay_roc_points.csv",
-    "det_csv": "C:\\Users\\Valerio.Cucchiaro\\Desktop\\Universita\\Magistrale_LM18_Computer_Science\\Primo Anno\\Biometric Systems\\Progetto\\Face-Anti-Spoofing-and-Recognition-System\\logs\\metrics\\pad\\curves\\full_all_replay_det_points.csv"
+    "json": "official\\full_all_replay_metrics_report.json",
+    "summary_csv": "official\\full_all_replay_threshold_summary.csv",
+    "roc_csv": "curves\\full_all_replay_roc_points.csv",
+    "det_csv": "curves\\full_all_replay_det_points.csv"
   },
   "sweep_results": {
     "thresholds": [

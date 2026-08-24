@@ -1,5 +1,6 @@
 import json
 import pytest
+from pathlib import Path
 
 from src.evaluation import system_evaluator
 from src.evaluation import recognition_model_evaluator
@@ -54,7 +55,12 @@ def test_pad_metrics_json_contains_all_export_paths(tmp_path):
 
     exported_json = json.loads(open(export_paths["json"], encoding="utf-8").read())
 
-    assert exported_json["export_paths"] == export_paths
+    assert exported_json["export_paths"] == {
+        "json": "official/unit_pad_metrics_report.json",
+        "summary_csv": "official/unit_pad_threshold_summary.csv",
+        "roc_csv": "curves/unit_pad_roc_points.csv",
+        "det_csv": "curves/unit_pad_det_points.csv",
+    }
     assert set(export_paths) == {"json", "summary_csv", "roc_csv", "det_csv"}
 
 
@@ -89,7 +95,14 @@ def test_recognition_metrics_json_contains_all_export_paths(tmp_path):
 
     exported_json = json.loads(open(export_paths["json"], encoding="utf-8").read())
 
-    assert exported_json["export_paths"] == export_paths
+    stored_export_paths = exported_json["export_paths"]
+
+    assert set(stored_export_paths) == set(export_paths)
+
+    for key, stored_path in stored_export_paths.items():
+        assert not Path(stored_path).is_absolute()
+        assert (tmp_path / stored_path).resolve() == Path(export_paths[key]).resolve()
+
     assert {
         "json",
         "summary_csv",
